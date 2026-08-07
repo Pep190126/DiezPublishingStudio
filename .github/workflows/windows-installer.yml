@@ -3,6 +3,8 @@ name: Windows Installer
 on:
   push:
     branches: [ main ]
+  pull_request:
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
@@ -43,9 +45,37 @@ jobs:
           if (!(Test-Path $setup)) { throw "Installer not generated: $setup" }
           Get-FileHash $setup -Algorithm SHA256
 
+      - name: Smoke test install upgrade clean-removal and uninstall
+        shell: powershell
+        run: |
+          $setup = (Resolve-Path "artifacts\installer\DiezPublishingStudio-Setup.exe").Path
+          $installDir = Join-Path $env:RUNNER_TEMP "DiezPublishingStudio-Smoke"
+          $dirArg = "/DIR=`"$installDir`""
+          $uninstallKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{E6BE35BE-1F4B-4A3D-8CEB-27D970D85911}_is1"
+
+          $first = Start-Process -FilePath $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", $dirArg -Wait -PassThru
+          if ($first.ExitCode -ne 0) { throw "First install failed with exit code $($first.ExitCode)" }
+          $exe = Join-Path $installDir "DiezPublishingStudio.exe"
+          if (!(Test-Path $exe)) { throw "Installed executable missing after first install" }
+
+          $upgrade = Start-Process -FilePath $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLEANOLD=1", $dirArg -Wait -PassThru
+          if ($upgrade.ExitCode -ne 0) { throw "Clean upgrade failed with exit code $($upgrade.ExitCode)" }
+          if (!(Test-Path $exe)) { throw "Installed executable missing after clean upgrade" }
+          if (!(Test-Path $uninstallKey)) { throw "Uninstall registry entry missing after clean upgrade" }
+
+          $uninstallString = (Get-ItemProperty -Path $uninstallKey).UninstallString
+          if ([string]::IsNullOrWhiteSpace($uninstallString)) { throw "UninstallString missing" }
+          $uninstaller = $uninstallString.Trim('"')
+          if (!(Test-Path $uninstaller)) { throw "Registered uninstaller missing: $uninstaller" }
+
+          $remove = Start-Process -FilePath $uninstaller -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait -PassThru
+          if ($remove.ExitCode -ne 0) { throw "Uninstall failed with exit code $($remove.ExitCode)" }
+          if (Test-Path $exe) { throw "Executable still present after uninstall" }
+
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
-          name: DiezPublishingStudio-Setup
+          name: DiezPublishingStudio-Setup-0.1.0-preview
           path: artifacts/installer/DiezPublishingStudio-Setup.exe
           if-no-files-found: error
+          retention-days: 90

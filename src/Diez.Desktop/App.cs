@@ -15,7 +15,9 @@ public sealed class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            desktop.MainWindow = new MainWindow();
+            var startupProjectPath = desktop.Args?
+                .FirstOrDefault(a => a.EndsWith(".diez", StringComparison.OrdinalIgnoreCase));
+            desktop.MainWindow = new MainWindow(startupProjectPath);
         }
 
         base.OnFrameworkInitializationCompleted();
