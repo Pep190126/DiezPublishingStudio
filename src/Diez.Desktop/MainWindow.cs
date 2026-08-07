@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
@@ -9,88 +8,139 @@ namespace DiezPublishingStudio;
 public sealed class MainWindow : Window
 {
     private readonly TextBlock _status;
+    private readonly ListBox _materialsList;
+    private readonly TextBox _preview;
     private string? _currentProjectPath;
+    private PreviewProject? _project;
 
-    public MainWindow()
+    public MainWindow(string? startupProjectPath = null)
     {
-        Title = "Diez Publishing Studio — Preview";
+        Title = "Diez Publishing Studio — 0.1 Preview";
         Width = 1100;
-        Height = 720;
-        MinWidth = 760;
-        MinHeight = 520;
+        Height = 760;
+        MinWidth = 820;
+        MinHeight = 620;
 
         var logo = new TextBlock
         {
             Text = "∞",
-            FontSize = 58,
+            FontSize = 48,
             HorizontalAlignment = HorizontalAlignment.Center
         };
 
         var title = new TextBlock
         {
             Text = "Diez Publishing Studio",
-            FontSize = 30,
+            FontSize = 28,
             HorizontalAlignment = HorizontalAlignment.Center
         };
 
         var subtitle = new TextBlock
         {
-            Text = "Prima build installabile — verifica avvio, progetto .diez e salvataggio",
+            Text = "Preview 0.1 — progetto .diez + primo Intake materiali",
             FontSize = 15,
             HorizontalAlignment = HorizontalAlignment.Center
         };
 
-        var newButton = new Button
-        {
-            Content = "Nuovo progetto",
-            Width = 180,
-            HorizontalContentAlignment = HorizontalAlignment.Center
-        };
+        var newButton = MakeButton("Nuovo progetto");
         newButton.Click += async (_, _) => await CreateProjectAsync();
 
-        var openButton = new Button
-        {
-            Content = "Apri progetto .diez",
-            Width = 180,
-            HorizontalContentAlignment = HorizontalAlignment.Center
-        };
+        var openButton = MakeButton("Apri progetto .diez");
         openButton.Click += async (_, _) => await OpenProjectAsync();
 
-        var saveButton = new Button
-        {
-            Content = "Salva",
-            Width = 180,
-            HorizontalContentAlignment = HorizontalAlignment.Center
-        };
+        var importButton = MakeButton("Importa materiale");
+        importButton.Click += async (_, _) => await ImportMaterialAsync();
+
+        var saveButton = MakeButton("Salva");
         saveButton.Click += async (_, _) => await SaveCurrentAsync();
 
         _status = new TextBlock
         {
-            Text = "Pronto. Questa preview serve prima di tutto a verificare l'installer sul tuo PC.",
+            Text = "Pronto. Crea o apri un progetto, poi importa TXT, Markdown, CSV o XLSX.",
             TextWrapping = Avalonia.Media.TextWrapping.Wrap,
-            HorizontalAlignment = HorizontalAlignment.Center
+            HorizontalAlignment = HorizontalAlignment.Center,
+            MaxWidth = 900
+        };
+
+        _materialsList = new ListBox
+        {
+            Width = 900,
+            Height = 160
+        };
+        _materialsList.SelectionChanged += (_, _) => ShowSelectedMaterial();
+
+        _preview = new TextBox
+        {
+            Width = 900,
+            Height = 210,
+            AcceptsReturn = true,
+            IsReadOnly = true,
+            TextWrapping = Avalonia.Media.TextWrapping.NoWrap,
+            Watermark = "Seleziona un materiale per vedere l'anteprima."
         };
 
         var buttons = new StackPanel
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 12,
+            Spacing = 10,
             HorizontalAlignment = HorizontalAlignment.Center,
-            Children = { newButton, openButton, saveButton }
+            Children = { newButton, openButton, importButton, saveButton }
+        };
+
+        var materialsLabel = new TextBlock
+        {
+            Text = "Materiali del progetto",
+            FontSize = 18,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Width = 900
+        };
+
+        var previewLabel = new TextBlock
+        {
+            Text = "Anteprima Intake",
+            FontSize = 18,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Width = 900
         };
 
         Content = new Border
         {
-            Padding = new Thickness(40),
+            Padding = new Thickness(30),
             Child = new StackPanel
             {
-                VerticalAlignment = VerticalAlignment.Center,
                 HorizontalAlignment = HorizontalAlignment.Center,
-                Spacing = 18,
-                Children = { logo, title, subtitle, buttons, _status }
+                Spacing = 12,
+                Children =
+                {
+                    logo,
+                    title,
+                    subtitle,
+                    buttons,
+                    _status,
+                    materialsLabel,
+                    _materialsList,
+                    previewLabel,
+                    _preview
+                }
             }
         };
+
+        if (!string.IsNullOrWhiteSpace(startupProjectPath))
+        {
+            Opened += async (_, _) =>
+            {
+                if (File.Exists(startupProjectPath))
+                    await OpenProjectPathAsync(startupProjectPath);
+            };
+        }
     }
+
+    private static Button MakeButton(string text) => new()
+    {
+        Content = text,
+        Width = 180,
+        HorizontalContentAlignment = HorizontalAlignment.Center
+    };
 
     private async Task CreateProjectAsync()
     {
@@ -99,16 +149,18 @@ public sealed class MainWindow : Window
             Title = "Crea progetto Diez",
             SuggestedFileName = "NuovoProgetto.diez",
             DefaultExtension = "diez",
-            FileTypeChoices = new[]
-            {
-                new FilePickerFileType("Progetto Diez") { Patterns = new[] { "*.diez" } }
-            }
+            FileTypeChoices =
+            [
+                new FilePickerFileType("Progetto Diez") { Patterns = ["*.diez"] }
+            ]
         });
 
         if (file is null) return;
 
         _currentProjectPath = file.Path.LocalPath;
-        await WriteProjectAsync(_currentProjectPath, Path.GetFileNameWithoutExtension(_currentProjectPath));
+        _project = ProjectFileStore.Create(Path.GetFileNameWithoutExtension(_currentProjectPath));
+        await ProjectFileStore.SaveAsync(_currentProjectPath, _project);
+        RefreshMaterials();
         _status.Text = $"Creato e salvato: {_currentProjectPath}";
     }
 
@@ -118,23 +170,26 @@ public sealed class MainWindow : Window
         {
             Title = "Apri progetto Diez",
             AllowMultiple = false,
-            FileTypeFilter = new[]
-            {
-                new FilePickerFileType("Progetto Diez") { Patterns = new[] { "*.diez" } }
-            }
+            FileTypeFilter =
+            [
+                new FilePickerFileType("Progetto Diez") { Patterns = ["*.diez"] }
+            ]
         });
 
         var file = files.FirstOrDefault();
         if (file is null) return;
+        await OpenProjectPathAsync(file.Path.LocalPath);
+    }
 
+    private async Task OpenProjectPathAsync(string path)
+    {
         try
         {
-            _currentProjectPath = file.Path.LocalPath;
-            var json = await File.ReadAllTextAsync(_currentProjectPath);
-            var project = JsonSerializer.Deserialize<PreviewProject>(json);
-            _status.Text = project is null
-                ? "Il file non contiene un progetto preview valido."
-                : $"Aperto: {project.Name} — ultimo salvataggio {project.SavedAtLocal}";
+            var project = await ProjectFileStore.LoadAsync(path);
+            _currentProjectPath = path;
+            _project = project;
+            RefreshMaterials();
+            _status.Text = $"Aperto: {project.Name} · {project.Materials.Count} materiali · ultimo salvataggio {project.SavedAtLocal}";
         }
         catch (Exception ex)
         {
@@ -142,35 +197,96 @@ public sealed class MainWindow : Window
         }
     }
 
+    private async Task ImportMaterialAsync()
+    {
+        if (_project is null || string.IsNullOrWhiteSpace(_currentProjectPath))
+        {
+            _status.Text = "Prima crea o apri un progetto .diez.";
+            return;
+        }
+
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Importa materiale",
+            AllowMultiple = false,
+            FileTypeFilter =
+            [
+                new FilePickerFileType("Materiali supportati") { Patterns = ["*.txt", "*.md", "*.csv", "*.xlsx"] },
+                new FilePickerFileType("Testo / Markdown") { Patterns = ["*.txt", "*.md"] },
+                new FilePickerFileType("CSV") { Patterns = ["*.csv"] },
+                new FilePickerFileType("Excel XLSX") { Patterns = ["*.xlsx"] }
+            ]
+        });
+
+        var file = files.FirstOrDefault();
+        if (file is null) return;
+
+        try
+        {
+            _status.Text = "Analisi materiale in corso...";
+            var material = await MaterialImporter.ImportAsync(file.Path.LocalPath);
+            _project.Materials.Add(material);
+            await ProjectFileStore.SaveAsync(_currentProjectPath, _project);
+            RefreshMaterials();
+            _materialsList.SelectedIndex = _project.Materials.Count - 1;
+            _status.Text = $"Importato e salvato: {material.FileName} · {material.Summary}";
+        }
+        catch (Exception ex)
+        {
+            _status.Text = $"Errore importazione: {ex.Message}";
+        }
+    }
+
     private async Task SaveCurrentAsync()
     {
-        if (string.IsNullOrWhiteSpace(_currentProjectPath))
+        if (_project is null || string.IsNullOrWhiteSpace(_currentProjectPath))
         {
             _status.Text = "Nessun progetto aperto. Usa Nuovo progetto o Apri progetto .diez.";
             return;
         }
 
-        await WriteProjectAsync(_currentProjectPath, Path.GetFileNameWithoutExtension(_currentProjectPath));
-        _status.Text = $"Salvato: {_currentProjectPath}";
+        try
+        {
+            await ProjectFileStore.SaveAsync(_currentProjectPath, _project);
+            _status.Text = $"Salvato: {_currentProjectPath}";
+        }
+        catch (Exception ex)
+        {
+            _status.Text = $"Errore salvataggio: {ex.Message}";
+        }
     }
 
-    private static async Task WriteProjectAsync(string path, string name)
+    private void RefreshMaterials()
     {
-        var project = new PreviewProject(
-            "diez-project-preview",
-            1,
-            name,
-            DateTimeOffset.Now.ToString("G"),
-            Guid.NewGuid());
+        _preview.Text = string.Empty;
+        if (_project is null)
+        {
+            _materialsList.ItemsSource = null;
+            return;
+        }
 
-        var json = JsonSerializer.Serialize(project, new JsonSerializerOptions { WriteIndented = true });
-        await File.WriteAllTextAsync(path, json);
+        _materialsList.ItemsSource = _project.Materials
+            .Select(m => $"{m.Kind}  ·  {m.FileName}  ·  {m.Summary}")
+            .ToList();
     }
 
-    private sealed record PreviewProject(
-        string Format,
-        int SchemaVersion,
-        string Name,
-        string SavedAtLocal,
-        Guid ProjectId);
+    private void ShowSelectedMaterial()
+    {
+        if (_project is null || _materialsList.SelectedIndex < 0 || _materialsList.SelectedIndex >= _project.Materials.Count)
+        {
+            _preview.Text = string.Empty;
+            return;
+        }
+
+        var material = _project.Materials[_materialsList.SelectedIndex];
+        var shortHash = material.Sha256.Length > 16 ? material.Sha256[..16] : material.Sha256;
+        _preview.Text =
+            $"{material.FileName}\n" +
+            $"Tipo: {material.Kind}\n" +
+            $"Origine: {material.SourcePath}\n" +
+            $"Dimensione: {material.SizeBytes:N0} byte\n" +
+            $"SHA-256: {shortHash}...\n" +
+            $"{material.Summary}\n\n" +
+            material.Preview;
+    }
 }
