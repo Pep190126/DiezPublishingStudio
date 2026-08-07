@@ -51,6 +51,7 @@ jobs:
           $setup = (Resolve-Path "artifacts\installer\DiezPublishingStudio-Setup.exe").Path
           $installDir = Join-Path $env:RUNNER_TEMP "DiezPublishingStudio-Smoke"
           $dirArg = "/DIR=`"$installDir`""
+          $uninstallKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{E6BE35BE-1F4B-4A3D-8CEB-27D970D85911}_is1"
 
           $first = Start-Process -FilePath $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", $dirArg -Wait -PassThru
           if ($first.ExitCode -ne 0) { throw "First install failed with exit code $($first.ExitCode)" }
@@ -60,9 +61,13 @@ jobs:
           $upgrade = Start-Process -FilePath $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLEANOLD=1", $dirArg -Wait -PassThru
           if ($upgrade.ExitCode -ne 0) { throw "Clean upgrade failed with exit code $($upgrade.ExitCode)" }
           if (!(Test-Path $exe)) { throw "Installed executable missing after clean upgrade" }
+          if (!(Test-Path $uninstallKey)) { throw "Uninstall registry entry missing after clean upgrade" }
 
-          $uninstaller = Join-Path $installDir "unins000.exe"
-          if (!(Test-Path $uninstaller)) { throw "Uninstaller missing" }
+          $uninstallString = (Get-ItemProperty -Path $uninstallKey).UninstallString
+          if ([string]::IsNullOrWhiteSpace($uninstallString)) { throw "UninstallString missing" }
+          $uninstaller = $uninstallString.Trim('"')
+          if (!(Test-Path $uninstaller)) { throw "Registered uninstaller missing: $uninstaller" }
+
           $remove = Start-Process -FilePath $uninstaller -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait -PassThru
           if ($remove.ExitCode -ne 0) { throw "Uninstall failed with exit code $($remove.ExitCode)" }
           if (Test-Path $exe) { throw "Executable still present after uninstall" }
