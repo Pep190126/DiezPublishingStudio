@@ -1,0 +1,51 @@
+name: Windows Installer
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-installer:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore src/Diez.Desktop/Diez.Desktop.csproj
+
+      - name: Build
+        run: dotnet build src/Diez.Desktop/Diez.Desktop.csproj -c Release --no-restore
+
+      - name: Publish self-contained Windows x64
+        run: dotnet publish src/Diez.Desktop/Diez.Desktop.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -o artifacts/publish
+
+      - name: Install Inno Setup
+        shell: powershell
+        run: choco install innosetup -y --no-progress
+
+      - name: Build setup EXE
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force artifacts/installer | Out-Null
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\DiezPublishingStudio.iss
+
+      - name: Verify setup exists
+        shell: powershell
+        run: |
+          $setup = "artifacts\installer\DiezPublishingStudio-Setup.exe"
+          if (!(Test-Path $setup)) { throw "Installer not generated: $setup" }
+          Get-FileHash $setup -Algorithm SHA256
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: DiezPublishingStudio-Setup
+          path: artifacts/installer/DiezPublishingStudio-Setup.exe
+          if-no-files-found: error
