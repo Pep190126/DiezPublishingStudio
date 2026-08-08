@@ -20,6 +20,7 @@ public sealed class App : Application
             var mainWindow = new MainWindow(startupProjectPath);
             EditionWorkflowUi.Attach(mainWindow);
             HandoffWorkflowUi.Attach(mainWindow);
+            ResponsiveLayoutUi.Attach(mainWindow);
             desktop.MainWindow = mainWindow;
         }
 
