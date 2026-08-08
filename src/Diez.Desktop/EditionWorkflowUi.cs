@@ -2,7 +2,6 @@ using System.Reflection;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
-using Avalonia.Platform.Storage;
 
 namespace DiezPublishingStudio;
 
@@ -14,18 +13,8 @@ internal static class EditionWorkflowUi
 
     public static void Attach(MainWindow window)
     {
-        window.Title = "Diez Publishing Studio — 0.10 Preview";
-
         if (window.Content is not Border border || border.Child is not StackPanel root)
             return;
-
-        var subtitle = root.Children
-            .OfType<TextBlock>()
-            .FirstOrDefault(t => t.Text?.StartsWith("Preview 0.8", StringComparison.Ordinal) == true ||
-                                 t.Text?.StartsWith("Preview 0.9", StringComparison.Ordinal) == true ||
-                                 t.Text?.StartsWith("Preview 0.10", StringComparison.Ordinal) == true);
-        if (subtitle is not null)
-            subtitle.Text = "Preview 0.10 — Edition Metadata + Editable Master + Freeze + preflight + Publication Candidate";
 
         var projectButtons = root.Children
             .OfType<StackPanel>()
@@ -120,7 +109,7 @@ internal sealed class EditionPreflightWindow : Window
         };
         var explanation = new TextBlock
         {
-            Text = "I metadati bibliografici fanno parte dell'edizione. Edition Freeze fotografa metadati, Master e Bible; il preflight verifica che tutto sia pronto. Solo con preflight READY puoi creare un Publication Candidate immutabile ed esportare il pacchetto editoriale ZIP.",
+            Text = "I metadati bibliografici fanno parte dell'edizione. Edition Freeze fotografa metadati, Master, Bible e piano illustrazioni; il preflight verifica che tutto sia pronto. Con preflight READY puoi creare il Publication Candidate immutabile. La consegna DOCX/CSV/XLSX, immagini e Production Package si effettua poi da Export / Handoff.",
             TextWrapping = Avalonia.Media.TextWrapping.Wrap
         };
 
@@ -146,8 +135,6 @@ internal sealed class EditionPreflightWindow : Window
         preflightButton.Click += (_, _) => RefreshPreflight();
         var publicationButton = new Button { Content = "Crea Publication Candidate", Width = 205 };
         publicationButton.Click += async (_, _) => await CreatePublicationCandidateAsync();
-        var exportButton = new Button { Content = "Esporta pacchetto ZIP", Width = 185 };
-        exportButton.Click += async (_, _) => await ExportPublicationPackageAsync();
         var closeButton = new Button { Content = "Chiudi", Width = 100 };
         closeButton.Click += (_, _) => Close();
 
@@ -163,7 +150,7 @@ internal sealed class EditionPreflightWindow : Window
             Orientation = Orientation.Horizontal,
             Spacing = 8,
             HorizontalAlignment = HorizontalAlignment.Right,
-            Children = { publicationButton, exportButton, closeButton }
+            Children = { publicationButton, closeButton }
         };
         var buttons = new StackPanel
         {
@@ -257,37 +244,6 @@ internal sealed class EditionPreflightWindow : Window
         }
     }
 
-    private async Task ExportPublicationPackageAsync()
-    {
-        var latest = PublicationCandidateService.GetLatest(_project);
-        if (latest is null || !PublicationCandidateService.IsLatestCandidateCurrent(_project))
-        {
-            _summary.Text = "Prima crea un Publication Candidate corrente da un preflight READY.";
-            RefreshPreflight();
-            return;
-        }
-
-        var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
-        {
-            Title = "Esporta pacchetto editoriale Diez",
-            SuggestedFileName = PublicationCandidateService.SuggestedPackageName(_project),
-            DefaultExtension = "zip",
-            FileTypeChoices = [new FilePickerFileType("Pacchetto editoriale ZIP") { Patterns = ["*.zip"] }]
-        });
-        if (file is null) return;
-
-        try
-        {
-            var result = await PublicationCandidateService.ExportPackageAsync(_project, file.Path.LocalPath);
-            _summary.Text = result.Message;
-            RefreshPreflight(preserveSummary: true);
-        }
-        catch (Exception ex)
-        {
-            _summary.Text = $"Esportazione del pacchetto editoriale fallita: {ex.Message}";
-        }
-    }
-
     private void RefreshPreflight(bool preserveSummary = false)
     {
         UpdateEditionState();
@@ -335,7 +291,7 @@ internal sealed class EditionPreflightWindow : Window
         {
             var sequence = string.IsNullOrWhiteSpace(latestCandidate.ProposedValue) ? candidateCount.ToString() : latestCandidate.ProposedValue;
             var current = PublicationCandidateService.IsLatestCandidateCurrent(_project);
-            _candidateState.Text = $"Publication Candidate #{sequence} · {latestCandidate.CreatedAtLocal} · totale {candidateCount} · stato: {(current ? "CORRENTE / ESPORTABILE" : "SUPERATO")}.";
+            _candidateState.Text = $"Publication Candidate #{sequence} · {latestCandidate.CreatedAtLocal} · totale {candidateCount} · stato: {(current ? "CORRENTE / PRONTO PER HANDOFF" : "SUPERATO")}.";
         }
     }
 }
