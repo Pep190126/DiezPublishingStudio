@@ -38,7 +38,7 @@ internal static class EditionFreezeService
             ProposedBody = snapshot,
             BaseContentSha256 = hash,
             Rationale = string.IsNullOrWhiteSpace(note)
-                ? $"Edition Freeze #{sequence}: snapshot immutabile di metadati, Master e Bible prima del preflight."
+                ? $"Edition Freeze #{sequence}: snapshot immutabile di metadati, Master, piano illustrazioni e Bible prima del preflight."
                 : note.Trim(),
             Status = "Applied",
             CreatedAtLocal = now,
@@ -46,7 +46,7 @@ internal static class EditionFreezeService
             AppliedAtLocal = now
         };
         project.RevisionCandidates.Add(freeze);
-        return new EditionFreezeResult(freeze, $"Edition Freeze #{sequence} creato. Modifiche successive a metadati, Master o Bible renderanno questo freeze non corrente.");
+        return new EditionFreezeResult(freeze, $"Edition Freeze #{sequence} creato. Modifiche successive a metadati, Master, piano illustrazioni o Bible renderanno questo freeze non corrente.");
     }
 
     public static RevisionCandidate? GetLatestFreeze(PreviewProject project) =>
@@ -85,7 +85,7 @@ internal static class EditionFreezeService
             freezeCurrent,
             freeze is null
                 ? "Impossibile verificare il progetto senza Edition Freeze."
-                : freezeCurrent ? "Metadati, Master e Bible coincidono con l'ultimo Edition Freeze." : "Il progetto editoriale è cambiato dopo l'ultimo Edition Freeze: crea un nuovo freeze."));
+                : freezeCurrent ? "Metadati, Master, piano illustrazioni e Bible coincidono con l'ultimo Edition Freeze." : "Il progetto editoriale è cambiato dopo l'ultimo Edition Freeze: crea un nuovo freeze."));
 
         checks.Add(new PreflightCheck(
             "EDITION_TITLE",
@@ -136,6 +136,26 @@ internal static class EditionFreezeService
             project.Materials.Count == 0
                 ? "Nessun materiale sorgente incorporato nel progetto."
                 : notEmbedded.Count == 0 ? "Tutti i materiali sorgente risultano incorporati nel .diez." : $"{notEmbedded.Count} materiali non risultano incorporati nel .diez."));
+
+        var illustrationErrors = IllustrationPlanService.Validate(project);
+        checks.Add(new PreflightCheck(
+            "ILLUSTRATION_PLAN_VALID",
+            "Error",
+            illustrationErrors.Count == 0,
+            illustrationErrors.Count == 0
+                ? $"Piano illustrazioni valido: {project.IllustrationPlacements.Count} collocazioni."
+                : $"Piano illustrazioni non valido: {string.Join("; ", illustrationErrors.Take(3))}"));
+
+        var imageMaterials = project.Materials.Where(IllustrationPlanService.IsImage).ToList();
+        var placedMaterialIds = project.IllustrationPlacements.Select(p => p.MaterialId).ToHashSet();
+        var unplacedImages = imageMaterials.Count(m => !placedMaterialIds.Contains(m.MaterialId));
+        checks.Add(new PreflightCheck(
+            "ILLUSTRATIONS_REVIEW",
+            "Warning",
+            unplacedImages == 0,
+            imageMaterials.Count == 0
+                ? "Nessuna immagine editoriale nel progetto."
+                : unplacedImages == 0 ? "Tutte le immagini del progetto hanno almeno una collocazione DOCX." : $"{unplacedImages} immagini non hanno una collocazione DOCX; possono essere asset, copertine o immagini destinate solo allo ZIP."));
 
         var activeProposals = project.RevisionCandidates.Count(c =>
             c.Key != ManualEditKey && c.Key != FreezeKey && c.Status is "Proposed" or "Approved");
@@ -193,6 +213,19 @@ internal static class EditionFreezeService
                 n.Body ?? string.Empty))
             .ToList();
 
+        var illustrations = project.IllustrationPlacements
+            .OrderBy(p => p.Ordinal)
+            .ThenBy(p => p.PlacementId)
+            .Select(p => new FreezeIllustration(
+                p.PlacementId,
+                p.MaterialId,
+                p.ContentId,
+                p.Position ?? string.Empty,
+                p.WidthPercent,
+                p.Caption ?? string.Empty,
+                p.Ordinal))
+            .ToList();
+
         var bible = project.BibleEntries
             .Where(b => b.IsActive)
             .OrderBy(b => b.SubjectEntityId)
@@ -201,7 +234,7 @@ internal static class EditionFreezeService
             .Select(b => new FreezeBible(b.SubjectEntityId, b.Key ?? string.Empty, b.Value ?? string.Empty, b.Authority ?? string.Empty))
             .ToList();
 
-        return JsonSerializer.Serialize(new FreezeSnapshot(project.ProjectId, freezeMetadata, orderedContent, bible));
+        return JsonSerializer.Serialize(new FreezeSnapshot(project.ProjectId, freezeMetadata, orderedContent, illustrations, bible));
     }
 
     private static int FreezeSequence(RevisionCandidate freeze) =>
@@ -216,9 +249,10 @@ internal static class EditionFreezeService
     private static string Hash(string value) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value ?? string.Empty)));
 
-    private sealed record FreezeSnapshot(Guid ProjectId, FreezeMetadata Metadata, List<FreezeContent> Contents, List<FreezeBible> Bible);
+    private sealed record FreezeSnapshot(Guid ProjectId, FreezeMetadata Metadata, List<FreezeContent> Contents, List<FreezeIllustration> Illustrations, List<FreezeBible> Bible);
     private sealed record FreezeMetadata(string Title, string Subtitle, string Creator, string Language, string Publisher, string Isbn, string Description);
     private sealed record FreezeContent(Guid ContentId, Guid MaterialId, Guid? ParentId, string Kind, string Title, string SourceLocator, int Ordinal, string Body);
+    private sealed record FreezeIllustration(Guid PlacementId, Guid MaterialId, Guid ContentId, string Position, int WidthPercent, string Caption, int Ordinal);
     private sealed record FreezeBible(Guid SubjectEntityId, string Key, string Value, string Authority);
 }
 
