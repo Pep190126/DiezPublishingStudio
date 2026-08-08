@@ -29,6 +29,14 @@ internal static class EditionMetadataSelfTest
             Require(updated.Changed, "I metadati validi non sono stati aggiornati.");
             Require(project.EditionMetadata.Isbn == "9780306406157", "ISBN-13 valido non salvato.");
 
+            var projectPath = Path.Combine(root, "metadata.diez");
+            await ProjectFileStore.SaveAsync(projectPath, project);
+            project = await ProjectFileStore.LoadAsync(projectPath);
+            Require(project.Materials.Count == 1 && project.Materials[0].IsEmbedded,
+                "Il materiale deve essere incorporato prima del preflight metadata.");
+            Require(project.SchemaVersion == 9, "Il progetto deve essere salvato con schema 9.");
+            Require(project.EditionMetadata.Creator == "Ada Autrice", "Autore non persistito nel .diez.");
+
             var freeze = EditionFreezeService.CreateFreeze(project);
             Require(freeze.Freeze is not null, "Freeze non creato dopo i metadati.");
             Require(EditionFreezeService.RunPreflight(project).Ready, "Il preflight dovrebbe essere READY con titolo e lingua validi.");
@@ -39,11 +47,8 @@ internal static class EditionMetadataSelfTest
             Require(!EditionFreezeService.IsLatestFreezeCurrent(project), "Una modifica ai metadati deve rendere superato il freeze.");
             Require(freeze.Freeze.ProposedBody == before, "Lo snapshot del freeze non deve cambiare dopo la modifica dei metadati.");
 
-            var projectPath = Path.Combine(root, "metadata.diez");
             await ProjectFileStore.SaveAsync(projectPath, project);
             var loaded = await ProjectFileStore.LoadAsync(projectPath);
-            Require(loaded.SchemaVersion == 9, "Il progetto deve essere salvato con schema 9.");
-            Require(loaded.EditionMetadata.Creator == "Ada Autrice", "Autore non persistito nel .diez.");
             Require(loaded.EditionMetadata.Title.Contains("seconda edizione", StringComparison.Ordinal), "Titolo aggiornato non persistito.");
         }
         finally
