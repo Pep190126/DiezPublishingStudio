@@ -82,7 +82,7 @@ internal static class EpubExportSelfTest
         Require(package.Contains("Ada Autrice", StringComparison.Ordinal), "Autore non presente nel package EPUB.");
         Require(package.Contains("9780306406157", StringComparison.Ordinal), "ISBN non presente nel package EPUB.");
         Require(package.Contains($"urn:uuid:{project.ProjectId:D}", StringComparison.Ordinal), "Identificatore progetto non presente nel package EPUB.");
-        Require(package.Contains("property=\"nav\"", StringComparison.Ordinal), "Navigation document non dichiarato nel manifest EPUB.");
+        Require(package.Contains("properties=\"nav\"", StringComparison.Ordinal), "Navigation document non dichiarato nel manifest EPUB.");
         Require(package.Contains("dcterms:modified", StringComparison.Ordinal), "Data dcterms:modified mancante nel package EPUB.");
 
         var nav = await ReadEntryAsync(archive, "EPUB/nav.xhtml");
