@@ -53,7 +53,7 @@ internal static class PublicationCandidateService
         };
         project.RevisionCandidates.Add(candidate);
         return new PublicationCandidateResult(candidate,
-            $"Publication Candidate #{sequence} creato dall'Edition Freeze corrente. Le modifiche future al Master non altereranno questa copia.");
+            $"Publication Candidate #{sequence} creato dall'Edition Freeze corrente. Le modifiche future al progetto editoriale non altereranno questa copia.");
     }
 
     public static RevisionCandidate? GetLatest(PreviewProject project) =>
@@ -79,7 +79,8 @@ internal static class PublicationCandidateService
     {
         var candidate = GetLatest(project);
         var sequence = candidate is null ? Count(project) + 1 : Sequence(candidate);
-        return $"{SanitizeFileName(project.Name)}-publication-{sequence:D3}.zip";
+        var title = string.IsNullOrWhiteSpace(project.EditionMetadata?.Title) ? project.Name : project.EditionMetadata.Title;
+        return $"{SanitizeFileName(title)}-publication-{sequence:D3}.zip";
     }
 
     public static async Task<PublicationExportResult> ExportPackageAsync(PreviewProject project, string outputPath)
@@ -106,6 +107,15 @@ internal static class PublicationCandidateService
         using var archive = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: false);
 
         var masterText = candidate.ProposedBody ?? string.Empty;
+        var sourceMetadata = project.EditionMetadata ?? new EditionMetadata();
+        var metadata = new PublicationMetadataDocument(
+            sourceMetadata.Title ?? string.Empty,
+            sourceMetadata.Subtitle ?? string.Empty,
+            sourceMetadata.Creator ?? string.Empty,
+            sourceMetadata.Language ?? string.Empty,
+            sourceMetadata.Publisher ?? string.Empty,
+            sourceMetadata.Isbn ?? string.Empty,
+            sourceMetadata.Description ?? string.Empty);
         var manifest = new PublicationManifest(
             project.ProjectId,
             project.Name,
@@ -116,14 +126,16 @@ internal static class PublicationCandidateService
             candidate.CreatedAtLocal,
             candidate.BaseContentSha256,
             Hash(masterText),
+            metadata,
             project.Materials.Count,
             project.ContentNodes.Count(n => EditableMasterService.CanEdit(project, n)),
             project.BibleEntries.Count(b => b.IsActive),
             preflight.Checks.Select(c => new PublicationManifestCheck(c.Code, c.Severity, c.Passed, c.Message)).ToList());
 
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true };
         await WriteEntryAsync(archive, "master.txt", masterText);
-        await WriteEntryAsync(archive, "edition-manifest.json",
-            JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }));
+        await WriteEntryAsync(archive, "metadata.json", JsonSerializer.Serialize(metadata, jsonOptions));
+        await WriteEntryAsync(archive, "edition-manifest.json", JsonSerializer.Serialize(manifest, jsonOptions));
         await WriteEntryAsync(archive, "preflight.txt", BuildPreflightReport(preflight));
 
         return new PublicationExportResult(true,
@@ -207,10 +219,20 @@ internal static class PublicationCandidateService
         string CreatedAtLocal,
         string EditionFreezeSha256,
         string MasterSha256,
+        PublicationMetadataDocument Metadata,
         int MaterialCount,
         int EditableContentCount,
         int ActiveBibleEntryCount,
         List<PublicationManifestCheck> PreflightChecks);
+
+    private sealed record PublicationMetadataDocument(
+        string Title,
+        string Subtitle,
+        string Creator,
+        string Language,
+        string Publisher,
+        string Isbn,
+        string Description);
 
     private sealed record PublicationManifestCheck(string Code, string Severity, bool Passed, string Message);
 }
