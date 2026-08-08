@@ -19,6 +19,7 @@ public sealed class App : Application
                 .FirstOrDefault(a => a.EndsWith(".diez", StringComparison.OrdinalIgnoreCase));
             var mainWindow = new MainWindow(startupProjectPath);
             EditionWorkflowUi.Attach(mainWindow);
+            EpubWorkflowUi.Attach(mainWindow);
             desktop.MainWindow = mainWindow;
         }
 
