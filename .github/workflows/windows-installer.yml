@@ -47,7 +47,7 @@ jobs:
           }
           Stop-Process -Id $process.Id -Force
 
-      - name: Self-test complete pre-final lifecycle AI production and handoff
+      - name: Self-test lifecycle AI batch reconstruction and handoff
         shell: powershell
         run: |
           $exe = (Resolve-Path "artifacts\publish\DiezPublishingStudio.exe").Path
@@ -105,7 +105,7 @@ jobs:
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
-          name: DiezPublishingStudio-Setup-1.0.0-rc6
+          name: DiezPublishingStudio-Setup-1.0.0-rc7
           path: artifacts/installer/DiezPublishingStudio-Setup.exe
           if-no-files-found: error
           retention-days: 90
