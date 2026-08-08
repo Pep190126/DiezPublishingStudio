@@ -7,6 +7,7 @@ namespace DiezPublishingStudio;
 internal static class Program
 {
     private const string AppMutexName = "DiezPublishingStudio.App";
+    internal const string SelfTestErrorFileName = "self-test-error.txt";
 
     [STAThread]
     public static int Main(string[] args)
@@ -15,8 +16,10 @@ internal static class Program
 
         if (args.Any(a => string.Equals(a, "--self-test", StringComparison.OrdinalIgnoreCase)))
         {
+            var errorPath = Path.Combine(AppContext.BaseDirectory, SelfTestErrorFileName);
             try
             {
+                if (File.Exists(errorPath)) File.Delete(errorPath);
                 PackageSelfTest.RunAsync().GetAwaiter().GetResult();
                 EditableMasterSelfTest.RunAsync().GetAwaiter().GetResult();
                 EditionMetadataSelfTest.RunAsync().GetAwaiter().GetResult();
@@ -25,8 +28,9 @@ internal static class Program
                 EpubExportSelfTest.RunAsync().GetAwaiter().GetResult();
                 return 0;
             }
-            catch
+            catch (Exception ex)
             {
+                try { File.WriteAllText(errorPath, ex.ToString(), Encoding.UTF8); } catch { }
                 return 1;
             }
         }
