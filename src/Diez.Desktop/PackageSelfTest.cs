@@ -14,6 +14,7 @@ internal static class PackageSelfTest
         {
             await VerifyEmbeddedMaterialStructureGraphAndBibleRoundTripAsync(root);
             await VerifyConsistencyReviewLifecycleAsync(root);
+            await VerifyRevisionCandidateLifecycleAsync(root);
             await VerifyLegacyProjectMigrationAsync(root);
             await VerifyDocxIntakeAndStructureAsync(root);
         }
@@ -63,7 +64,7 @@ internal static class PackageSelfTest
         Require(ProjectFileStore.IsPackageFile(projectPath), "Il .diez salvato non è un pacchetto ZIP.");
 
         var loaded = await ProjectFileStore.LoadAsync(projectPath);
-        Require(loaded.SchemaVersion == 7, "Schema .diez inatteso.");
+        Require(loaded.SchemaVersion == 8, "Schema .diez inatteso.");
         Require(loaded.Materials.Count == 1, "Il materiale non è sopravvissuto al round-trip.");
         Require(loaded.ContentNodes.Count == project.ContentNodes.Count, "La struttura editoriale non è sopravvissuta al round-trip.");
         Require(loaded.Entities.Any(e => e.Name == "Milo" && !e.IsCandidate), "Milo confermato non è sopravvissuto al round-trip.");
@@ -90,50 +91,13 @@ internal static class PackageSelfTest
 
     private static async Task VerifyConsistencyReviewLifecycleAsync(string root)
     {
-        var project = ProjectFileStore.Create("Consistency Review Test");
-        var materialId = Guid.NewGuid();
-        var milo = new GraphEntity
-        {
-            EntityId = Guid.NewGuid(),
-            Kind = "Character",
-            Name = "Milo",
-            IsCandidate = false,
-            SourceMaterialId = materialId,
-            Notes = "Personaggio confermato"
-        };
-        project.Entities.Add(milo);
-        project.BibleEntries.Add(new BibleEntry
-        {
-            SubjectEntityId = milo.EntityId,
-            Key = "canonical_name",
-            Value = "Milo",
-            Authority = "Binding",
-            IsActive = true
-        });
-
-        var chapter1 = new ContentNode
-        {
-            MaterialId = materialId,
-            Kind = "Chapter",
-            Title = "Capitolo 1",
-            Body = "Milo ha gli occhi blu e guarda il mare.",
-            Ordinal = 1,
-            SourceLocator = "Capitolo 1"
-        };
-        var chapter2 = new ContentNode
-        {
-            MaterialId = materialId,
-            Kind = "Chapter",
-            Title = "Capitolo 2",
-            Body = "Milo ha gli occhi verdi mentre entra nella stanza.",
-            Ordinal = 2,
-            SourceLocator = "Capitolo 2"
-        };
-        project.ContentNodes.Add(chapter1);
-        project.ContentNodes.Add(chapter2);
-
+        var project = CreateMiloContradictionProject();
+        var milo = project.Entities.Single(e => e.Name == "Milo");
+        var chapter1 = project.ContentNodes.Single(n => n.Ordinal == 1);
+        var chapter2 = project.ContentNodes.Single(n => n.Ordinal == 2);
         var originalChapter1 = chapter1.Body;
         var originalChapter2 = chapter2.Body;
+
         var analysis = ConsistencyEngine.Rebuild(project);
         Require(analysis.FactsDetected == 2, "Il Consistency Engine non ha rilevato entrambi i fatti.");
         var issue = project.ConsistencyIssues.SingleOrDefault(i => i.Code == "FACT_CONTRADICTION" && i.SubjectEntityId == milo.EntityId);
@@ -167,7 +131,7 @@ internal static class PackageSelfTest
         var path = Path.Combine(root, "consistency-review.diez");
         await ProjectFileStore.SaveAsync(path, project);
         var loaded = await ProjectFileStore.LoadAsync(path);
-        Require(loaded.SchemaVersion == 7, "Il progetto di revisione non usa schema 7.");
+        Require(loaded.SchemaVersion == 8, "Il progetto di revisione non usa schema 8.");
         ConsistencyEngine.Rebuild(loaded);
         var loadedIssue = loaded.ConsistencyIssues.Single(i => i.Signature == signature);
         Require(loadedIssue.Status == "Resolved", "Lo stato di revisione non è sopravvissuto al round-trip.");
@@ -182,6 +146,111 @@ internal static class PackageSelfTest
             "Il problema rimane attivo dopo la correzione effettiva del contenuto.");
         Require(loaded.ConsistencyResolutions.Count == 4,
             "La cronologia umana è stata cancellata quando il problema è scomparso.");
+    }
+
+    private static async Task VerifyRevisionCandidateLifecycleAsync(string root)
+    {
+        var project = CreateMiloContradictionProject();
+        ConsistencyEngine.Rebuild(project);
+        var issue = project.ConsistencyIssues.Single(i => i.Code == "FACT_CONTRADICTION");
+        var chapter2 = project.ContentNodes.Single(n => n.Ordinal == 2);
+        var originalBody = chapter2.Body;
+
+        var creation = RevisionCandidateService.CreateForIssue(project, issue.IssueId);
+        Require(creation.Candidate is not null, "La proposta di revisione non è stata creata.");
+        var candidate = creation.Candidate!;
+        Require(candidate.Status == "Proposed", "La nuova proposta non è nello stato Proposed.");
+        Require(chapter2.Body == originalBody, "La creazione della proposta ha modificato il contenuto.");
+        Require(candidate.ProposedBody.Contains("occhi blu", StringComparison.OrdinalIgnoreCase),
+            "La proposta non contiene la correzione attesa verso il primo fatto coerente.");
+        Require(candidate.ProposedBody != candidate.OriginalBody, "La proposta non differisce dal contenuto originale.");
+
+        Require(RevisionCandidateService.Approve(project, candidate.CandidateId), "L'approvazione della proposta è fallita.");
+        Require(candidate.Status == "Approved", "La proposta non è stata marcata Approved.");
+        Require(chapter2.Body == originalBody, "L'approvazione ha modificato il contenuto prima dell'applicazione esplicita.");
+
+        var path = Path.Combine(root, "revision-candidate.diez");
+        await ProjectFileStore.SaveAsync(path, project);
+        var loaded = await ProjectFileStore.LoadAsync(path);
+        Require(loaded.SchemaVersion == 8, "Il progetto con Revision Candidate non usa schema 8.");
+        var loadedCandidate = loaded.RevisionCandidates.Single(c => c.CandidateId == candidate.CandidateId);
+        Require(loadedCandidate.Status == "Approved", "Lo stato Approved della proposta non è sopravvissuto al round-trip.");
+        Require(loaded.ContentNodes.Single(n => n.ContentId == chapter2.ContentId).Body == originalBody,
+            "Il salvataggio di una proposta approvata ha alterato il contenuto.");
+
+        var apply = RevisionCandidateService.ApplyApproved(loaded, loadedCandidate.CandidateId);
+        Require(apply.Applied, "L'applicazione esplicita della proposta approvata è fallita.");
+        var corrected = loaded.ContentNodes.Single(n => n.ContentId == chapter2.ContentId);
+        Require(corrected.Body.Contains("occhi blu", StringComparison.OrdinalIgnoreCase) &&
+                !corrected.Body.Contains("occhi verdi", StringComparison.OrdinalIgnoreCase),
+            "La proposta approvata non ha modificato il contenuto come previsto.");
+        Require(loadedCandidate.Status == "Applied", "La proposta applicata non è nello stato Applied.");
+        Require(!loaded.ConsistencyIssues.Any(i => i.Code == "FACT_CONTRADICTION"),
+            "La contraddizione rimane dopo l'applicazione della correzione.");
+
+        await ProjectFileStore.SaveAsync(path, loaded);
+        var appliedRoundTrip = await ProjectFileStore.LoadAsync(path);
+        Require(appliedRoundTrip.RevisionCandidates.Single(c => c.CandidateId == candidate.CandidateId).Status == "Applied",
+            "Lo stato Applied non è sopravvissuto al round-trip.");
+        Require(appliedRoundTrip.ContentNodes.Single(n => n.ContentId == chapter2.ContentId).Body.Contains("occhi blu", StringComparison.OrdinalIgnoreCase),
+            "La revisione applicata non è sopravvissuta al round-trip.");
+
+        var staleProject = CreateMiloContradictionProject();
+        ConsistencyEngine.Rebuild(staleProject);
+        var staleIssue = staleProject.ConsistencyIssues.Single(i => i.Code == "FACT_CONTRADICTION");
+        var staleCreation = RevisionCandidateService.CreateForIssue(staleProject, staleIssue.IssueId);
+        Require(staleCreation.Candidate is not null, "La proposta per il test anti-sovrascrittura non è stata creata.");
+        var staleCandidate = staleCreation.Candidate!;
+        Require(RevisionCandidateService.Approve(staleProject, staleCandidate.CandidateId), "L'approvazione della proposta stale è fallita.");
+        var staleNode = staleProject.ContentNodes.Single(n => n.ContentId == staleCandidate.ContentId);
+        staleNode.Body += " Modifica umana successiva.";
+        var humanEditedBody = staleNode.Body;
+        var staleApply = RevisionCandidateService.ApplyApproved(staleProject, staleCandidate.CandidateId);
+        Require(!staleApply.Applied, "Diez ha sovrascritto un contenuto cambiato dopo la creazione della proposta.");
+        Require(staleNode.Body == humanEditedBody, "Il controllo stale ha alterato la modifica umana successiva.");
+    }
+
+    private static PreviewProject CreateMiloContradictionProject()
+    {
+        var project = ProjectFileStore.Create("Milo Contradiction");
+        var materialId = Guid.NewGuid();
+        var milo = new GraphEntity
+        {
+            EntityId = Guid.NewGuid(),
+            Kind = "Character",
+            Name = "Milo",
+            IsCandidate = false,
+            SourceMaterialId = materialId,
+            Notes = "Personaggio confermato"
+        };
+        project.Entities.Add(milo);
+        project.BibleEntries.Add(new BibleEntry
+        {
+            SubjectEntityId = milo.EntityId,
+            Key = "canonical_name",
+            Value = "Milo",
+            Authority = "Binding",
+            IsActive = true
+        });
+        project.ContentNodes.Add(new ContentNode
+        {
+            MaterialId = materialId,
+            Kind = "Chapter",
+            Title = "Capitolo 1",
+            Body = "Milo ha gli occhi blu e guarda il mare.",
+            Ordinal = 1,
+            SourceLocator = "Capitolo 1"
+        });
+        project.ContentNodes.Add(new ContentNode
+        {
+            MaterialId = materialId,
+            Kind = "Chapter",
+            Title = "Capitolo 2",
+            Body = "Milo ha gli occhi verdi mentre entra nella stanza.",
+            Ordinal = 2,
+            SourceLocator = "Capitolo 2"
+        });
+        return project;
     }
 
     private static async Task VerifyLegacyProjectMigrationAsync(string root)
@@ -202,7 +271,7 @@ internal static class PackageSelfTest
         Require(loadedLegacy.Name == "Legacy Preview", "Il progetto 0.1 non è stato letto correttamente.");
         await ProjectFileStore.SaveAsync(legacyPath, loadedLegacy);
         Require(ProjectFileStore.IsPackageFile(legacyPath), "Il progetto legacy non è stato migrato.");
-        Require((await ProjectFileStore.LoadAsync(legacyPath)).SchemaVersion == 7, "Il progetto legacy non è arrivato allo schema 7.");
+        Require((await ProjectFileStore.LoadAsync(legacyPath)).SchemaVersion == 8, "Il progetto legacy non è arrivato allo schema 8.");
     }
 
     private static async Task VerifyDocxIntakeAndStructureAsync(string root)
