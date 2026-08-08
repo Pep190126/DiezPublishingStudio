@@ -14,7 +14,7 @@ internal static class HandoffWorkflowUi
 
     public static void Attach(MainWindow window)
     {
-        window.Title = "Diez Publishing Studio — 0.14 Preview";
+        window.Title = "Diez Publishing Studio — 0.15 Preview";
 
         if (window.Content is not Border border || border.Child is not StackPanel root)
             return;
@@ -23,7 +23,7 @@ internal static class HandoffWorkflowUi
             .OfType<TextBlock>()
             .FirstOrDefault(t => t.Text?.StartsWith("Preview 0.", StringComparison.Ordinal) == true);
         if (subtitle is not null)
-            subtitle.Text = "Preview 0.14 — Illustrated Handoff: DOCX con immagini + CSV/XLSX + originali ZIP";
+            subtitle.Text = "Preview 0.15 — Production Handoff: DOCX + CSV/XLSX + originali + package per impaginatore";
 
         var projectButtons = root.Children
             .OfType<StackPanel>()
@@ -96,10 +96,10 @@ internal sealed class HandoffWindow : Window
         _setMainStatus = setMainStatus;
 
         Title = "Export / Handoff editabile";
-        Width = 720;
-        Height = 455;
-        MinWidth = 640;
-        MinHeight = 410;
+        Width = 760;
+        Height = 535;
+        MinWidth = 660;
+        MinHeight = 470;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
 
         var title = new TextBlock
@@ -110,9 +110,9 @@ internal sealed class HandoffWindow : Window
         };
         var explanation = new TextBlock
         {
-            Text = "Il DOCX può incorporare le immagini secondo il Piano illustrazioni, mantenendole modificabili/spostabili nell'impaginatore. CSV e XLSX richiedono un Publication Candidate corrente. Lo ZIP immagini copia invece soltanto gli originali incorporati nel .diez, senza trasformazioni.",
+            Text = "Esporta singoli file editabili oppure crea un Production Package completo per Word, Publisher o un impaginatore esterno. Il package raccoglie DOCX illustrato, CSV/XLSX, originali immagine, metadati, piano illustrazioni e manifest di integrità.",
             TextWrapping = Avalonia.Media.TextWrapping.Wrap,
-            MaxWidth = 640,
+            MaxWidth = 670,
             HorizontalAlignment = HorizontalAlignment.Center
         };
 
@@ -126,12 +126,20 @@ internal sealed class HandoffWindow : Window
         plan.Click += async (_, _) => await OpenIllustrationPlanAsync();
         var images = MakeButton("ZIP immagini originali");
         images.Click += async (_, _) => await ExportImagesAsync();
+        var production = new Button
+        {
+            Content = "Crea Production Package",
+            Width = 260,
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Center
+        };
+        production.Click += async (_, _) => await ExportProductionPackageAsync();
 
         _status = new TextBlock
         {
             Text = BuildReadinessText(),
             TextWrapping = Avalonia.Media.TextWrapping.Wrap,
-            MaxWidth = 640,
+            MaxWidth = 670,
             HorizontalAlignment = HorizontalAlignment.Center
         };
 
@@ -169,6 +177,7 @@ internal sealed class HandoffWindow : Window
                         HorizontalAlignment = HorizontalAlignment.Center,
                         Children = { plan, images }
                     },
+                    production,
                     _status,
                     close
                 }
@@ -181,7 +190,7 @@ internal sealed class HandoffWindow : Window
         var preflight = EditionFreezeService.RunPreflight(_project);
         var candidate = PublicationCandidateService.IsLatestCandidateCurrent(_project);
         var images = _project.Materials.Count(IllustrationPlanService.IsImage);
-        var editorial = preflight.Ready && candidate ? "handoff editoriale pronto" : "handoff editoriale da finalizzare in Edizione / Preflight";
+        var editorial = preflight.Ready && candidate ? "handoff editoriale e Production Package pronti" : "handoff editoriale da finalizzare in Edizione / Preflight";
         return $"Stato: {editorial} · {images} immagini originali · {_project.IllustrationPlacements.Count} collocazioni DOCX.";
     }
 
@@ -275,6 +284,31 @@ internal sealed class HandoffWindow : Window
             Report(result.Message);
         }
         catch (Exception ex) { Report($"Esportazione immagini fallita: {ex.Message}"); }
+    }
+
+    private async Task ExportProductionPackageAsync()
+    {
+        if (!PublicationCandidateService.IsLatestCandidateCurrent(_project))
+        {
+            Report("Production Package bloccato: crea prima un Publication Candidate corrente in Edizione / Preflight.");
+            return;
+        }
+
+        var file = await _owner.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = "Crea Production Package per impaginazione",
+            SuggestedFileName = ProductionPackageService.SuggestedFileName(_project),
+            DefaultExtension = "zip",
+            FileTypeChoices = [new FilePickerFileType("Diez Production Package ZIP") { Patterns = ["*.zip"] }]
+        });
+        if (file is null) return;
+
+        try
+        {
+            var result = await ProductionPackageService.ExportAsync(_project, _projectPath, file.Path.LocalPath);
+            Report(result.Message);
+        }
+        catch (Exception ex) { Report($"Production Package fallito: {ex.Message}"); }
     }
 
     private void Report(string message)
