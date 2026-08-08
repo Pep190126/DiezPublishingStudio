@@ -18,6 +18,7 @@ internal static class Program
             try
             {
                 PackageSelfTest.RunAsync().GetAwaiter().GetResult();
+                EditableMasterSelfTest.RunAsync().GetAwaiter().GetResult();
                 return 0;
             }
             catch
