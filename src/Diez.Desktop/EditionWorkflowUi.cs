@@ -36,7 +36,7 @@ internal static class EditionWorkflowUi
         {
             if (!TryGetSession(window, out var project, out var projectPath))
             {
-                SetMainStatus(window, "Prima crea o apri un progetto .diez per usare metadati, Edition Freeze, preflight e Publication Candidate.");
+                SetMainStatus(window, "Prima crea o apri un progetto .diez per preparare una versione da consegnare.");
                 return;
             }
 
@@ -49,8 +49,8 @@ internal static class EditionWorkflowUi
             var candidateCurrent = candidateCount > 0 && PublicationCandidateService.IsLatestCandidateCurrent(project);
             var metadataTitle = string.IsNullOrWhiteSpace(project.EditionMetadata?.Title) ? "titolo mancante" : project.EditionMetadata.Title;
             SetMainStatus(window,
-                $"Edizione: {metadataTitle} · {freezeCount} freeze · ultimo {(freezeCurrent ? "corrente" : freezeCount == 0 ? "assente" : "superato")} · " +
-                $"{candidateCount} Publication Candidate · ultimo {(candidateCurrent ? "corrente" : candidateCount == 0 ? "assente" : "superato")}.");
+                $"Preparazione consegna: {metadataTitle} · versioni da controllare {freezeCount} ({(freezeCurrent ? "attuale" : freezeCount == 0 ? "nessuna" : "ultima superata")}) · " +
+                $"versioni approvate {candidateCount} ({(candidateCurrent ? "pronta da esportare" : candidateCount == 0 ? "nessuna" : "ultima superata")}).");
         };
 
         projectButtons.Children.Add(editionButton);
@@ -94,22 +94,22 @@ internal sealed class EditionPreflightWindow : Window
         _project = project;
         _projectPath = projectPath;
 
-        Title = "Edition Metadata / Freeze / Preflight / Publication Candidate";
+        Title = "Prepara consegna";
         Width = 1020;
-        Height = 780;
+        Height = 750;
         MinWidth = 820;
-        MinHeight = 620;
+        MinHeight = 600;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
 
         var heading = new TextBlock
         {
-            Text = "Controllo finale dell'edizione",
+            Text = "Prepara una versione da esportare",
             FontSize = 24,
             TextWrapping = Avalonia.Media.TextWrapping.Wrap
         };
         var explanation = new TextBlock
         {
-            Text = "I metadati bibliografici fanno parte dell'edizione. Edition Freeze fotografa metadati, Master, Bible e piano illustrazioni; il preflight verifica che tutto sia pronto. Con preflight READY puoi creare il Publication Candidate immutabile. La consegna DOCX/CSV/XLSX, immagini e Production Package si effettua poi da Export / Handoff.",
+            Text = "Segui questi quattro passaggi: 1) controlla i dati del libro; 2) salva una fotografia della versione che vuoi verificare; 3) controlla se è pronta; 4) approvala per l'esportazione. Se poi modifichi testo, dati o immagini, Diez ti chiederà semplicemente di rifare questi passaggi sulla nuova versione.",
             TextWrapping = Avalonia.Media.TextWrapping.Wrap
         };
 
@@ -123,18 +123,26 @@ internal sealed class EditionPreflightWindow : Window
         };
         _checks = new ListBox
         {
-            Height = 300,
+            Height = 280,
             HorizontalAlignment = HorizontalAlignment.Stretch
         };
 
-        var metadataButton = new Button { Content = "Metadati edizione", Width = 165 };
+        var metadataButton = new Button { Content = "1. Dati del libro", Width = 165 };
         metadataButton.Click += async (_, _) => await EditMetadataAsync();
-        var freezeButton = new Button { Content = "Crea Edition Freeze", Width = 170 };
+        ToolTip.SetTip(metadataButton, "Titolo, autore, lingua, editore, ISBN e descrizione della versione che vuoi consegnare.");
+
+        var freezeButton = new Button { Content = "2. Salva versione da controllare", Width = 225 };
         freezeButton.Click += async (_, _) => await CreateFreezeAsync();
-        var preflightButton = new Button { Content = "Esegui preflight", Width = 145 };
+        ToolTip.SetTip(freezeButton, "Salva una fotografia precisa dello stato attuale del progetto. Se poi cambi qualcosa, questa fotografia risulterà superata.");
+
+        var preflightButton = new Button { Content = "3. Controlla se è pronta", Width = 190 };
         preflightButton.Click += (_, _) => RefreshPreflight();
-        var publicationButton = new Button { Content = "Crea Publication Candidate", Width = 205 };
+        ToolTip.SetTip(preflightButton, "Controlla che non manchino dati o condizioni necessarie prima di approvare questa versione per l'esportazione.");
+
+        var publicationButton = new Button { Content = "4. Approva per esportare", Width = 195 };
         publicationButton.Click += async (_, _) => await CreatePublicationCandidateAsync();
+        ToolTip.SetTip(publicationButton, "Blocca questa specifica versione come quella approvata da usare per DOCX, CSV/XLSX e pacchetto completo.");
+
         var closeButton = new Button { Content = "Chiudi", Width = 100 };
         closeButton.Click += (_, _) => Close();
 
@@ -207,12 +215,14 @@ internal sealed class EditionPreflightWindow : Window
         {
             if (after > before)
                 await ProjectFileStore.SaveAsync(_projectPath, _project);
-            _summary.Text = result.Message;
-            RefreshPreflight();
+            _summary.Text = after > before
+                ? "Versione da controllare salvata. Ora usa “Controlla se è pronta”."
+                : "Questa versione era già stata salvata e non è cambiata.";
+            RefreshPreflight(preserveSummary: true);
         }
         catch (Exception ex)
         {
-            _summary.Text = $"Edition Freeze creato in memoria, ma il salvataggio del .diez è fallito: {ex.Message}. Riapri il progetto prima di continuare.";
+            _summary.Text = $"La versione è stata preparata in memoria, ma il salvataggio del .diez è fallito: {ex.Message}. Riapri il progetto prima di continuare.";
             UpdateEditionState();
         }
     }
@@ -226,7 +236,7 @@ internal sealed class EditionPreflightWindow : Window
         if (result.Candidate is null)
         {
             _summary.Text = result.Message;
-            RefreshPreflight();
+            RefreshPreflight(preserveSummary: true);
             return;
         }
 
@@ -234,12 +244,14 @@ internal sealed class EditionPreflightWindow : Window
         {
             if (after > before)
                 await ProjectFileStore.SaveAsync(_projectPath, _project);
-            _summary.Text = result.Message;
-            RefreshPreflight();
+            _summary.Text = after > before
+                ? "Versione approvata: ora puoi passare a Esporta / Consegna."
+                : "La versione approvata corrente era già presente.";
+            RefreshPreflight(preserveSummary: true);
         }
         catch (Exception ex)
         {
-            _summary.Text = $"Publication Candidate creato in memoria, ma il salvataggio del .diez è fallito: {ex.Message}. Riapri il progetto prima di continuare.";
+            _summary.Text = $"La versione è stata approvata in memoria, ma il salvataggio del .diez è fallito: {ex.Message}. Riapri il progetto prima di continuare.";
             UpdateEditionState();
         }
     }
@@ -248,13 +260,16 @@ internal sealed class EditionPreflightWindow : Window
     {
         UpdateEditionState();
         var result = EditionFreezeService.RunPreflight(_project);
-        if (!preserveSummary) _summary.Text = result.Summary;
+        if (!preserveSummary)
+            _summary.Text = result.Ready
+                ? "Controllo completato: questa versione è pronta per essere approvata e poi esportata."
+                : "Controllo completato: sistema prima gli elementi indicati qui sotto.";
         _checks.ItemsSource = result.Checks
             .Select(check =>
             {
                 var symbol = check.Passed ? "✓" : check.Severity == "Warning" ? "!" : "✕";
-                var level = check.Severity == "Warning" ? "ATTENZIONE" : "BLOCCANTE";
-                return $"{symbol}  [{level}]  {check.Code} — {check.Message}";
+                var level = check.Passed ? "OK" : check.Severity == "Warning" ? "ATTENZIONE" : "DA SISTEMARE";
+                return $"{symbol}  [{level}]  {check.Message}";
             })
             .ToList();
     }
@@ -262,36 +277,36 @@ internal sealed class EditionPreflightWindow : Window
     private void UpdateEditionState()
     {
         var metadata = _project.EditionMetadata ?? new EditionMetadata();
-        var title = string.IsNullOrWhiteSpace(metadata.Title) ? "MANCANTE" : metadata.Title;
+        var title = string.IsNullOrWhiteSpace(metadata.Title) ? "TITOLO MANCANTE" : metadata.Title;
         var creator = string.IsNullOrWhiteSpace(metadata.Creator) ? "autore non indicato" : metadata.Creator;
         var language = string.IsNullOrWhiteSpace(metadata.Language) ? "lingua mancante" : metadata.Language;
         var isbn = string.IsNullOrWhiteSpace(metadata.Isbn) ? "senza ISBN" : $"ISBN {metadata.Isbn}";
-        _metadataState.Text = $"Metadati: {title} · {creator} · {language} · {isbn}.";
+        _metadataState.Text = $"1. Dati del libro: {title} · {creator} · {language} · {isbn}.";
 
         var freezeCount = EditionFreezeService.FreezeCount(_project);
         var latestFreeze = EditionFreezeService.GetLatestFreeze(_project);
         if (latestFreeze is null)
         {
-            _freezeState.Text = "Edition Freeze: nessuno snapshot creato.";
+            _freezeState.Text = "2. Versione da controllare: non ancora salvata.";
         }
         else
         {
             var sequence = string.IsNullOrWhiteSpace(latestFreeze.ProposedValue) ? freezeCount.ToString() : latestFreeze.ProposedValue;
             var current = EditionFreezeService.IsLatestFreezeCurrent(_project);
-            _freezeState.Text = $"Edition Freeze #{sequence} · {latestFreeze.CreatedAtLocal} · totale {freezeCount} · stato: {(current ? "CORRENTE" : "SUPERATO")}.";
+            _freezeState.Text = $"2. Versione da controllare #{sequence} · {latestFreeze.CreatedAtLocal} · stato: {(current ? "ATTUALE" : "SUPERATA, perché il progetto è cambiato")}.";
         }
 
         var candidateCount = PublicationCandidateService.Count(_project);
         var latestCandidate = PublicationCandidateService.GetLatest(_project);
         if (latestCandidate is null)
         {
-            _candidateState.Text = "Publication Candidate: nessuna copia editoriale finale creata.";
+            _candidateState.Text = "4. Versione approvata: nessuna.";
         }
         else
         {
             var sequence = string.IsNullOrWhiteSpace(latestCandidate.ProposedValue) ? candidateCount.ToString() : latestCandidate.ProposedValue;
             var current = PublicationCandidateService.IsLatestCandidateCurrent(_project);
-            _candidateState.Text = $"Publication Candidate #{sequence} · {latestCandidate.CreatedAtLocal} · totale {candidateCount} · stato: {(current ? "CORRENTE / PRONTO PER HANDOFF" : "SUPERATO")}.";
+            _candidateState.Text = $"4. Versione approvata #{sequence} · {latestCandidate.CreatedAtLocal} · stato: {(current ? "PRONTA DA ESPORTARE" : "SUPERATA, perché il progetto è cambiato")}.";
         }
     }
 }
@@ -315,7 +330,7 @@ internal sealed class EditionMetadataWindow : Window
         _projectPath = projectPath;
         var metadata = project.EditionMetadata ?? new EditionMetadata();
 
-        Title = "Metadati edizione";
+        Title = "Dati del libro";
         Width = 720;
         Height = 720;
         MinWidth = 600;
@@ -335,13 +350,13 @@ internal sealed class EditionMetadataWindow : Window
 
         _status = new TextBlock
         {
-            Text = "Titolo e lingua sono richiesti dal preflight. Autore, editore, ISBN e descrizione possono essere completati quando disponibili.",
+            Text = "Titolo e lingua sono necessari per il controllo finale. Autore, editore, ISBN e descrizione possono essere completati quando disponibili.",
             TextWrapping = Avalonia.Media.TextWrapping.Wrap
         };
 
         var cancel = new Button { Content = "Annulla", Width = 120 };
         cancel.Click += (_, _) => Close();
-        var save = new Button { Content = "Salva metadati", Width = 160 };
+        var save = new Button { Content = "Salva dati", Width = 150 };
         save.Click += async (_, _) => await SaveAsync();
         var buttons = new StackPanel
         {
@@ -359,12 +374,12 @@ internal sealed class EditionMetadataWindow : Window
                 Spacing = 9,
                 Children =
                 {
-                    new TextBlock { Text = "Metadati bibliografici dell'edizione", FontSize = 23 },
+                    new TextBlock { Text = "Dati bibliografici del libro", FontSize = 23 },
                     Field("Titolo *", _title),
                     Field("Sottotitolo", _subtitle),
                     Field("Autore / creatore", _creator),
                     Field("Lingua * (es. it, en, fr)", _language),
-                    Field("Editore / imprint", _publisher),
+                    Field("Editore / marchio", _publisher),
                     Field("ISBN-10 / ISBN-13", _isbn),
                     Field("Descrizione", _description),
                     _status,
@@ -419,7 +434,7 @@ internal sealed class EditionMetadataWindow : Window
         catch (Exception ex)
         {
             _project.EditionMetadata = backup;
-            _status.Text = $"Metadati non salvati: {ex.Message}";
+            _status.Text = $"Dati non salvati: {ex.Message}";
         }
     }
 
