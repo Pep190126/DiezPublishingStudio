@@ -14,7 +14,7 @@ internal static class HandoffWorkflowUi
 
     public static void Attach(MainWindow window)
     {
-        window.Title = "Diez Publishing Studio — 0.13 Preview";
+        window.Title = "Diez Publishing Studio — 0.14 Preview";
 
         if (window.Content is not Border border || border.Child is not StackPanel root)
             return;
@@ -23,7 +23,7 @@ internal static class HandoffWorkflowUi
             .OfType<TextBlock>()
             .FirstOrDefault(t => t.Text?.StartsWith("Preview 0.", StringComparison.Ordinal) == true);
         if (subtitle is not null)
-            subtitle.Text = "Preview 0.13 — Handoff editabile: DOCX + CSV/XLSX + ZIP immagini originali";
+            subtitle.Text = "Preview 0.14 — Illustrated Handoff: DOCX con immagini + CSV/XLSX + originali ZIP";
 
         var projectButtons = root.Children
             .OfType<StackPanel>()
@@ -96,10 +96,10 @@ internal sealed class HandoffWindow : Window
         _setMainStatus = setMainStatus;
 
         Title = "Export / Handoff editabile";
-        Width = 700;
-        Height = 390;
-        MinWidth = 620;
-        MinHeight = 350;
+        Width = 720;
+        Height = 455;
+        MinWidth = 640;
+        MinHeight = 410;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
 
         var title = new TextBlock
@@ -110,9 +110,9 @@ internal sealed class HandoffWindow : Window
         };
         var explanation = new TextBlock
         {
-            Text = "DOCX, CSV e XLSX richiedono un Publication Candidate corrente. Lo ZIP immagini copia invece gli originali incorporati nel .diez, senza ridimensionare, ricomprimere o aggiungere file accessori.",
+            Text = "Il DOCX può incorporare le immagini secondo il Piano illustrazioni, mantenendole modificabili/spostabili nell'impaginatore. CSV e XLSX richiedono un Publication Candidate corrente. Lo ZIP immagini copia invece soltanto gli originali incorporati nel .diez, senza trasformazioni.",
             TextWrapping = Avalonia.Media.TextWrapping.Wrap,
-            MaxWidth = 620,
+            MaxWidth = 640,
             HorizontalAlignment = HorizontalAlignment.Center
         };
 
@@ -122,6 +122,8 @@ internal sealed class HandoffWindow : Window
         csv.Click += async (_, _) => await ExportCsvAsync();
         var xlsx = MakeButton("XLSX Master");
         xlsx.Click += async (_, _) => await ExportXlsxAsync();
+        var plan = MakeButton("Piano illustrazioni");
+        plan.Click += async (_, _) => await OpenIllustrationPlanAsync();
         var images = MakeButton("ZIP immagini originali");
         images.Click += async (_, _) => await ExportImagesAsync();
 
@@ -129,7 +131,7 @@ internal sealed class HandoffWindow : Window
         {
             Text = BuildReadinessText(),
             TextWrapping = Avalonia.Media.TextWrapping.Wrap,
-            MaxWidth = 620,
+            MaxWidth = 640,
             HorizontalAlignment = HorizontalAlignment.Center
         };
 
@@ -147,7 +149,7 @@ internal sealed class HandoffWindow : Window
             Padding = new Thickness(22),
             Child = new StackPanel
             {
-                Spacing = 14,
+                Spacing = 13,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 Children =
                 {
@@ -160,7 +162,13 @@ internal sealed class HandoffWindow : Window
                         HorizontalAlignment = HorizontalAlignment.Center,
                         Children = { docx, csv, xlsx }
                     },
-                    images,
+                    new StackPanel
+                    {
+                        Orientation = Orientation.Horizontal,
+                        Spacing = 10,
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        Children = { plan, images }
+                    },
                     _status,
                     close
                 }
@@ -172,17 +180,26 @@ internal sealed class HandoffWindow : Window
     {
         var preflight = EditionFreezeService.RunPreflight(_project);
         var candidate = PublicationCandidateService.IsLatestCandidateCurrent(_project);
-        var images = _project.Materials.Count(m => m.Kind.StartsWith("Immagine", StringComparison.OrdinalIgnoreCase));
+        var images = _project.Materials.Count(IllustrationPlanService.IsImage);
         var editorial = preflight.Ready && candidate ? "handoff editoriale pronto" : "handoff editoriale da finalizzare in Edizione / Preflight";
-        return $"Stato: {editorial} · {images} immagini originali disponibili nel progetto.";
+        return $"Stato: {editorial} · {images} immagini originali · {_project.IllustrationPlacements.Count} collocazioni DOCX.";
     }
 
     private static Button MakeButton(string text) => new()
     {
         Content = text,
-        Width = 175,
+        Width = 190,
         HorizontalContentAlignment = HorizontalAlignment.Center
     };
+
+    private async Task OpenIllustrationPlanAsync()
+    {
+        var dialog = new IllustrationPlanWindow(_project, _projectPath);
+        await dialog.ShowDialog(this);
+        var status = BuildReadinessText();
+        _status.Text = status;
+        _setMainStatus(status);
+    }
 
     private async Task ExportDocxAsync()
     {
@@ -197,7 +214,7 @@ internal sealed class HandoffWindow : Window
 
         try
         {
-            var result = await DocxExportService.ExportAsync(_project, file.Path.LocalPath);
+            var result = await DocxExportService.ExportAsync(_project, _projectPath, file.Path.LocalPath);
             Report(result.Message);
         }
         catch (Exception ex) { Report($"Esportazione DOCX fallita: {ex.Message}"); }
