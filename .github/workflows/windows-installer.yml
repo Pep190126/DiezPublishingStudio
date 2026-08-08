@@ -28,7 +28,7 @@ jobs:
       - name: Publish self-contained Windows x64
         run: dotnet publish src/Diez.Desktop/Diez.Desktop.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -o artifacts/publish
 
-      - name: Self-test package graph Bible consistency revision editable master metadata freeze preflight publication candidate illustrated DOCX handoff and production package
+      - name: Self-test complete pre-final editorial lifecycle and handoff
         shell: powershell
         run: |
           $exe = (Resolve-Path "artifacts\publish\DiezPublishingStudio.exe").Path
@@ -86,7 +86,7 @@ jobs:
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
-          name: DiezPublishingStudio-Setup-0.15.0-preview
+          name: DiezPublishingStudio-Setup-1.0.0-rc1
           path: artifacts/installer/DiezPublishingStudio-Setup.exe
           if-no-files-found: error
           retention-days: 90
