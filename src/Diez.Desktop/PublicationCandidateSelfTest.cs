@@ -20,6 +20,7 @@ internal static class PublicationCandidateSelfTest
             var project = ProjectFileStore.Create("Publication Candidate Test");
             project.Materials.Add(material);
             project.ContentNodes.AddRange(ContentStructureAnalyzer.Analyze(material));
+            EditionMetadataService.Update(project, "Publication Candidate Test", "", "Autore Test", "it", "Diez", "9780306406157", "Test pacchetto editoriale");
 
             var projectPath = Path.Combine(root, "publication-candidate.diez");
             await ProjectFileStore.SaveAsync(projectPath, project);
@@ -60,6 +61,7 @@ internal static class PublicationCandidateSelfTest
             using (var archive = ZipFile.OpenRead(packagePath))
             {
                 Require(archive.GetEntry("master.txt") is not null, "Nel pacchetto manca master.txt.");
+                Require(archive.GetEntry("metadata.json") is not null, "Nel pacchetto manca metadata.json.");
                 Require(archive.GetEntry("edition-manifest.json") is not null, "Nel pacchetto manca edition-manifest.json.");
                 Require(archive.GetEntry("preflight.txt") is not null, "Nel pacchetto manca preflight.txt.");
             }
