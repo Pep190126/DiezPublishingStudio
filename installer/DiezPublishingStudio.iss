@@ -1,5 +1,5 @@
 #define MyAppName "Diez Publishing Studio"
-#define MyAppVersion "1.0.0-rc5"
+#define MyAppVersion "1.0.0-rc6"
 #define MyAppPublisher "Diez Publishing Studio"
 #define MyAppExeName "DiezPublishingStudio.exe"
 
@@ -7,7 +7,7 @@
 AppId={{E6BE35BE-1F4B-4A3D-8CEB-27D970D85911}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
-VersionInfoVersion=1.0.0.5
+VersionInfoVersion=1.0.0.6
 AppPublisher={#MyAppPublisher}
 DefaultDirName={localappdata}\Programs\Diez Publishing Studio
 DefaultGroupName={#MyAppName}
