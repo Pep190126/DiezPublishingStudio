@@ -6,13 +6,14 @@ namespace DiezPublishingStudio;
 internal sealed class PreviewProject
 {
     public string Format { get; set; } = "diez-project-package";
-    public int SchemaVersion { get; set; } = 9;
+    public int SchemaVersion { get; set; } = 10;
     public string Name { get; set; } = "Nuovo progetto";
     public string SavedAtLocal { get; set; } = string.Empty;
     public Guid ProjectId { get; set; } = Guid.NewGuid();
     public EditionMetadata EditionMetadata { get; set; } = new();
     public List<MaterialEntry> Materials { get; set; } = [];
     public List<ContentNode> ContentNodes { get; set; } = [];
+    public List<IllustrationPlacement> IllustrationPlacements { get; set; } = [];
     public List<GraphEntity> Entities { get; set; } = [];
     public List<ContentRelation> Relations { get; set; } = [];
     public List<BibleEntry> BibleEntries { get; set; } = [];
@@ -60,6 +61,17 @@ internal sealed class ContentNode
     public string Body { get; set; } = string.Empty;
     public int Ordinal { get; set; }
     public string SourceLocator { get; set; } = string.Empty;
+}
+
+internal sealed class IllustrationPlacement
+{
+    public Guid PlacementId { get; set; } = Guid.NewGuid();
+    public Guid MaterialId { get; set; }
+    public Guid ContentId { get; set; }
+    public string Position { get; set; } = "AfterHeading";
+    public int WidthPercent { get; set; } = 80;
+    public string Caption { get; set; } = string.Empty;
+    public int Ordinal { get; set; }
 }
 
 internal sealed class GraphEntity
@@ -214,7 +226,7 @@ internal static class ProjectFileStore
 
         Normalize(project);
         project.Format = "diez-project-package";
-        project.SchemaVersion = 9;
+        project.SchemaVersion = 10;
         project.SavedAtLocal = DateTimeOffset.Now.ToString("G");
 
         var directory = Path.GetDirectoryName(Path.GetFullPath(path));
@@ -335,6 +347,7 @@ internal static class ProjectFileStore
         project.EditionMetadata.Description ??= string.Empty;
         project.Materials ??= [];
         project.ContentNodes ??= [];
+        project.IllustrationPlacements ??= [];
         project.Entities ??= [];
         project.Relations ??= [];
         project.BibleEntries ??= [];
@@ -365,6 +378,14 @@ internal static class ProjectFileStore
             node.Title ??= string.Empty;
             node.Body ??= string.Empty;
             node.SourceLocator ??= string.Empty;
+        }
+
+        foreach (var placement in project.IllustrationPlacements)
+        {
+            if (placement.PlacementId == Guid.Empty) placement.PlacementId = Guid.NewGuid();
+            placement.Position ??= "AfterHeading";
+            placement.Caption ??= string.Empty;
+            if (placement.WidthPercent <= 0) placement.WidthPercent = 80;
         }
 
         foreach (var entity in project.Entities)
