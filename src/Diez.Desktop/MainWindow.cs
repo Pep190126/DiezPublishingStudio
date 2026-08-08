@@ -19,7 +19,7 @@ public sealed class MainWindow : Window
 
     public MainWindow(string? startupProjectPath = null)
     {
-        Title = "Diez Publishing Studio — 0.7 Preview";
+        Title = "Diez Publishing Studio — 0.8 Preview";
         Width = 1200;
         Height = 1000;
         MinWidth = 960;
@@ -29,7 +29,7 @@ public sealed class MainWindow : Window
         var title = new TextBlock { Text = "Diez Publishing Studio", FontSize = 27, HorizontalAlignment = HorizontalAlignment.Center };
         var subtitle = new TextBlock
         {
-            Text = "Preview 0.7 — Revision Candidate: proposta separata, approvazione umana e applicazione esplicita",
+            Text = "Preview 0.8 — Editable Master: modifica il contenuto senza sovrascrivere gli originali importati",
             FontSize = 15,
             HorizontalAlignment = HorizontalAlignment.Center
         };
@@ -44,6 +44,11 @@ public sealed class MainWindow : Window
         removeButton.Click += async (_, _) => await RemoveSelectedMaterialAsync();
         var saveButton = MakeButton("Salva");
         saveButton.Click += async (_, _) => await SaveCurrentAsync();
+
+        var editMasterButton = MakeSmallButton("Modifica Master");
+        editMasterButton.Click += async (_, _) => await EditSelectedContentAsync();
+        var restoreImportedButton = MakeSmallButton("Ripristina importato");
+        restoreImportedButton.Click += async (_, _) => await RestoreSelectedContentAsync();
 
         var confirmEntityButton = MakeButton("Conferma entità");
         confirmEntityButton.Click += async (_, _) => await ConfirmSelectedEntityAsync();
@@ -70,72 +75,49 @@ public sealed class MainWindow : Window
 
         _status = new TextBlock
         {
-            Text = "Pronto. Una proposta di revisione resta separata dal manoscritto finché non viene prima approvata e poi applicata esplicitamente.",
+            Text = "Pronto. Il Master è modificabile; gli originali importati restano incorporati e intatti nel .diez.",
             TextWrapping = Avalonia.Media.TextWrapping.Wrap,
             HorizontalAlignment = HorizontalAlignment.Center,
             MaxWidth = 1040
         };
 
-        _materialsList = new ListBox { Width = 1040, Height = 78 };
+        _materialsList = new ListBox { Width = 1040, Height = 70 };
         _materialsList.SelectionChanged += (_, _) => ShowSelectedMaterial();
-        _structureList = new ListBox { Width = 1040, Height = 95 };
+        _structureList = new ListBox { Width = 1040, Height = 92 };
         _structureList.SelectionChanged += (_, _) => ShowSelectedContentNode();
-        _entitiesList = new ListBox { Width = 1040, Height = 95 };
+        _entitiesList = new ListBox { Width = 1040, Height = 85 };
         _entitiesList.SelectionChanged += (_, _) => ShowSelectedEntity();
-        _issuesList = new ListBox { Width = 1040, Height = 115 };
+        _issuesList = new ListBox { Width = 1040, Height = 108 };
         _issuesList.SelectionChanged += (_, _) => ShowSelectedIssue();
 
         _preview = new TextBox
         {
             Width = 1040,
-            Height = 185,
+            Height = 165,
             AcceptsReturn = true,
             IsReadOnly = true,
             TextWrapping = Avalonia.Media.TextWrapping.Wrap,
-            Watermark = "Seleziona materiale, struttura, entità o problema di coerenza."
+            Watermark = "Seleziona materiale, contenuto, entità o problema di coerenza."
         };
 
-        var projectButtons = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = 10,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            Children = { newButton, openButton, importButton, removeButton, saveButton }
-        };
-        var graphButtons = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = 10,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            Children = { confirmEntityButton, ignoreEntityButton }
-        };
-        var reviewButtons = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = 8,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            Children = { reviewedButton, exceptionButton, resolvedButton, reopenButton }
-        };
-        var revisionButtons = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = 8,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            Children = { proposeButton, approveButton, rejectButton, applyButton }
-        };
+        var projectButtons = Row(newButton, openButton, importButton, removeButton, saveButton);
+        var masterButtons = Row(editMasterButton, restoreImportedButton);
+        var graphButtons = Row(confirmEntityButton, ignoreEntityButton);
+        var reviewButtons = Row(reviewedButton, exceptionButton, resolvedButton, reopenButton);
+        var revisionButtons = Row(proposeButton, approveButton, rejectButton, applyButton);
 
         Content = new Border
         {
-            Padding = new Thickness(18),
+            Padding = new Thickness(16),
             Child = new StackPanel
             {
                 HorizontalAlignment = HorizontalAlignment.Center,
-                Spacing = 5,
+                Spacing = 4,
                 Children =
                 {
                     logo, title, subtitle, projectButtons, _status,
                     MakeSectionLabel("Materiali incorporati"), _materialsList,
-                    MakeSectionLabel("Struttura editoriale"), _structureList,
+                    MakeSectionLabel("Editable Master / Struttura editoriale"), _structureList, masterButtons,
                     MakeSectionLabel("Content Graph / Bible"), _entitiesList, graphButtons,
                     MakeSectionLabel("Consistency Review / Revision Candidate"), _issuesList, reviewButtons, revisionButtons,
                     MakeSectionLabel("Dettaglio"), _preview
@@ -151,6 +133,14 @@ public sealed class MainWindow : Window
             };
         }
     }
+
+    private static StackPanel Row(params Control[] controls) => new()
+    {
+        Orientation = Orientation.Horizontal,
+        Spacing = 8,
+        HorizontalAlignment = HorizontalAlignment.Center,
+        Children = { controls }
+    };
 
     private static Button MakeButton(string text) => new()
     {
@@ -219,7 +209,7 @@ public sealed class MainWindow : Window
             _project = project;
             RefreshViews();
             _status.Text = wasPackage
-                ? $"Aperto: {project.Name} · {project.Materials.Count} materiali · {project.Entities.Count} entità · {OpenIssueCount()} problemi aperti · {project.RevisionCandidates.Count} proposte di revisione"
+                ? $"Aperto: {project.Name} · {project.Materials.Count} materiali · {project.ContentNodes.Count} contenuti · {ManualRevisionTotal()} revisioni Master · {OpenIssueCount()} problemi aperti"
                 : $"Aperto progetto legacy: {project.Name}. Al prossimo Salva verrà convertito nel pacchetto .diez corrente.";
         }
         catch (Exception ex) { _status.Text = $"Errore apertura: {ex.Message}"; }
@@ -307,22 +297,20 @@ public sealed class MainWindow : Window
             return;
         }
 
-        var index = _materialsList.SelectedIndex;
-        var removed = _project.Materials[index];
+        var removed = _project.Materials[_materialsList.SelectedIndex];
         var removedNodes = _project.ContentNodes.Where(n => n.MaterialId == removed.MaterialId).ToList();
         var removedNodeIds = removedNodes.Select(n => n.ContentId).ToHashSet();
         var removedEntities = _project.Entities.Where(e => e.SourceMaterialId == removed.MaterialId && e.IsCandidate).ToList();
         var removedEntityIds = removedEntities.Select(e => e.EntityId).ToHashSet();
-        var removedRelations = _project.Relations.Where(r =>
+
+        _project.Materials.Remove(removed);
+        _project.ContentNodes.RemoveAll(n => removedNodeIds.Contains(n.ContentId));
+        _project.Entities.RemoveAll(e => removedEntityIds.Contains(e.EntityId));
+        _project.Relations.RemoveAll(r =>
             (r.FromKind == "Content" && removedNodeIds.Contains(r.FromId)) ||
             (r.ToKind == "Content" && removedNodeIds.Contains(r.ToId)) ||
             (r.FromKind == "Entity" && removedEntityIds.Contains(r.FromId)) ||
-            (r.ToKind == "Entity" && removedEntityIds.Contains(r.ToId))).ToList();
-
-        _project.Materials.RemoveAt(index);
-        _project.ContentNodes.RemoveAll(n => removedNodeIds.Contains(n.ContentId));
-        _project.Entities.RemoveAll(e => removedEntityIds.Contains(e.EntityId));
-        _project.Relations.RemoveAll(r => removedRelations.Contains(r));
+            (r.ToKind == "Entity" && removedEntityIds.Contains(r.ToId)));
         _project.BibleEntries.RemoveAll(b => removedEntityIds.Contains(b.SubjectEntityId));
         _project.RevisionCandidates.RemoveAll(c => removedNodeIds.Contains(c.ContentId) || removedEntityIds.Contains(c.SubjectEntityId));
 
@@ -334,12 +322,70 @@ public sealed class MainWindow : Window
         {
             await ProjectFileStore.SaveAsync(_currentProjectPath, _project);
             RefreshViews();
-            _status.Text = $"Rimosso: {removed.FileName} · {removedNodes.Count} elementi e {removedEntities.Count} candidati collegati · {OpenIssueCount()} problemi aperti rimasti.";
+            _status.Text = $"Rimosso: {removed.FileName} · {removedNodes.Count} elementi e {removedEntities.Count} candidati collegati.";
         }
-        catch (Exception ex)
+        catch (Exception ex) { _status.Text = $"Errore salvataggio dopo rimozione: {ex.Message}. Riapri il progetto per ripristinare lo stato salvato."; }
+    }
+
+    private async Task EditSelectedContentAsync()
+    {
+        if (_project is null || string.IsNullOrWhiteSpace(_currentProjectPath)) return;
+        var node = GetSelectedContentNode();
+        if (node is null)
         {
-            _status.Text = $"Errore salvataggio dopo rimozione: {ex.Message}. Riapri il progetto per ripristinare lo stato salvato.";
+            _status.Text = "Seleziona prima un capitolo o una sezione nella Struttura editoriale.";
+            return;
         }
+        if (!EditableMasterService.CanEdit(_project, node))
+        {
+            _status.Text = "Questo nodo è strutturale. Seleziona un capitolo o una sezione modificabile.";
+            return;
+        }
+
+        var editor = new ContentEditorWindow(node, EditableMasterService.ManualRevisionCount(_project, node.ContentId));
+        var edited = await editor.ShowDialog<string?>(this);
+        if (edited is null) return;
+
+        var result = EditableMasterService.ApplyManualEdit(_project, node.ContentId, edited);
+        if (!result.Changed)
+        {
+            _status.Text = result.Message;
+            return;
+        }
+
+        try
+        {
+            await ProjectFileStore.SaveAsync(_currentProjectPath, _project);
+            RefreshViews(selectContentId: node.ContentId);
+            _status.Text = $"{result.Message} Revisioni Master registrate: {EditableMasterService.ManualRevisionCount(_project, node.ContentId)}.";
+        }
+        catch (Exception ex) { _status.Text = $"La modifica è in memoria ma il salvataggio è fallito: {ex.Message}. Riapri il progetto prima di continuare."; }
+    }
+
+    private async Task RestoreSelectedContentAsync()
+    {
+        if (_project is null || string.IsNullOrWhiteSpace(_currentProjectPath)) return;
+        var node = GetSelectedContentNode();
+        if (node is null)
+        {
+            _status.Text = "Seleziona prima il contenuto da ripristinare.";
+            return;
+        }
+
+        var result = EditableMasterService.RestoreImportedSnapshot(_project, node.ContentId);
+        if (!result.Changed)
+        {
+            _status.Text = result.Message;
+            return;
+        }
+
+        try
+        {
+            await ProjectFileStore.SaveAsync(_currentProjectPath, _project);
+            RefreshViews(selectContentId: node.ContentId);
+            _status.Text = "Contenuto ripristinato dallo snapshot importato. Il ripristino è stato registrato come nuova revisione del Master.";
+        }
+        catch (Exception ex) { _status.Text = $"Ripristino in memoria riuscito ma salvataggio fallito: {ex.Message}."; }
     }
 
     private async Task ConfirmSelectedEntityAsync()
@@ -355,7 +401,7 @@ public sealed class MainWindow : Window
         try
         {
             await ProjectFileStore.SaveAsync(_currentProjectPath, _project);
-            RefreshViews(entity.EntityId);
+            RefreshViews(selectEntityId: entity.EntityId);
             _status.Text = $"Confermato: {entity.Name}. Bible aggiornata · {EntityIssueCount(entity.EntityId)} problemi aperti collegati.";
         }
         catch (Exception ex) { _status.Text = $"Errore salvataggio Bible: {ex.Message}"; }
@@ -408,7 +454,7 @@ public sealed class MainWindow : Window
         {
             await ProjectFileStore.SaveAsync(_currentProjectPath, _project);
             RefreshViews(selectIssueId: issue.IssueId);
-            _status.Text = $"Problema segnato come {StatusLabel(newStatus)}. Decisione registrata nel .diez; il manoscritto non è stato modificato.";
+            _status.Text = $"Problema segnato come {StatusLabel(newStatus)}. Decisione registrata; il Master non è stato modificato.";
         }
         catch (Exception ex) { _status.Text = $"Errore salvataggio decisione di revisione: {ex.Message}"; }
     }
@@ -473,8 +519,8 @@ public sealed class MainWindow : Window
             await ProjectFileStore.SaveAsync(_currentProjectPath, _project);
             RefreshViews(selectIssueId: issue.IssueId);
             _status.Text = newStatus == "Approved"
-                ? "Proposta approvata. Il contenuto non è ancora cambiato: serve il comando Applica approvata."
-                : "Proposta scartata. Il contenuto non è stato modificato.";
+                ? "Proposta approvata. Il Master non è ancora cambiato: serve Applica approvata."
+                : "Proposta scartata. Il Master non è stato modificato.";
         }
         catch (Exception ex) { _status.Text = $"Errore salvataggio stato proposta: {ex.Message}"; }
     }
@@ -506,7 +552,7 @@ public sealed class MainWindow : Window
         try
         {
             await ProjectFileStore.SaveAsync(_currentProjectPath, _project);
-            RefreshViews();
+            RefreshViews(selectContentId: candidate.ContentId);
             _status.Text = $"{result.Message} Problemi aperti rimasti: {OpenIssueCount()}.";
         }
         catch (Exception ex) { _status.Text = $"La proposta è stata applicata in memoria ma il salvataggio è fallito: {ex.Message}. Riapri il progetto prima di continuare."; }
@@ -525,12 +571,12 @@ public sealed class MainWindow : Window
             ConsistencyEngine.Rebuild(_project);
             await ProjectFileStore.SaveAsync(_currentProjectPath, _project);
             RefreshViews();
-            _status.Text = $"Salvato: {_project.ContentNodes.Count} elementi · {_project.Entities.Count} entità · {_project.BibleEntries.Count(b => b.IsActive)} voci Bible · {OpenIssueCount()} problemi aperti · {_project.RevisionCandidates.Count} proposte";
+            _status.Text = $"Salvato: {_project.ContentNodes.Count} contenuti · {ManualRevisionTotal()} revisioni Master · {_project.Entities.Count} entità · {OpenIssueCount()} problemi aperti · {ProposalCount()} proposte";
         }
         catch (Exception ex) { _status.Text = $"Errore salvataggio: {ex.Message}"; }
     }
 
-    private void RefreshViews(Guid? selectEntityId = null, Guid? selectIssueId = null)
+    private void RefreshViews(Guid? selectEntityId = null, Guid? selectIssueId = null, Guid? selectContentId = null)
     {
         _preview.Text = string.Empty;
         if (_project is null)
@@ -546,8 +592,15 @@ public sealed class MainWindow : Window
             .Select(m => $"{(m.IsEmbedded ? "●" : "○")}  {m.Kind}  ·  {m.FileName}  ·  {m.Summary}")
             .ToList();
 
-        _structureList.ItemsSource = GetOrderedNodes()
-            .Select(n => $"{NodePrefix(n.Kind)}  {n.Title}  ·  {n.SourceLocator}")
+        var orderedNodes = GetOrderedNodes();
+        _structureList.ItemsSource = orderedNodes
+            .Select(n =>
+            {
+                var revisions = EditableMasterService.ManualRevisionCount(_project, n.ContentId);
+                var editable = EditableMasterService.CanEdit(_project, n) ? "✎" : "·";
+                var history = revisions > 0 ? $" · rev {revisions}" : string.Empty;
+                return $"{editable} {NodePrefix(n.Kind)}  {n.Title}  ·  {n.SourceLocator}{history}";
+            })
             .ToList();
 
         var orderedEntities = GetOrderedEntities();
@@ -570,15 +623,20 @@ public sealed class MainWindow : Window
             })
             .ToList();
 
+        if (selectContentId.HasValue)
+        {
+            var index = orderedNodes.FindIndex(n => n.ContentId == selectContentId.Value);
+            if (index >= 0) _structureList.SelectedIndex = index;
+        }
         if (selectEntityId.HasValue)
         {
-            var selectedIndex = orderedEntities.FindIndex(e => e.EntityId == selectEntityId.Value);
-            if (selectedIndex >= 0) _entitiesList.SelectedIndex = selectedIndex;
+            var index = orderedEntities.FindIndex(e => e.EntityId == selectEntityId.Value);
+            if (index >= 0) _entitiesList.SelectedIndex = index;
         }
         if (selectIssueId.HasValue)
         {
-            var selectedIndex = orderedIssues.FindIndex(i => i.IssueId == selectIssueId.Value);
-            if (selectedIndex >= 0) _issuesList.SelectedIndex = selectedIndex;
+            var index = orderedIssues.FindIndex(i => i.IssueId == selectIssueId.Value);
+            if (index >= 0) _issuesList.SelectedIndex = index;
         }
     }
 
@@ -592,20 +650,31 @@ public sealed class MainWindow : Window
             $"{material.FileName}\nTipo: {material.Kind}\nOrigine importazione: {material.SourcePath}\n" +
             $"Dimensione: {material.SizeBytes:N0} byte\nSHA-256: {shortHash}...\n" +
             $"Nel progetto: {(material.IsEmbedded ? "originale incorporato nel .diez" : "solo metadati")}\n" +
-            $"Testo editoriale estratto: {(string.IsNullOrWhiteSpace(material.ExtractedText) ? "no" : "sì")}\n{material.Summary}\n\n{material.Preview}";
+            $"Snapshot testuale: {(string.IsNullOrWhiteSpace(material.ExtractedText) ? "no" : "sì")}\n{material.Summary}\n\n{material.Preview}";
     }
 
     private void ShowSelectedContentNode()
     {
-        if (_project is null || _structureList.SelectedIndex < 0) return;
-        var ordered = GetOrderedNodes();
-        if (_structureList.SelectedIndex >= ordered.Count) return;
+        var node = GetSelectedContentNode();
+        if (_project is null || node is null) return;
         ClearOtherSelections(_structureList);
-        var node = ordered[_structureList.SelectedIndex];
         var mentions = _project.Relations.Count(r => r.Type == "AppearsIn" && r.ToKind == "Content" && r.ToId == node.ContentId);
         var consistencyReferences = _project.ConsistencyIssues.Count(i => i.Status == "Open" && i.ContentIds.Contains(node.ContentId));
-        var revisionCount = _project.RevisionCandidates.Count(c => c.ContentId == node.ContentId);
-        _preview.Text = $"{node.Kind}: {node.Title}\nProvenienza: {node.SourceLocator}\nOrdine: {node.Ordinal}\nEntità collegate: {mentions}\nProblemi aperti collegati: {consistencyReferences}\nProposte di revisione: {revisionCount}\n\n{node.Body}";
+        var revisions = EditableMasterService.ManualHistory(_project, node.ContentId);
+        var candidateCount = _project.RevisionCandidates.Count(c => c.ContentId == node.ContentId && c.Key != "manual_edit");
+        var builder = new StringBuilder();
+        builder.AppendLine($"{node.Kind}: {node.Title}");
+        builder.AppendLine($"Provenienza: {node.SourceLocator}");
+        builder.AppendLine($"Modificabile nel Master: {(EditableMasterService.CanEdit(_project, node) ? "sì" : "no, nodo strutturale")}");
+        builder.AppendLine($"Revisioni manuali: {revisions.Count} · proposte: {candidateCount} · problemi aperti: {consistencyReferences} · entità collegate: {mentions}");
+        if (revisions.Count > 0)
+        {
+            var latest = revisions[^1];
+            builder.AppendLine($"Ultima revisione: {latest.AppliedAtLocal} · {latest.Rationale}");
+        }
+        builder.AppendLine();
+        builder.AppendLine(node.Body);
+        _preview.Text = builder.ToString().TrimEnd();
     }
 
     private void ShowSelectedEntity()
@@ -618,31 +687,15 @@ public sealed class MainWindow : Window
         builder.AppendLine($"{(entity.IsCandidate ? "CANDIDATO" : "CONFERMATO")} · {entity.Kind}: {entity.Name}");
         builder.AppendLine(entity.Notes);
         builder.AppendLine();
-        builder.AppendLine("Relazioni:");
-        foreach (var relation in _project.Relations.Where(r =>
-                     (r.FromKind == "Entity" && r.FromId == entity.EntityId) ||
-                     (r.ToKind == "Entity" && r.ToId == entity.EntityId)).Take(10))
-        {
-            builder.AppendLine($"- {(relation.IsCandidate ? "?" : "✓")} {DescribeEndpoint(relation.FromKind, relation.FromId)} —{relation.Type}→ {DescribeEndpoint(relation.ToKind, relation.ToId)}");
-        }
-
-        var bible = _project.BibleEntries.Where(b => b.SubjectEntityId == entity.EntityId && b.IsActive).ToList();
-        builder.AppendLine();
         builder.AppendLine("Bible:");
-        if (bible.Count == 0) builder.AppendLine("- Nessuna voce canonica: conferma l'entità per promuoverla nella Bible.");
+        var bible = _project.BibleEntries.Where(b => b.SubjectEntityId == entity.EntityId && b.IsActive).ToList();
+        if (bible.Count == 0) builder.AppendLine("- Nessuna voce canonica.");
         else foreach (var entry in bible) builder.AppendLine($"- [{entry.Authority}] {entry.Key} = {entry.Value}");
-
-        var issues = _project.ConsistencyIssues
-            .Where(i => i.SubjectEntityId == entity.EntityId)
-            .OrderBy(i => IssueStatusRank(i.Status))
-            .ThenBy(i => SeverityRank(i.Severity))
-            .ToList();
         builder.AppendLine();
         builder.AppendLine("Coerenza:");
-        if (entity.IsCandidate) builder.AppendLine("- Il controllo completo parte quando l'entità viene confermata.");
-        else if (issues.Count == 0) builder.AppendLine("- Nessuna contraddizione rilevata dalle regole attive.");
-        else foreach (var issue in issues.Take(8)) builder.AppendLine($"- [{StatusLabel(issue.Status)} / {issue.Severity}] {issue.Message}");
-
+        var issues = _project.ConsistencyIssues.Where(i => i.SubjectEntityId == entity.EntityId).OrderBy(i => IssueStatusRank(i.Status)).ThenBy(i => SeverityRank(i.Severity)).Take(8).ToList();
+        if (issues.Count == 0) builder.AppendLine("- Nessuna contraddizione rilevata dalle regole attive.");
+        else foreach (var issue in issues) builder.AppendLine($"- [{StatusLabel(issue.Status)} / {issue.Severity}] {issue.Message}");
         _preview.Text = builder.ToString().TrimEnd();
     }
 
@@ -655,8 +708,7 @@ public sealed class MainWindow : Window
         var builder = new StringBuilder();
         builder.AppendLine($"{IssueStatusSymbol(issue.Status)} {StatusLabel(issue.Status)} · {issue.Severity} · {issue.Code}");
         builder.AppendLine(issue.Message);
-        builder.AppendLine($"Entità: {EntityName(issue.SubjectEntityId)}");
-        builder.AppendLine($"Campo: {issue.Key}");
+        builder.AppendLine($"Entità: {EntityName(issue.SubjectEntityId)} · campo: {issue.Key}");
         builder.AppendLine();
         builder.AppendLine("Fonti / evidenze:");
         foreach (var contentId in issue.ContentIds)
@@ -675,40 +727,22 @@ public sealed class MainWindow : Window
         builder.AppendLine();
         builder.AppendLine("Decisioni umane:");
         if (history.Count == 0) builder.AppendLine("- Nessuna decisione registrata.");
-        else foreach (var resolution in history.TakeLast(8))
-            builder.AppendLine($"- {resolution.PreviousStatus} → {resolution.NewStatus} · {resolution.CreatedAtLocal}");
+        else foreach (var resolution in history.TakeLast(6)) builder.AppendLine($"- {resolution.PreviousStatus} → {resolution.NewStatus} · {resolution.CreatedAtLocal}");
 
         var candidate = GetLatestCandidate(issue);
         builder.AppendLine();
         builder.AppendLine("Revision Candidate:");
         if (candidate is null)
         {
-            builder.AppendLine("- Nessuna proposta. Crea proposta prepara una possibile modifica senza toccare il testo.");
+            builder.AppendLine("- Nessuna proposta. Crea proposta prepara una modifica separata dal Master.");
         }
         else
         {
-            var node = _project.ContentNodes.FirstOrDefault(n => n.ContentId == candidate.ContentId);
-            builder.AppendLine($"- Stato: {CandidateStatusLabel(candidate.Status)}");
-            builder.AppendLine($"- Destinazione: {node?.Title ?? "contenuto mancante"}");
-            builder.AppendLine($"- Valore: {candidate.OriginalValue} → {candidate.ProposedValue}");
+            builder.AppendLine($"- Stato: {CandidateStatusLabel(candidate.Status)} · {candidate.OriginalValue} → {candidate.ProposedValue}");
             builder.AppendLine($"- Motivo: {candidate.Rationale}");
-            builder.AppendLine();
-            builder.AppendLine("PRIMA:");
-            builder.AppendLine(TrimForPreview(candidate.OriginalBody));
-            builder.AppendLine();
-            builder.AppendLine("DOPO PROPOSTO:");
-            builder.AppendLine(TrimForPreview(candidate.ProposedBody));
-            builder.AppendLine();
-            builder.AppendLine(candidate.Status switch
-            {
-                "Proposed" => "La proposta è separata dal contenuto: Approva proposta non modifica ancora il manoscritto.",
-                "Approved" => "La proposta è approvata ma non applicata. Solo Applica approvata può modificare il contenuto editoriale.",
-                "Applied" => "La proposta è stata applicata al contenuto editoriale; l'originale importato incorporato resta intatto.",
-                "Rejected" => "La proposta è stata scartata e non ha modificato il contenuto.",
-                _ => "La proposta non modifica automaticamente il contenuto."
-            });
+            builder.AppendLine("PRIMA: " + TrimForPreview(candidate.OriginalBody));
+            builder.AppendLine("DOPO: " + TrimForPreview(candidate.ProposedBody));
         }
-
         _preview.Text = builder.ToString().TrimEnd();
     }
 
@@ -718,6 +752,13 @@ public sealed class MainWindow : Window
         if (!ReferenceEquals(keep, _structureList)) _structureList.SelectedIndex = -1;
         if (!ReferenceEquals(keep, _entitiesList)) _entitiesList.SelectedIndex = -1;
         if (!ReferenceEquals(keep, _issuesList)) _issuesList.SelectedIndex = -1;
+    }
+
+    private ContentNode? GetSelectedContentNode()
+    {
+        if (_project is null || _structureList.SelectedIndex < 0) return null;
+        var ordered = GetOrderedNodes();
+        return _structureList.SelectedIndex < ordered.Count ? ordered[_structureList.SelectedIndex] : null;
     }
 
     private GraphEntity? GetSelectedEntity()
@@ -738,7 +779,7 @@ public sealed class MainWindow : Window
     {
         if (_project is null) return null;
         return _project.RevisionCandidates
-            .Where(c => c.IssueId == issue.IssueId || (!string.IsNullOrWhiteSpace(issue.Signature) && c.IssueSignature == issue.Signature))
+            .Where(c => c.Key != "manual_edit" && (c.IssueId == issue.IssueId || (!string.IsNullOrWhiteSpace(issue.Signature) && c.IssueSignature == issue.Signature)))
             .OrderByDescending(c => c.CreatedAtLocal, StringComparer.Ordinal)
             .FirstOrDefault();
     }
@@ -762,9 +803,9 @@ public sealed class MainWindow : Window
         .ToList();
 
     private int OpenIssueCount() => _project?.ConsistencyIssues.Count(i => i.Status == "Open") ?? 0;
-
-    private int EntityIssueCount(Guid entityId) => _project?.ConsistencyIssues.Count(i =>
-        i.Status == "Open" && i.SubjectEntityId == entityId) ?? 0;
+    private int ManualRevisionTotal() => _project?.RevisionCandidates.Count(c => c.Key == "manual_edit" && c.Status == "Applied") ?? 0;
+    private int ProposalCount() => _project?.RevisionCandidates.Count(c => c.Key != "manual_edit") ?? 0;
+    private int EntityIssueCount(Guid entityId) => _project?.ConsistencyIssues.Count(i => i.Status == "Open" && i.SubjectEntityId == entityId) ?? 0;
 
     private string EntityName(Guid? entityId)
     {
@@ -819,15 +860,7 @@ public sealed class MainWindow : Window
     private static string TrimForPreview(string value)
     {
         var clean = value?.Trim() ?? string.Empty;
-        return clean.Length <= 600 ? clean : clean[..597] + "...";
-    }
-
-    private string DescribeEndpoint(string kind, Guid id)
-    {
-        if (_project is null) return id.ToString("N")[..8];
-        if (kind == "Entity") return _project.Entities.FirstOrDefault(e => e.EntityId == id)?.Name ?? "entità mancante";
-        if (kind == "Content") return _project.ContentNodes.FirstOrDefault(n => n.ContentId == id)?.Title ?? "contenuto mancante";
-        return id.ToString("N")[..8];
+        return clean.Length <= 450 ? clean : clean[..447] + "...";
     }
 
     private static string NodePrefix(string kind) => kind switch
