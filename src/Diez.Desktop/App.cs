@@ -21,12 +21,12 @@ public sealed class App : Application
             desktop.MainWindow = mainWindow;
 
             var failures = new List<string>();
-            if (!StartupDiagnostics.TryAttach("Edizione / Preflight", () => EditionWorkflowUi.Attach(mainWindow), out var editionError) && editionError is not null)
+            if (!StartupDiagnostics.TryAttach("Prepara consegna", () => EditionWorkflowUi.Attach(mainWindow), out var editionError) && editionError is not null)
                 failures.Add(editionError);
-            if (!StartupDiagnostics.TryAttach("Export / Handoff", () => HandoffWorkflowUi.Attach(mainWindow), out var handoffError) && handoffError is not null)
+            if (!StartupDiagnostics.TryAttach("Esporta / Consegna", () => HandoffWorkflowUi.Attach(mainWindow), out var handoffError) && handoffError is not null)
                 failures.Add(handoffError);
-            if (!StartupDiagnostics.TryAttach("Layout responsive", () => ResponsiveLayoutUi.Attach(mainWindow), out var responsiveError) && responsiveError is not null)
-                failures.Add(responsiveError);
+            if (!StartupDiagnostics.TryAttach("Layout e aiuto contestuale", () => FriendlyLayoutUi.Attach(mainWindow), out var layoutError) && layoutError is not null)
+                failures.Add(layoutError);
 
             StartupDiagnostics.ShowWarning(mainWindow, failures);
         }
