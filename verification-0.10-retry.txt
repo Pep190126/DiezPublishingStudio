@@ -1,0 +1,1 @@
+0.10 validation retry after schema self-test update
