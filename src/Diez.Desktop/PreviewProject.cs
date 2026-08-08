@@ -380,6 +380,7 @@ internal static class ProjectFileStore
             node.SourceLocator ??= string.Empty;
         }
 
+        IllustrationPlanService.PruneOrphans(project);
         foreach (var placement in project.IllustrationPlacements)
         {
             if (placement.PlacementId == Guid.Empty) placement.PlacementId = Guid.NewGuid();
