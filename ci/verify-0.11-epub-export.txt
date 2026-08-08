@@ -1,1 +1,1 @@
-validation marker for 0.11 EPUB export - diagnostics pass
+validation marker for 0.11 EPUB export - nav assertion fix
