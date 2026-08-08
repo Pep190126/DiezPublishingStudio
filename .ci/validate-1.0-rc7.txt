@@ -1,0 +1,1 @@
+Validation marker for Diez Publishing Studio 1.0 RC7 image batch workflow.
