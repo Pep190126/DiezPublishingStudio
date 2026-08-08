@@ -14,7 +14,7 @@ internal static class EditionWorkflowUi
 
     public static void Attach(MainWindow window)
     {
-        window.Title = "Diez Publishing Studio — 0.9 Preview";
+        window.Title = "Diez Publishing Studio — 0.10 Preview";
 
         if (window.Content is not Border border || border.Child is not StackPanel root)
             return;
@@ -22,9 +22,10 @@ internal static class EditionWorkflowUi
         var subtitle = root.Children
             .OfType<TextBlock>()
             .FirstOrDefault(t => t.Text?.StartsWith("Preview 0.8", StringComparison.Ordinal) == true ||
-                                 t.Text?.StartsWith("Preview 0.9", StringComparison.Ordinal) == true);
+                                 t.Text?.StartsWith("Preview 0.9", StringComparison.Ordinal) == true ||
+                                 t.Text?.StartsWith("Preview 0.10", StringComparison.Ordinal) == true);
         if (subtitle is not null)
-            subtitle.Text = "Preview 0.9 — Editable Master + Edition Freeze + preflight + Publication Candidate";
+            subtitle.Text = "Preview 0.10 — Edition Metadata + Editable Master + Freeze + preflight + Publication Candidate";
 
         var projectButtons = root.Children
             .OfType<StackPanel>()
@@ -46,7 +47,7 @@ internal static class EditionWorkflowUi
         {
             if (!TryGetSession(window, out var project, out var projectPath))
             {
-                SetMainStatus(window, "Prima crea o apri un progetto .diez per usare Edition Freeze, preflight e Publication Candidate.");
+                SetMainStatus(window, "Prima crea o apri un progetto .diez per usare metadati, Edition Freeze, preflight e Publication Candidate.");
                 return;
             }
 
@@ -57,8 +58,9 @@ internal static class EditionWorkflowUi
             var candidateCount = PublicationCandidateService.Count(project);
             var freezeCurrent = freezeCount > 0 && EditionFreezeService.IsLatestFreezeCurrent(project);
             var candidateCurrent = candidateCount > 0 && PublicationCandidateService.IsLatestCandidateCurrent(project);
+            var metadataTitle = string.IsNullOrWhiteSpace(project.EditionMetadata?.Title) ? "titolo mancante" : project.EditionMetadata.Title;
             SetMainStatus(window,
-                $"Edizione: {freezeCount} freeze · ultimo {(freezeCurrent ? "corrente" : freezeCount == 0 ? "assente" : "superato")} · " +
+                $"Edizione: {metadataTitle} · {freezeCount} freeze · ultimo {(freezeCurrent ? "corrente" : freezeCount == 0 ? "assente" : "superato")} · " +
                 $"{candidateCount} Publication Candidate · ultimo {(candidateCurrent ? "corrente" : candidateCount == 0 ? "assente" : "superato")}.");
         };
 
@@ -92,6 +94,7 @@ internal sealed class EditionPreflightWindow : Window
 {
     private readonly PreviewProject _project;
     private readonly string _projectPath;
+    private readonly TextBlock _metadataState;
     private readonly TextBlock _freezeState;
     private readonly TextBlock _candidateState;
     private readonly TextBlock _summary;
@@ -102,11 +105,11 @@ internal sealed class EditionPreflightWindow : Window
         _project = project;
         _projectPath = projectPath;
 
-        Title = "Edition Freeze / Preflight / Publication Candidate";
+        Title = "Edition Metadata / Freeze / Preflight / Publication Candidate";
         Width = 1020;
-        Height = 720;
+        Height = 780;
         MinWidth = 820;
-        MinHeight = 580;
+        MinHeight = 620;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
 
         var heading = new TextBlock
@@ -117,10 +120,11 @@ internal sealed class EditionPreflightWindow : Window
         };
         var explanation = new TextBlock
         {
-            Text = "Edition Freeze fotografa Master e Bible. Il preflight verifica che l'edizione sia pronta. Solo con preflight READY puoi creare un Publication Candidate immutabile ed esportare il pacchetto editoriale ZIP.",
+            Text = "I metadati bibliografici fanno parte dell'edizione. Edition Freeze fotografa metadati, Master e Bible; il preflight verifica che tutto sia pronto. Solo con preflight READY puoi creare un Publication Candidate immutabile ed esportare il pacchetto editoriale ZIP.",
             TextWrapping = Avalonia.Media.TextWrapping.Wrap
         };
 
+        _metadataState = new TextBlock { TextWrapping = Avalonia.Media.TextWrapping.Wrap };
         _freezeState = new TextBlock { TextWrapping = Avalonia.Media.TextWrapping.Wrap };
         _candidateState = new TextBlock { TextWrapping = Avalonia.Media.TextWrapping.Wrap };
         _summary = new TextBlock
@@ -130,10 +134,12 @@ internal sealed class EditionPreflightWindow : Window
         };
         _checks = new ListBox
         {
-            Height = 330,
+            Height = 300,
             HorizontalAlignment = HorizontalAlignment.Stretch
         };
 
+        var metadataButton = new Button { Content = "Metadati edizione", Width = 165 };
+        metadataButton.Click += async (_, _) => await EditMetadataAsync();
         var freezeButton = new Button { Content = "Crea Edition Freeze", Width = 170 };
         freezeButton.Click += async (_, _) => await CreateFreezeAsync();
         var preflightButton = new Button { Content = "Esegui preflight", Width = 145 };
@@ -145,12 +151,25 @@ internal sealed class EditionPreflightWindow : Window
         var closeButton = new Button { Content = "Chiudi", Width = 100 };
         closeButton.Click += (_, _) => Close();
 
-        var buttons = new StackPanel
+        var primaryButtons = new StackPanel
         {
             Orientation = Orientation.Horizontal,
             Spacing = 8,
             HorizontalAlignment = HorizontalAlignment.Right,
-            Children = { freezeButton, preflightButton, publicationButton, exportButton, closeButton }
+            Children = { metadataButton, freezeButton, preflightButton }
+        };
+        var publicationButtons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Children = { publicationButton, exportButton, closeButton }
+        };
+        var buttons = new StackPanel
+        {
+            Spacing = 6,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Children = { primaryButtons, publicationButtons }
         };
 
         Content = new Border
@@ -158,22 +177,30 @@ internal sealed class EditionPreflightWindow : Window
             Padding = new Thickness(20),
             Child = new Grid
             {
-                RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto,Auto,*,Auto"),
-                RowSpacing = 10,
+                RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto,Auto,Auto,*,Auto"),
+                RowSpacing = 9,
                 Children =
                 {
                     heading,
                     explanation.WithGridRow(1),
-                    _freezeState.WithGridRow(2),
-                    _candidateState.WithGridRow(3),
-                    _summary.WithGridRow(4),
-                    _checks.WithGridRow(5),
-                    buttons.WithGridRow(6)
+                    _metadataState.WithGridRow(2),
+                    _freezeState.WithGridRow(3),
+                    _candidateState.WithGridRow(4),
+                    _summary.WithGridRow(5),
+                    _checks.WithGridRow(6),
+                    buttons.WithGridRow(7)
                 }
             }
         };
 
         Opened += (_, _) => RefreshPreflight();
+    }
+
+    private async Task EditMetadataAsync()
+    {
+        var dialog = new EditionMetadataWindow(_project, _projectPath);
+        await dialog.ShowDialog(this);
+        RefreshPreflight();
     }
 
     private async Task CreateFreezeAsync()
@@ -278,6 +305,13 @@ internal sealed class EditionPreflightWindow : Window
 
     private void UpdateEditionState()
     {
+        var metadata = _project.EditionMetadata ?? new EditionMetadata();
+        var title = string.IsNullOrWhiteSpace(metadata.Title) ? "MANCANTE" : metadata.Title;
+        var creator = string.IsNullOrWhiteSpace(metadata.Creator) ? "autore non indicato" : metadata.Creator;
+        var language = string.IsNullOrWhiteSpace(metadata.Language) ? "lingua mancante" : metadata.Language;
+        var isbn = string.IsNullOrWhiteSpace(metadata.Isbn) ? "senza ISBN" : $"ISBN {metadata.Isbn}";
+        _metadataState.Text = $"Metadati: {title} · {creator} · {language} · {isbn}.";
+
         var freezeCount = EditionFreezeService.FreezeCount(_project);
         var latestFreeze = EditionFreezeService.GetLatestFreeze(_project);
         if (latestFreeze is null)
@@ -304,4 +338,148 @@ internal sealed class EditionPreflightWindow : Window
             _candidateState.Text = $"Publication Candidate #{sequence} · {latestCandidate.CreatedAtLocal} · totale {candidateCount} · stato: {(current ? "CORRENTE / ESPORTABILE" : "SUPERATO")}.";
         }
     }
+}
+
+internal sealed class EditionMetadataWindow : Window
+{
+    private readonly PreviewProject _project;
+    private readonly string _projectPath;
+    private readonly TextBox _title;
+    private readonly TextBox _subtitle;
+    private readonly TextBox _creator;
+    private readonly TextBox _language;
+    private readonly TextBox _publisher;
+    private readonly TextBox _isbn;
+    private readonly TextBox _description;
+    private readonly TextBlock _status;
+
+    public EditionMetadataWindow(PreviewProject project, string projectPath)
+    {
+        _project = project;
+        _projectPath = projectPath;
+        var metadata = project.EditionMetadata ?? new EditionMetadata();
+
+        Title = "Metadati edizione";
+        Width = 720;
+        Height = 720;
+        MinWidth = 600;
+        MinHeight = 600;
+        WindowStartupLocation = WindowStartupLocation.CenterOwner;
+
+        _title = MakeTextBox(metadata.Title);
+        _subtitle = MakeTextBox(metadata.Subtitle);
+        _creator = MakeTextBox(metadata.Creator);
+        _language = MakeTextBox(metadata.Language);
+        _publisher = MakeTextBox(metadata.Publisher);
+        _isbn = MakeTextBox(metadata.Isbn);
+        _description = MakeTextBox(metadata.Description);
+        _description.AcceptsReturn = true;
+        _description.Height = 110;
+        _description.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
+
+        _status = new TextBlock
+        {
+            Text = "Titolo e lingua sono richiesti dal preflight. Autore, editore, ISBN e descrizione possono essere completati quando disponibili.",
+            TextWrapping = Avalonia.Media.TextWrapping.Wrap
+        };
+
+        var cancel = new Button { Content = "Annulla", Width = 120 };
+        cancel.Click += (_, _) => Close();
+        var save = new Button { Content = "Salva metadati", Width = 160 };
+        save.Click += async (_, _) => await SaveAsync();
+        var buttons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Children = { cancel, save }
+        };
+
+        Content = new Border
+        {
+            Padding = new Thickness(20),
+            Child = new StackPanel
+            {
+                Spacing = 9,
+                Children =
+                {
+                    new TextBlock { Text = "Metadati bibliografici dell'edizione", FontSize = 23 },
+                    Field("Titolo *", _title),
+                    Field("Sottotitolo", _subtitle),
+                    Field("Autore / creatore", _creator),
+                    Field("Lingua * (es. it, en, fr)", _language),
+                    Field("Editore / imprint", _publisher),
+                    Field("ISBN-10 / ISBN-13", _isbn),
+                    Field("Descrizione", _description),
+                    _status,
+                    buttons
+                }
+            }
+        };
+    }
+
+    private async Task SaveAsync()
+    {
+        var normalizedIsbn = EditionMetadataService.NormalizeIsbn(_isbn.Text);
+        if (!string.IsNullOrWhiteSpace(normalizedIsbn) && !EditionMetadataService.IsValidIsbn(normalizedIsbn))
+        {
+            _status.Text = "ISBN non valido. Correggilo oppure lascia il campo vuoto.";
+            return;
+        }
+
+        var current = _project.EditionMetadata ?? new EditionMetadata();
+        var backup = new EditionMetadata
+        {
+            Title = current.Title,
+            Subtitle = current.Subtitle,
+            Creator = current.Creator,
+            Language = current.Language,
+            Publisher = current.Publisher,
+            Isbn = current.Isbn,
+            Description = current.Description
+        };
+
+        var result = EditionMetadataService.Update(
+            _project,
+            _title.Text,
+            _subtitle.Text,
+            _creator.Text,
+            _language.Text,
+            _publisher.Text,
+            _isbn.Text,
+            _description.Text);
+
+        if (!result.Changed)
+        {
+            _status.Text = result.Message;
+            return;
+        }
+
+        try
+        {
+            await ProjectFileStore.SaveAsync(_projectPath, _project);
+            Close();
+        }
+        catch (Exception ex)
+        {
+            _project.EditionMetadata = backup;
+            _status.Text = $"Metadati non salvati: {ex.Message}";
+        }
+    }
+
+    private static TextBox MakeTextBox(string? value) => new()
+    {
+        Text = value ?? string.Empty,
+        HorizontalAlignment = HorizontalAlignment.Stretch
+    };
+
+    private static StackPanel Field(string label, Control input) => new()
+    {
+        Spacing = 3,
+        Children =
+        {
+            new TextBlock { Text = label },
+            input
+        }
+    };
 }
