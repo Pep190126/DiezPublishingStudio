@@ -25,6 +25,8 @@ public sealed class App : Application
                 failures.Add(editionError);
             if (!StartupDiagnostics.TryAttach("Esporta / Consegna", () => HandoffWorkflowUi.Attach(mainWindow), out var handoffError) && handoffError is not null)
                 failures.Add(handoffError);
+            if (!StartupDiagnostics.TryAttach("Produzione AI", () => AiProductionUi.Attach(mainWindow), out var aiError) && aiError is not null)
+                failures.Add(aiError);
             if (!StartupDiagnostics.TryAttach("Layout e aiuto contestuale", () => FriendlyLayoutUi.Attach(mainWindow), out var layoutError) && layoutError is not null)
                 failures.Add(layoutError);
 
