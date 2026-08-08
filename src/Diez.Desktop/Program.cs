@@ -20,6 +20,7 @@ internal static class Program
             try
             {
                 if (File.Exists(errorPath)) File.Delete(errorPath);
+                PreFinalContractSelfTest.Run();
                 PackageSelfTest.RunAsync().GetAwaiter().GetResult();
                 EditableMasterSelfTest.RunAsync().GetAwaiter().GetResult();
                 EditionMetadataSelfTest.RunAsync().GetAwaiter().GetResult();
