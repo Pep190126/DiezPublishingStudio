@@ -6,11 +6,13 @@ namespace DiezPublishingStudio;
 internal sealed class PreviewProject
 {
     public string Format { get; set; } = "diez-project-package";
-    public int SchemaVersion { get; set; } = 10;
+    public int SchemaVersion { get; set; } = 11;
     public string Name { get; set; } = "Nuovo progetto";
     public string SavedAtLocal { get; set; } = string.Empty;
     public Guid ProjectId { get; set; } = Guid.NewGuid();
     public EditionMetadata EditionMetadata { get; set; } = new();
+    public AiProductionSettings AiProduction { get; set; } = new();
+    public List<AiProductionJob> AiProductionJobs { get; set; } = [];
     public List<MaterialEntry> Materials { get; set; } = [];
     public List<ContentNode> ContentNodes { get; set; } = [];
     public List<IllustrationPlacement> IllustrationPlacements { get; set; } = [];
@@ -32,6 +34,27 @@ internal sealed class EditionMetadata
     public string Publisher { get; set; } = string.Empty;
     public string Isbn { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
+}
+
+internal sealed class AiProductionSettings
+{
+    public string ProjectBrief { get; set; } = string.Empty;
+}
+
+internal sealed class AiProductionJob
+{
+    public Guid JobId { get; set; } = Guid.NewGuid();
+    public string Code { get; set; } = string.Empty;
+    public string OutputType { get; set; } = "Image";
+    public string Title { get; set; } = string.Empty;
+    public string Request { get; set; } = string.Empty;
+    public string Prompt { get; set; } = string.Empty;
+    public string Status { get; set; } = "Ready";
+    public string ResultText { get; set; } = string.Empty;
+    public Guid? ResultMaterialId { get; set; }
+    public Guid? TargetContentId { get; set; }
+    public string CreatedAtLocal { get; set; } = string.Empty;
+    public string UpdatedAtLocal { get; set; } = string.Empty;
 }
 
 internal sealed class MaterialEntry
@@ -226,7 +249,7 @@ internal static class ProjectFileStore
 
         Normalize(project);
         project.Format = "diez-project-package";
-        project.SchemaVersion = 10;
+        project.SchemaVersion = 11;
         project.SavedAtLocal = DateTimeOffset.Now.ToString("G");
 
         var directory = Path.GetDirectoryName(Path.GetFullPath(path));
@@ -333,6 +356,7 @@ internal static class ProjectFileStore
     {
         if (project.ProjectId == Guid.Empty) project.ProjectId = Guid.NewGuid();
         project.EditionMetadata ??= new EditionMetadata();
+        project.AiProduction ??= new AiProductionSettings();
         if (project.SchemaVersion < 9)
         {
             if (string.IsNullOrWhiteSpace(project.EditionMetadata.Title)) project.EditionMetadata.Title = project.Name;
@@ -345,6 +369,8 @@ internal static class ProjectFileStore
         project.EditionMetadata.Publisher ??= string.Empty;
         project.EditionMetadata.Isbn ??= string.Empty;
         project.EditionMetadata.Description ??= string.Empty;
+        project.AiProduction.ProjectBrief ??= string.Empty;
+        project.AiProductionJobs ??= [];
         project.Materials ??= [];
         project.ContentNodes ??= [];
         project.IllustrationPlacements ??= [];
@@ -355,6 +381,20 @@ internal static class ProjectFileStore
         project.ConsistencyIssues ??= [];
         project.ConsistencyResolutions ??= [];
         project.RevisionCandidates ??= [];
+
+        foreach (var job in project.AiProductionJobs)
+        {
+            if (job.JobId == Guid.Empty) job.JobId = Guid.NewGuid();
+            job.Code ??= string.Empty;
+            job.OutputType ??= "Image";
+            job.Title ??= string.Empty;
+            job.Request ??= string.Empty;
+            job.Prompt ??= string.Empty;
+            job.Status ??= "Ready";
+            job.ResultText ??= string.Empty;
+            job.CreatedAtLocal ??= string.Empty;
+            job.UpdatedAtLocal ??= string.Empty;
+        }
 
         foreach (var material in project.Materials)
         {
