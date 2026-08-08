@@ -17,7 +17,9 @@ public sealed class App : Application
         {
             var startupProjectPath = desktop.Args?
                 .FirstOrDefault(a => a.EndsWith(".diez", StringComparison.OrdinalIgnoreCase));
-            desktop.MainWindow = new MainWindow(startupProjectPath);
+            var mainWindow = new MainWindow(startupProjectPath);
+            EditionWorkflowUi.Attach(mainWindow);
+            desktop.MainWindow = mainWindow;
         }
 
         base.OnFrameworkInitializationCompleted();
