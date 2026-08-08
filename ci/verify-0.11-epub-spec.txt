@@ -1,0 +1,1 @@
+EPUB validation follows W3C EPUB 3.3 core container/package/navigation requirements.
