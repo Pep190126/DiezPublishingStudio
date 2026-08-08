@@ -18,10 +18,17 @@ public sealed class App : Application
             var startupProjectPath = desktop.Args?
                 .FirstOrDefault(a => a.EndsWith(".diez", StringComparison.OrdinalIgnoreCase));
             var mainWindow = new MainWindow(startupProjectPath);
-            EditionWorkflowUi.Attach(mainWindow);
-            HandoffWorkflowUi.Attach(mainWindow);
-            ResponsiveLayoutUi.Attach(mainWindow);
             desktop.MainWindow = mainWindow;
+
+            var failures = new List<string>();
+            if (!StartupDiagnostics.TryAttach("Edizione / Preflight", () => EditionWorkflowUi.Attach(mainWindow), out var editionError) && editionError is not null)
+                failures.Add(editionError);
+            if (!StartupDiagnostics.TryAttach("Export / Handoff", () => HandoffWorkflowUi.Attach(mainWindow), out var handoffError) && handoffError is not null)
+                failures.Add(handoffError);
+            if (!StartupDiagnostics.TryAttach("Layout responsive", () => ResponsiveLayoutUi.Attach(mainWindow), out var responsiveError) && responsiveError is not null)
+                failures.Add(responsiveError);
+
+            StartupDiagnostics.ShowWarning(mainWindow, failures);
         }
 
         base.OnFrameworkInitializationCompleted();
