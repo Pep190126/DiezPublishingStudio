@@ -14,16 +14,17 @@ internal static class HandoffWorkflowUi
 
     public static void Attach(MainWindow window)
     {
-        window.Title = "Diez Publishing Studio — 0.15 Preview";
+        window.Title = ProductInfo.WindowTitle;
 
         if (window.Content is not Border border || border.Child is not StackPanel root)
             return;
 
         var subtitle = root.Children
             .OfType<TextBlock>()
-            .FirstOrDefault(t => t.Text?.StartsWith("Preview 0.", StringComparison.Ordinal) == true);
+            .FirstOrDefault(t => t.Text?.StartsWith("Preview 0.", StringComparison.Ordinal) == true ||
+                                 t.Text?.StartsWith("Pre-finale", StringComparison.Ordinal) == true);
         if (subtitle is not null)
-            subtitle.Text = "Preview 0.15 — Production Handoff: DOCX + CSV/XLSX + originali + package per impaginatore";
+            subtitle.Text = ProductInfo.Subtitle;
 
         var projectButtons = root.Children
             .OfType<StackPanel>()
@@ -31,6 +32,10 @@ internal static class HandoffWorkflowUi
                                      panel.Children.OfType<Button>().Any(button =>
                                          string.Equals(button.Content?.ToString(), "Edizione / Preflight", StringComparison.Ordinal)));
         if (projectButtons is null) return;
+
+        foreach (var button in projectButtons.Children.OfType<Button>())
+            button.Width = 135;
+
         if (projectButtons.Children.OfType<Button>().Any(button =>
                 string.Equals(button.Content?.ToString(), "Export / Handoff", StringComparison.Ordinal)))
             return;
@@ -38,7 +43,7 @@ internal static class HandoffWorkflowUi
         var handoffButton = new Button
         {
             Content = "Export / Handoff",
-            Width = 150,
+            Width = 135,
             HorizontalContentAlignment = HorizontalAlignment.Center
         };
         handoffButton.Click += async (_, _) => await OpenAsync(window);
@@ -95,7 +100,7 @@ internal sealed class HandoffWindow : Window
         _projectPath = projectPath;
         _setMainStatus = setMainStatus;
 
-        Title = "Export / Handoff editabile";
+        Title = "Consegna / Export — Diez 1.0 RC1";
         Width = 760;
         Height = 535;
         MinWidth = 660;
@@ -128,8 +133,8 @@ internal sealed class HandoffWindow : Window
         images.Click += async (_, _) => await ExportImagesAsync();
         var production = new Button
         {
-            Content = "Crea Production Package",
-            Width = 260,
+            Content = "Crea Production Package completo",
+            Width = 285,
             HorizontalContentAlignment = HorizontalAlignment.Center,
             HorizontalAlignment = HorizontalAlignment.Center
         };
