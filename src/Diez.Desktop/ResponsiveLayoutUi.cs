@@ -31,18 +31,20 @@ internal static class ResponsiveLayoutUi
         if (projectButtons is not null)
         {
             foreach (var button in projectButtons.Children.OfType<Button>())
-                button.Width = 150;
+                button.Width = Math.Min(button.Width, 145);
         }
 
-        // Most importantly, never let lower sections (Revision Candidate / Dettaglio)
-        // disappear below the physical screen. The whole surface can scroll while
-        // each list keeps its own fixed working height.
-        border.Child = new ScrollViewer
+        // A Control cannot be parented to the ScrollViewer while it is still the
+        // Border child. Detach it first; doing this in the opposite order can make
+        // Avalonia abort during startup before the main window becomes visible.
+        border.Child = null;
+        var scroll = new ScrollViewer
         {
-            Content = root,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             HorizontalContentAlignment = HorizontalAlignment.Stretch
         };
+        scroll.Content = root;
+        border.Child = scroll;
     }
 }
