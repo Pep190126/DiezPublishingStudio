@@ -12,23 +12,24 @@ public sealed class MainWindow : Window
     private readonly ListBox _materialsList;
     private readonly ListBox _structureList;
     private readonly ListBox _entitiesList;
+    private readonly ListBox _issuesList;
     private readonly TextBox _preview;
     private string? _currentProjectPath;
     private PreviewProject? _project;
 
     public MainWindow(string? startupProjectPath = null)
     {
-        Title = "Diez Publishing Studio — 0.5 Preview";
-        Width = 1180;
-        Height = 940;
-        MinWidth = 940;
-        MinHeight = 740;
+        Title = "Diez Publishing Studio — 0.6 Preview";
+        Width = 1200;
+        Height = 980;
+        MinWidth = 960;
+        MinHeight = 760;
 
-        var logo = new TextBlock { Text = "∞", FontSize = 38, HorizontalAlignment = HorizontalAlignment.Center };
+        var logo = new TextBlock { Text = "∞", FontSize = 36, HorizontalAlignment = HorizontalAlignment.Center };
         var title = new TextBlock { Text = "Diez Publishing Studio", FontSize = 27, HorizontalAlignment = HorizontalAlignment.Center };
         var subtitle = new TextBlock
         {
-            Text = "Preview 0.5 — Content Graph, Bible e primo Consistency Engine",
+            Text = "Preview 0.6 — Consistency Review: rileva, valuta e registra senza modifiche automatiche al manoscritto",
             FontSize = 15,
             HorizontalAlignment = HorizontalAlignment.Center
         };
@@ -49,29 +50,40 @@ public sealed class MainWindow : Window
         var ignoreEntityButton = MakeButton("Ignora entità");
         ignoreEntityButton.Click += async (_, _) => await IgnoreSelectedEntityAsync();
 
+        var reviewedButton = MakeSmallButton("Segna rivisto");
+        reviewedButton.Click += async (_, _) => await ChangeSelectedIssueStatusAsync("Reviewed");
+        var exceptionButton = MakeSmallButton("Accetta eccezione");
+        exceptionButton.Click += async (_, _) => await ChangeSelectedIssueStatusAsync("AcceptedException");
+        var resolvedButton = MakeSmallButton("Segna risolto");
+        resolvedButton.Click += async (_, _) => await ChangeSelectedIssueStatusAsync("Resolved");
+        var reopenButton = MakeSmallButton("Riapri");
+        reopenButton.Click += async (_, _) => await ChangeSelectedIssueStatusAsync("Open");
+
         _status = new TextBlock
         {
-            Text = "Pronto. Dopo la conferma di un'entità, Diez controlla automaticamente fatti ripetuti e possibili contraddizioni con la Bible.",
+            Text = "Pronto. I problemi di coerenza hanno ora uno stato umano persistente. Nessuna azione di revisione cambia automaticamente il testo.",
             TextWrapping = Avalonia.Media.TextWrapping.Wrap,
             HorizontalAlignment = HorizontalAlignment.Center,
-            MaxWidth = 1020
+            MaxWidth = 1040
         };
 
-        _materialsList = new ListBox { Width = 1020, Height = 105 };
+        _materialsList = new ListBox { Width = 1040, Height = 85 };
         _materialsList.SelectionChanged += (_, _) => ShowSelectedMaterial();
-        _structureList = new ListBox { Width = 1020, Height = 130 };
+        _structureList = new ListBox { Width = 1040, Height = 105 };
         _structureList.SelectionChanged += (_, _) => ShowSelectedContentNode();
-        _entitiesList = new ListBox { Width = 1020, Height = 125 };
+        _entitiesList = new ListBox { Width = 1040, Height = 105 };
         _entitiesList.SelectionChanged += (_, _) => ShowSelectedEntity();
+        _issuesList = new ListBox { Width = 1040, Height = 120 };
+        _issuesList.SelectionChanged += (_, _) => ShowSelectedIssue();
 
         _preview = new TextBox
         {
-            Width = 1020,
-            Height = 180,
+            Width = 1040,
+            Height = 170,
             AcceptsReturn = true,
             IsReadOnly = true,
             TextWrapping = Avalonia.Media.TextWrapping.Wrap,
-            Watermark = "Seleziona materiale, struttura o entità del Content Graph."
+            Watermark = "Seleziona materiale, struttura, entità o problema di coerenza."
         };
 
         var projectButtons = new StackPanel
@@ -88,20 +100,28 @@ public sealed class MainWindow : Window
             HorizontalAlignment = HorizontalAlignment.Center,
             Children = { confirmEntityButton, ignoreEntityButton }
         };
+        var reviewButtons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Children = { reviewedButton, exceptionButton, resolvedButton, reopenButton }
+        };
 
         Content = new Border
         {
-            Padding = new Thickness(24),
+            Padding = new Thickness(20),
             Child = new StackPanel
             {
                 HorizontalAlignment = HorizontalAlignment.Center,
-                Spacing = 8,
+                Spacing = 6,
                 Children =
                 {
                     logo, title, subtitle, projectButtons, _status,
                     MakeSectionLabel("Materiali incorporati"), _materialsList,
                     MakeSectionLabel("Struttura editoriale"), _structureList,
-                    MakeSectionLabel("Content Graph / Bible / Coerenza"), _entitiesList, graphButtons,
+                    MakeSectionLabel("Content Graph / Bible"), _entitiesList, graphButtons,
+                    MakeSectionLabel("Consistency Review"), _issuesList, reviewButtons,
                     MakeSectionLabel("Dettaglio"), _preview
                 }
             }
@@ -123,12 +143,19 @@ public sealed class MainWindow : Window
         HorizontalContentAlignment = HorizontalAlignment.Center
     };
 
+    private static Button MakeSmallButton(string text) => new()
+    {
+        Content = text,
+        Width = 160,
+        HorizontalContentAlignment = HorizontalAlignment.Center
+    };
+
     private static TextBlock MakeSectionLabel(string text) => new()
     {
         Text = text,
         FontSize = 16,
         HorizontalAlignment = HorizontalAlignment.Left,
-        Width = 1020
+        Width = 1040
     };
 
     private async Task CreateProjectAsync()
@@ -176,7 +203,7 @@ public sealed class MainWindow : Window
             _project = project;
             RefreshViews();
             _status.Text = wasPackage
-                ? $"Aperto: {project.Name} · {project.Materials.Count} materiali · {project.ContentNodes.Count} elementi · {project.Entities.Count} entità · {project.BibleEntries.Count(b => b.IsActive)} voci Bible · {OpenIssueCount()} problemi coerenza"
+                ? $"Aperto: {project.Name} · {project.Materials.Count} materiali · {project.Entities.Count} entità · {OpenIssueCount()} problemi aperti · {project.ConsistencyResolutions.Count} decisioni di revisione"
                 : $"Aperto progetto legacy: {project.Name}. Al prossimo Salva verrà convertito nel pacchetto .diez corrente.";
         }
         catch (Exception ex) { _status.Text = $"Errore apertura: {ex.Message}"; }
@@ -245,7 +272,7 @@ public sealed class MainWindow : Window
             RefreshViews();
             if (lastImported is not null) _materialsList.SelectedIndex = _project.Materials.IndexOf(lastImported);
 
-            var message = $"Importati {imported} materiali · {editorialNodes} elementi · {entities} nuove entità · {relations} nuove relazioni · {OpenIssueCount()} problemi coerenza";
+            var message = $"Importati {imported} materiali · {editorialNodes} elementi · {entities} nuove entità · {relations} nuove relazioni · {OpenIssueCount()} problemi aperti";
             if (duplicates > 0) message += $" · {duplicates} duplicati ignorati";
             if (errors.Count > 0) message += $" · {errors.Count} errori: {string.Join("; ", errors.Take(2))}";
             else if (imported > 0) message += " · originali incorporati nel .diez";
@@ -289,7 +316,7 @@ public sealed class MainWindow : Window
         {
             await ProjectFileStore.SaveAsync(_currentProjectPath, _project);
             RefreshViews();
-            _status.Text = $"Rimosso: {removed.FileName} · {removedNodes.Count} elementi e {removedEntities.Count} candidati collegati · {OpenIssueCount()} problemi coerenza rimasti.";
+            _status.Text = $"Rimosso: {removed.FileName} · {removedNodes.Count} elementi e {removedEntities.Count} candidati collegati · {OpenIssueCount()} problemi aperti rimasti.";
         }
         catch (Exception ex)
         {
@@ -311,7 +338,7 @@ public sealed class MainWindow : Window
         {
             await ProjectFileStore.SaveAsync(_currentProjectPath, _project);
             RefreshViews(entity.EntityId);
-            _status.Text = $"Confermato: {entity.Name}. Bible aggiornata · {EntityIssueCount(entity.EntityId)} problemi di coerenza collegati.";
+            _status.Text = $"Confermato: {entity.Name}. Bible aggiornata · {EntityIssueCount(entity.EntityId)} problemi aperti collegati.";
         }
         catch (Exception ex) { _status.Text = $"Errore salvataggio Bible: {ex.Message}"; }
     }
@@ -331,9 +358,38 @@ public sealed class MainWindow : Window
         {
             await ProjectFileStore.SaveAsync(_currentProjectPath, _project);
             RefreshViews();
-            _status.Text = $"Ignorata entità candidata: {name}. Rimosse anche le relazioni e le eventuali voci Bible collegate.";
+            _status.Text = $"Ignorata entità candidata: {name}. Rimosse relazioni e voci Bible collegate.";
         }
         catch (Exception ex) { _status.Text = $"Errore salvataggio dopo esclusione: {ex.Message}"; }
+    }
+
+    private async Task ChangeSelectedIssueStatusAsync(string newStatus)
+    {
+        if (_project is null || string.IsNullOrWhiteSpace(_currentProjectPath)) return;
+        var issue = GetSelectedIssue();
+        if (issue is null)
+        {
+            _status.Text = "Seleziona prima un problema nella sezione Consistency Review.";
+            return;
+        }
+
+        var changed = newStatus switch
+        {
+            "Reviewed" => ConsistencyReviewService.MarkReviewed(_project, issue.IssueId),
+            "AcceptedException" => ConsistencyReviewService.AcceptException(_project, issue.IssueId),
+            "Resolved" => ConsistencyReviewService.MarkResolved(_project, issue.IssueId),
+            "Open" => ConsistencyReviewService.Reopen(_project, issue.IssueId),
+            _ => false
+        };
+        if (!changed) return;
+
+        try
+        {
+            await ProjectFileStore.SaveAsync(_currentProjectPath, _project);
+            RefreshViews(selectIssueId: issue.IssueId);
+            _status.Text = $"Problema segnato come {StatusLabel(newStatus)}. Decisione registrata nel .diez; il manoscritto non è stato modificato.";
+        }
+        catch (Exception ex) { _status.Text = $"Errore salvataggio decisione di revisione: {ex.Message}"; }
     }
 
     private async Task SaveCurrentAsync()
@@ -349,12 +405,12 @@ public sealed class MainWindow : Window
             ConsistencyEngine.Rebuild(_project);
             await ProjectFileStore.SaveAsync(_currentProjectPath, _project);
             RefreshViews();
-            _status.Text = $"Salvato: {_project.ContentNodes.Count} elementi · {_project.Entities.Count} entità · {_project.Relations.Count} relazioni · {_project.BibleEntries.Count(b => b.IsActive)} voci Bible · {OpenIssueCount()} problemi coerenza";
+            _status.Text = $"Salvato: {_project.ContentNodes.Count} elementi · {_project.Entities.Count} entità · {_project.BibleEntries.Count(b => b.IsActive)} voci Bible · {OpenIssueCount()} problemi aperti · {_project.ConsistencyResolutions.Count} decisioni";
         }
         catch (Exception ex) { _status.Text = $"Errore salvataggio: {ex.Message}"; }
     }
 
-    private void RefreshViews(Guid? selectEntityId = null)
+    private void RefreshViews(Guid? selectEntityId = null, Guid? selectIssueId = null)
     {
         _preview.Text = string.Empty;
         if (_project is null)
@@ -362,6 +418,7 @@ public sealed class MainWindow : Window
             _materialsList.ItemsSource = null;
             _structureList.ItemsSource = null;
             _entitiesList.ItemsSource = null;
+            _issuesList.ItemsSource = null;
             return;
         }
 
@@ -383,18 +440,27 @@ public sealed class MainWindow : Window
             })
             .ToList();
 
+        var orderedIssues = GetOrderedIssues();
+        _issuesList.ItemsSource = orderedIssues
+            .Select(i => $"{IssueStatusSymbol(i.Status)}  [{i.Severity}]  {EntityName(i.SubjectEntityId)} · {i.Message}")
+            .ToList();
+
         if (selectEntityId.HasValue)
         {
             var selectedIndex = orderedEntities.FindIndex(e => e.EntityId == selectEntityId.Value);
             if (selectedIndex >= 0) _entitiesList.SelectedIndex = selectedIndex;
+        }
+        if (selectIssueId.HasValue)
+        {
+            var selectedIndex = orderedIssues.FindIndex(i => i.IssueId == selectIssueId.Value);
+            if (selectedIndex >= 0) _issuesList.SelectedIndex = selectedIndex;
         }
     }
 
     private void ShowSelectedMaterial()
     {
         if (_project is null || _materialsList.SelectedIndex < 0 || _materialsList.SelectedIndex >= _project.Materials.Count) return;
-        _structureList.SelectedIndex = -1;
-        _entitiesList.SelectedIndex = -1;
+        ClearOtherSelections(_materialsList);
         var material = _project.Materials[_materialsList.SelectedIndex];
         var shortHash = material.Sha256.Length > 16 ? material.Sha256[..16] : material.Sha256;
         _preview.Text =
@@ -409,20 +475,18 @@ public sealed class MainWindow : Window
         if (_project is null || _structureList.SelectedIndex < 0) return;
         var ordered = GetOrderedNodes();
         if (_structureList.SelectedIndex >= ordered.Count) return;
-        _materialsList.SelectedIndex = -1;
-        _entitiesList.SelectedIndex = -1;
+        ClearOtherSelections(_structureList);
         var node = ordered[_structureList.SelectedIndex];
         var mentions = _project.Relations.Count(r => r.Type == "AppearsIn" && r.ToKind == "Content" && r.ToId == node.ContentId);
         var consistencyReferences = _project.ConsistencyIssues.Count(i => i.Status == "Open" && i.ContentIds.Contains(node.ContentId));
-        _preview.Text = $"{node.Kind}: {node.Title}\nProvenienza: {node.SourceLocator}\nOrdine: {node.Ordinal}\nEntità collegate: {mentions}\nProblemi coerenza collegati: {consistencyReferences}\n\n{node.Body}";
+        _preview.Text = $"{node.Kind}: {node.Title}\nProvenienza: {node.SourceLocator}\nOrdine: {node.Ordinal}\nEntità collegate: {mentions}\nProblemi aperti collegati: {consistencyReferences}\n\n{node.Body}";
     }
 
     private void ShowSelectedEntity()
     {
         var entity = GetSelectedEntity();
         if (_project is null || entity is null) return;
-        _materialsList.SelectedIndex = -1;
-        _structureList.SelectedIndex = -1;
+        ClearOtherSelections(_entitiesList);
 
         var builder = new StringBuilder();
         builder.AppendLine($"{(entity.IsCandidate ? "CANDIDATO" : "CONFERMATO")} · {entity.Kind}: {entity.Name}");
@@ -431,10 +495,9 @@ public sealed class MainWindow : Window
         builder.AppendLine("Relazioni:");
         foreach (var relation in _project.Relations.Where(r =>
                      (r.FromKind == "Entity" && r.FromId == entity.EntityId) ||
-                     (r.ToKind == "Entity" && r.ToId == entity.EntityId)).Take(12))
+                     (r.ToKind == "Entity" && r.ToId == entity.EntityId)).Take(10))
         {
             builder.AppendLine($"- {(relation.IsCandidate ? "?" : "✓")} {DescribeEndpoint(relation.FromKind, relation.FromId)} —{relation.Type}→ {DescribeEndpoint(relation.ToKind, relation.ToId)}");
-            if (!string.IsNullOrWhiteSpace(relation.Evidence)) builder.AppendLine($"  {relation.Evidence}");
         }
 
         var bible = _project.BibleEntries.Where(b => b.SubjectEntityId == entity.EntityId && b.IsActive).ToList();
@@ -444,31 +507,62 @@ public sealed class MainWindow : Window
         else foreach (var entry in bible) builder.AppendLine($"- [{entry.Authority}] {entry.Key} = {entry.Value}");
 
         var issues = _project.ConsistencyIssues
-            .Where(i => i.SubjectEntityId == entity.EntityId && i.Status == "Open")
-            .OrderBy(i => SeverityRank(i.Severity))
-            .ThenBy(i => i.Key, StringComparer.OrdinalIgnoreCase)
+            .Where(i => i.SubjectEntityId == entity.EntityId)
+            .OrderBy(i => IssueStatusRank(i.Status))
+            .ThenBy(i => SeverityRank(i.Severity))
             .ToList();
         builder.AppendLine();
         builder.AppendLine("Coerenza:");
-        if (entity.IsCandidate)
-            builder.AppendLine("- Il controllo completo parte quando l'entità viene confermata.");
-        else if (issues.Count == 0)
-            builder.AppendLine("- Nessuna contraddizione rilevata dalle regole attive.");
-        else
-        {
-            foreach (var issue in issues.Take(8))
-            {
-                builder.AppendLine($"- [{issue.Severity}] {issue.Message}");
-                var sources = issue.ContentIds
-                    .Select(id => _project.ContentNodes.FirstOrDefault(n => n.ContentId == id)?.Title)
-                    .Where(t => !string.IsNullOrWhiteSpace(t))
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .ToList();
-                if (sources.Count > 0) builder.AppendLine($"  Fonti: {string.Join(", ", sources)}");
-            }
-        }
+        if (entity.IsCandidate) builder.AppendLine("- Il controllo completo parte quando l'entità viene confermata.");
+        else if (issues.Count == 0) builder.AppendLine("- Nessuna contraddizione rilevata dalle regole attive.");
+        else foreach (var issue in issues.Take(8)) builder.AppendLine($"- [{StatusLabel(issue.Status)} / {issue.Severity}] {issue.Message}");
 
         _preview.Text = builder.ToString().TrimEnd();
+    }
+
+    private void ShowSelectedIssue()
+    {
+        var issue = GetSelectedIssue();
+        if (_project is null || issue is null) return;
+        ClearOtherSelections(_issuesList);
+
+        var builder = new StringBuilder();
+        builder.AppendLine($"{IssueStatusSymbol(issue.Status)} {StatusLabel(issue.Status)} · {issue.Severity} · {issue.Code}");
+        builder.AppendLine(issue.Message);
+        builder.AppendLine($"Entità: {EntityName(issue.SubjectEntityId)}");
+        builder.AppendLine($"Campo: {issue.Key}");
+        builder.AppendLine();
+        builder.AppendLine("Fonti / evidenze:");
+        foreach (var contentId in issue.ContentIds)
+        {
+            var node = _project.ContentNodes.FirstOrDefault(n => n.ContentId == contentId);
+            if (node is null) continue;
+            builder.AppendLine($"- {node.Title} · {node.SourceLocator}");
+            foreach (var fact in _project.ConsistencyFacts.Where(f => f.ContentId == contentId && f.SubjectEntityId == issue.SubjectEntityId && f.Key == issue.Key))
+                builder.AppendLine($"  {fact.Key} = {fact.Value} · {fact.Evidence}");
+        }
+
+        var history = _project.ConsistencyResolutions
+            .Where(r => r.IssueId == issue.IssueId || (!string.IsNullOrWhiteSpace(issue.Signature) && r.IssueSignature == issue.Signature))
+            .OrderBy(r => r.CreatedAtLocal, StringComparer.Ordinal)
+            .ToList();
+        builder.AppendLine();
+        builder.AppendLine("Decisioni umane:");
+        if (history.Count == 0) builder.AppendLine("- Nessuna decisione registrata.");
+        else foreach (var resolution in history.TakeLast(8))
+            builder.AppendLine($"- {resolution.PreviousStatus} → {resolution.NewStatus} · {resolution.CreatedAtLocal}");
+
+        builder.AppendLine();
+        builder.AppendLine("Le azioni di revisione cambiano solo lo stato del problema: il testo sorgente resta intatto.");
+        _preview.Text = builder.ToString().TrimEnd();
+    }
+
+    private void ClearOtherSelections(ListBox keep)
+    {
+        if (!ReferenceEquals(keep, _materialsList)) _materialsList.SelectedIndex = -1;
+        if (!ReferenceEquals(keep, _structureList)) _structureList.SelectedIndex = -1;
+        if (!ReferenceEquals(keep, _entitiesList)) _entitiesList.SelectedIndex = -1;
+        if (!ReferenceEquals(keep, _issuesList)) _issuesList.SelectedIndex = -1;
     }
 
     private GraphEntity? GetSelectedEntity()
@@ -476,6 +570,13 @@ public sealed class MainWindow : Window
         if (_project is null || _entitiesList.SelectedIndex < 0) return null;
         var ordered = GetOrderedEntities();
         return _entitiesList.SelectedIndex < ordered.Count ? ordered[_entitiesList.SelectedIndex] : null;
+    }
+
+    private ConsistencyIssue? GetSelectedIssue()
+    {
+        if (_project is null || _issuesList.SelectedIndex < 0) return null;
+        var ordered = GetOrderedIssues();
+        return _issuesList.SelectedIndex < ordered.Count ? ordered[_issuesList.SelectedIndex] : null;
     }
 
     private List<ContentNode> GetOrderedNodes() => _project is null ? [] : _project.ContentNodes
@@ -489,10 +590,32 @@ public sealed class MainWindow : Window
         .ThenBy(e => e.Name, StringComparer.OrdinalIgnoreCase)
         .ToList();
 
+    private List<ConsistencyIssue> GetOrderedIssues() => _project is null ? [] : _project.ConsistencyIssues
+        .OrderBy(i => IssueStatusRank(i.Status))
+        .ThenBy(i => SeverityRank(i.Severity))
+        .ThenBy(i => EntityName(i.SubjectEntityId), StringComparer.OrdinalIgnoreCase)
+        .ThenBy(i => i.Key, StringComparer.OrdinalIgnoreCase)
+        .ToList();
+
     private int OpenIssueCount() => _project?.ConsistencyIssues.Count(i => i.Status == "Open") ?? 0;
 
     private int EntityIssueCount(Guid entityId) => _project?.ConsistencyIssues.Count(i =>
         i.Status == "Open" && i.SubjectEntityId == entityId) ?? 0;
+
+    private string EntityName(Guid? entityId)
+    {
+        if (_project is null || !entityId.HasValue) return "progetto";
+        return _project.Entities.FirstOrDefault(e => e.EntityId == entityId.Value)?.Name ?? "entità mancante";
+    }
+
+    private static int IssueStatusRank(string status) => status switch
+    {
+        "Open" => 0,
+        "Reviewed" => 1,
+        "AcceptedException" => 2,
+        "Resolved" => 3,
+        _ => 4
+    };
 
     private static int SeverityRank(string severity) => severity switch
     {
@@ -500,6 +623,24 @@ public sealed class MainWindow : Window
         "Error" => 1,
         "Warning" => 2,
         _ => 3
+    };
+
+    private static string StatusLabel(string status) => status switch
+    {
+        "Open" => "aperto",
+        "Reviewed" => "rivisto",
+        "AcceptedException" => "eccezione accettata",
+        "Resolved" => "risolto",
+        _ => status
+    };
+
+    private static string IssueStatusSymbol(string status) => status switch
+    {
+        "Open" => "⚠",
+        "Reviewed" => "◐",
+        "AcceptedException" => "≈",
+        "Resolved" => "✓",
+        _ => "?"
     };
 
     private string DescribeEndpoint(string kind, Guid id)

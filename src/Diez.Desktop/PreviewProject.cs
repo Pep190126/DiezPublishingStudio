@@ -6,7 +6,7 @@ namespace DiezPublishingStudio;
 internal sealed class PreviewProject
 {
     public string Format { get; set; } = "diez-project-package";
-    public int SchemaVersion { get; set; } = 6;
+    public int SchemaVersion { get; set; } = 7;
     public string Name { get; set; } = "Nuovo progetto";
     public string SavedAtLocal { get; set; } = string.Empty;
     public Guid ProjectId { get; set; } = Guid.NewGuid();
@@ -17,6 +17,7 @@ internal sealed class PreviewProject
     public List<BibleEntry> BibleEntries { get; set; } = [];
     public List<ConsistencyFact> ConsistencyFacts { get; set; } = [];
     public List<ConsistencyIssue> ConsistencyIssues { get; set; } = [];
+    public List<ConsistencyResolution> ConsistencyResolutions { get; set; } = [];
 }
 
 internal sealed class MaterialEntry
@@ -96,6 +97,7 @@ internal sealed class ConsistencyFact
 internal sealed class ConsistencyIssue
 {
     public Guid IssueId { get; set; } = Guid.NewGuid();
+    public string Signature { get; set; } = string.Empty;
     public string Severity { get; set; } = "Warning";
     public string Code { get; set; } = string.Empty;
     public Guid? SubjectEntityId { get; set; }
@@ -104,6 +106,18 @@ internal sealed class ConsistencyIssue
     public List<Guid> ContentIds { get; set; } = [];
     public string Status { get; set; } = "Open";
     public string DetectedAtLocal { get; set; } = string.Empty;
+}
+
+internal sealed class ConsistencyResolution
+{
+    public Guid ResolutionId { get; set; } = Guid.NewGuid();
+    public Guid IssueId { get; set; }
+    public string IssueSignature { get; set; } = string.Empty;
+    public string PreviousStatus { get; set; } = "Open";
+    public string NewStatus { get; set; } = "Reviewed";
+    public string Action { get; set; } = string.Empty;
+    public string Note { get; set; } = string.Empty;
+    public string CreatedAtLocal { get; set; } = string.Empty;
 }
 
 internal static class ProjectFileStore
@@ -161,7 +175,7 @@ internal static class ProjectFileStore
 
         Normalize(project);
         project.Format = "diez-project-package";
-        project.SchemaVersion = 6;
+        project.SchemaVersion = 7;
         project.SavedAtLocal = DateTimeOffset.Now.ToString("G");
 
         var directory = Path.GetDirectoryName(Path.GetFullPath(path));
@@ -274,6 +288,7 @@ internal static class ProjectFileStore
         project.BibleEntries ??= [];
         project.ConsistencyFacts ??= [];
         project.ConsistencyIssues ??= [];
+        project.ConsistencyResolutions ??= [];
 
         foreach (var material in project.Materials)
         {
@@ -336,6 +351,7 @@ internal static class ProjectFileStore
         foreach (var issue in project.ConsistencyIssues)
         {
             if (issue.IssueId == Guid.Empty) issue.IssueId = Guid.NewGuid();
+            issue.Signature ??= string.Empty;
             issue.Severity ??= "Warning";
             issue.Code ??= string.Empty;
             issue.Key ??= string.Empty;
@@ -343,6 +359,17 @@ internal static class ProjectFileStore
             issue.ContentIds ??= [];
             issue.Status ??= "Open";
             issue.DetectedAtLocal ??= string.Empty;
+        }
+
+        foreach (var resolution in project.ConsistencyResolutions)
+        {
+            if (resolution.ResolutionId == Guid.Empty) resolution.ResolutionId = Guid.NewGuid();
+            resolution.IssueSignature ??= string.Empty;
+            resolution.PreviousStatus ??= "Open";
+            resolution.NewStatus ??= "Reviewed";
+            resolution.Action ??= string.Empty;
+            resolution.Note ??= string.Empty;
+            resolution.CreatedAtLocal ??= string.Empty;
         }
     }
 }

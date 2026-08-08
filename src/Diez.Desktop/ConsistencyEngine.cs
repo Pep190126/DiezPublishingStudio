@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace DiezPublishingStudio;
@@ -10,6 +12,17 @@ internal static class ConsistencyEngine
     {
         project.ConsistencyFacts ??= [];
         project.ConsistencyIssues ??= [];
+        project.ConsistencyResolutions ??= [];
+
+        var previousBySignature = project.ConsistencyIssues
+            .Select(issue => new PreviousIssueState(
+                string.IsNullOrWhiteSpace(issue.Signature) ? ComputeSignature(issue) : issue.Signature,
+                issue.IssueId,
+                NormalizeStatus(issue.Status),
+                issue.DetectedAtLocal))
+            .GroupBy(state => state.Signature, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.Last(), StringComparer.Ordinal);
+
         project.ConsistencyFacts.Clear();
         project.ConsistencyIssues.Clear();
 
@@ -24,9 +37,23 @@ internal static class ConsistencyEngine
 
         AddBibleIntegrityIssues(project);
         AddObservedFactIssues(project);
-        AnnotateEntities(project);
 
+        foreach (var issue in project.ConsistencyIssues)
+        {
+            if (!previousBySignature.TryGetValue(issue.Signature, out var previous)) continue;
+            issue.IssueId = previous.IssueId;
+            issue.Status = previous.Status;
+            if (!string.IsNullOrWhiteSpace(previous.DetectedAtLocal))
+                issue.DetectedAtLocal = previous.DetectedAtLocal;
+        }
+
+        RefreshAnnotations(project);
         return new ConsistencyAnalysisResult(project.ConsistencyFacts.Count, project.ConsistencyIssues.Count);
+    }
+
+    public static void RefreshAnnotations(PreviewProject project)
+    {
+        AnnotateEntities(project);
     }
 
     private static List<ContentNode> SelectFactNodes(IReadOnlyList<ContentNode> nodes)
@@ -162,10 +189,11 @@ internal static class ConsistencyEngine
 
     private static void AddIssue(PreviewProject project, string severity, string code, Guid? subjectEntityId, string key, string message, IEnumerable<Guid> contentIds)
     {
-        var ids = contentIds.Where(id => id != Guid.Empty).Distinct().ToList();
+        var ids = contentIds.Where(id => id != Guid.Empty).Distinct().OrderBy(id => id).ToList();
         project.ConsistencyIssues.Add(new ConsistencyIssue
         {
             IssueId = Guid.NewGuid(),
+            Signature = ComputeSignature(code, subjectEntityId, key, message, ids),
             Severity = severity,
             Code = code,
             SubjectEntityId = subjectEntityId,
@@ -186,7 +214,9 @@ internal static class ConsistencyEngine
             var markerIndex = baseNotes.IndexOf(marker, StringComparison.Ordinal);
             if (markerIndex >= 0) baseNotes = baseNotes[..markerIndex].TrimEnd();
 
-            var issues = project.ConsistencyIssues.Where(i => i.SubjectEntityId == entity.EntityId && i.Status == "Open").ToList();
+            var issues = project.ConsistencyIssues
+                .Where(i => i.SubjectEntityId == entity.EntityId && string.Equals(i.Status, "Open", StringComparison.OrdinalIgnoreCase))
+                .ToList();
             if (issues.Count == 0)
             {
                 entity.Notes = baseNotes;
@@ -220,8 +250,31 @@ internal static class ConsistencyEngine
         return evidence.Length <= 280 ? evidence : evidence[..277] + "...";
     }
 
+    private static string ComputeSignature(ConsistencyIssue issue) =>
+        ComputeSignature(issue.Code, issue.SubjectEntityId, issue.Key, issue.Message, issue.ContentIds ?? []);
+
+    private static string ComputeSignature(string code, Guid? subjectEntityId, string key, string message, IEnumerable<Guid> contentIds)
+    {
+        var ids = string.Join(",", contentIds.Where(id => id != Guid.Empty).Distinct().OrderBy(id => id).Select(id => id.ToString("N")));
+        var canonical = string.Join("|",
+            (code ?? string.Empty).Trim().ToUpperInvariant(),
+            subjectEntityId?.ToString("N") ?? string.Empty,
+            NormalizeValue(key),
+            NormalizeValue(message),
+            ids);
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical)));
+    }
+
     private static string NormalizeValue(string? value) =>
         Regex.Replace((value ?? string.Empty).Trim().ToLowerInvariant(), @"\s+", " ");
+
+    private static string NormalizeStatus(string? status) => status switch
+    {
+        "Reviewed" => "Reviewed",
+        "AcceptedException" => "AcceptedException",
+        "Resolved" => "Resolved",
+        _ => "Open"
+    };
 
     private static string DescribeKey(string key) => key switch
     {
@@ -232,6 +285,8 @@ internal static class ConsistencyEngine
         "residence" => "residenza",
         _ => key
     };
+
+    private readonly record struct PreviousIssueState(string Signature, Guid IssueId, string Status, string DetectedAtLocal);
 }
 
 internal readonly record struct ConsistencyAnalysisResult(int FactsDetected, int IssuesDetected);
