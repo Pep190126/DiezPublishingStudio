@@ -15,16 +15,16 @@ public sealed class MainWindow : Window
 
     public MainWindow(string? startupProjectPath = null)
     {
-        Title = "Diez Publishing Studio — 0.1 Preview";
-        Width = 1100;
-        Height = 760;
-        MinWidth = 820;
-        MinHeight = 620;
+        Title = "Diez Publishing Studio — 0.2 Preview";
+        Width = 1120;
+        Height = 790;
+        MinWidth = 860;
+        MinHeight = 640;
 
         var logo = new TextBlock
         {
             Text = "∞",
-            FontSize = 48,
+            FontSize = 44,
             HorizontalAlignment = HorizontalAlignment.Center
         };
 
@@ -37,7 +37,7 @@ public sealed class MainWindow : Window
 
         var subtitle = new TextBlock
         {
-            Text = "Preview 0.1 — progetto .diez + primo Intake materiali",
+            Text = "Preview 0.2 — pacchetto .diez reale + Intake documenti e immagini",
             FontSize = 15,
             HorizontalAlignment = HorizontalAlignment.Center
         };
@@ -45,37 +45,40 @@ public sealed class MainWindow : Window
         var newButton = MakeButton("Nuovo progetto");
         newButton.Click += async (_, _) => await CreateProjectAsync();
 
-        var openButton = MakeButton("Apri progetto .diez");
+        var openButton = MakeButton("Apri .diez");
         openButton.Click += async (_, _) => await OpenProjectAsync();
 
-        var importButton = MakeButton("Importa materiale");
-        importButton.Click += async (_, _) => await ImportMaterialAsync();
+        var importButton = MakeButton("Importa materiali");
+        importButton.Click += async (_, _) => await ImportMaterialsAsync();
+
+        var removeButton = MakeButton("Rimuovi materiale");
+        removeButton.Click += async (_, _) => await RemoveSelectedMaterialAsync();
 
         var saveButton = MakeButton("Salva");
         saveButton.Click += async (_, _) => await SaveCurrentAsync();
 
         _status = new TextBlock
         {
-            Text = "Pronto. Crea o apri un progetto, poi importa TXT, Markdown, CSV o XLSX.",
+            Text = "Pronto. Supportati TXT, MD, CSV, XLSX, DOCX, ODT, RTF, PDF e immagini comuni.",
             TextWrapping = Avalonia.Media.TextWrapping.Wrap,
             HorizontalAlignment = HorizontalAlignment.Center,
-            MaxWidth = 900
+            MaxWidth = 940
         };
 
         _materialsList = new ListBox
         {
-            Width = 900,
-            Height = 160
+            Width = 940,
+            Height = 165
         };
         _materialsList.SelectionChanged += (_, _) => ShowSelectedMaterial();
 
         _preview = new TextBox
         {
-            Width = 900,
-            Height = 210,
+            Width = 940,
+            Height = 230,
             AcceptsReturn = true,
             IsReadOnly = true,
-            TextWrapping = Avalonia.Media.TextWrapping.NoWrap,
+            TextWrapping = Avalonia.Media.TextWrapping.Wrap,
             Watermark = "Seleziona un materiale per vedere l'anteprima."
         };
 
@@ -84,15 +87,15 @@ public sealed class MainWindow : Window
             Orientation = Orientation.Horizontal,
             Spacing = 10,
             HorizontalAlignment = HorizontalAlignment.Center,
-            Children = { newButton, openButton, importButton, saveButton }
+            Children = { newButton, openButton, importButton, removeButton, saveButton }
         };
 
         var materialsLabel = new TextBlock
         {
-            Text = "Materiali del progetto",
+            Text = "Materiali incorporati nel progetto",
             FontSize = 18,
             HorizontalAlignment = HorizontalAlignment.Left,
-            Width = 900
+            Width = 940
         };
 
         var previewLabel = new TextBlock
@@ -100,16 +103,16 @@ public sealed class MainWindow : Window
             Text = "Anteprima Intake",
             FontSize = 18,
             HorizontalAlignment = HorizontalAlignment.Left,
-            Width = 900
+            Width = 940
         };
 
         Content = new Border
         {
-            Padding = new Thickness(30),
+            Padding = new Thickness(28),
             Child = new StackPanel
             {
                 HorizontalAlignment = HorizontalAlignment.Center,
-                Spacing = 12,
+                Spacing = 11,
                 Children =
                 {
                     logo,
@@ -138,7 +141,7 @@ public sealed class MainWindow : Window
     private static Button MakeButton(string text) => new()
     {
         Content = text,
-        Width = 180,
+        Width = 170,
         HorizontalContentAlignment = HorizontalAlignment.Center
     };
 
@@ -157,11 +160,18 @@ public sealed class MainWindow : Window
 
         if (file is null) return;
 
-        _currentProjectPath = file.Path.LocalPath;
-        _project = ProjectFileStore.Create(Path.GetFileNameWithoutExtension(_currentProjectPath));
-        await ProjectFileStore.SaveAsync(_currentProjectPath, _project);
-        RefreshMaterials();
-        _status.Text = $"Creato e salvato: {_currentProjectPath}";
+        try
+        {
+            _currentProjectPath = file.Path.LocalPath;
+            _project = ProjectFileStore.Create(Path.GetFileNameWithoutExtension(_currentProjectPath));
+            await ProjectFileStore.SaveAsync(_currentProjectPath, _project);
+            RefreshMaterials();
+            _status.Text = $"Creato pacchetto .diez: {_currentProjectPath}";
+        }
+        catch (Exception ex)
+        {
+            _status.Text = $"Errore creazione: {ex.Message}";
+        }
     }
 
     private async Task OpenProjectAsync()
@@ -185,11 +195,14 @@ public sealed class MainWindow : Window
     {
         try
         {
+            var wasPackage = ProjectFileStore.IsPackageFile(path);
             var project = await ProjectFileStore.LoadAsync(path);
             _currentProjectPath = path;
             _project = project;
             RefreshMaterials();
-            _status.Text = $"Aperto: {project.Name} · {project.Materials.Count} materiali · ultimo salvataggio {project.SavedAtLocal}";
+            _status.Text = wasPackage
+                ? $"Aperto: {project.Name} · {project.Materials.Count} materiali · ultimo salvataggio {project.SavedAtLocal}"
+                : $"Aperto progetto Preview 0.1: {project.Name}. Al prossimo Salva verrà convertito automaticamente nel nuovo pacchetto .diez.";
         }
         catch (Exception ex)
         {
@@ -197,7 +210,7 @@ public sealed class MainWindow : Window
         }
     }
 
-    private async Task ImportMaterialAsync()
+    private async Task ImportMaterialsAsync()
     {
         if (_project is null || string.IsNullOrWhiteSpace(_currentProjectPath))
         {
@@ -207,33 +220,96 @@ public sealed class MainWindow : Window
 
         var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
-            Title = "Importa materiale",
-            AllowMultiple = false,
+            Title = "Importa materiali",
+            AllowMultiple = true,
             FileTypeFilter =
             [
-                new FilePickerFileType("Materiali supportati") { Patterns = ["*.txt", "*.md", "*.csv", "*.xlsx"] },
-                new FilePickerFileType("Testo / Markdown") { Patterns = ["*.txt", "*.md"] },
-                new FilePickerFileType("CSV") { Patterns = ["*.csv"] },
-                new FilePickerFileType("Excel XLSX") { Patterns = ["*.xlsx"] }
+                new FilePickerFileType("Materiali supportati")
+                {
+                    Patterns = ["*.txt", "*.md", "*.csv", "*.xlsx", "*.docx", "*.odt", "*.rtf", "*.pdf", "*.png", "*.jpg", "*.jpeg", "*.gif", "*.bmp", "*.webp"]
+                },
+                new FilePickerFileType("Documenti") { Patterns = ["*.txt", "*.md", "*.docx", "*.odt", "*.rtf", "*.pdf"] },
+                new FilePickerFileType("Tabelle") { Patterns = ["*.csv", "*.xlsx"] },
+                new FilePickerFileType("Immagini") { Patterns = ["*.png", "*.jpg", "*.jpeg", "*.gif", "*.bmp", "*.webp"] }
             ]
         });
 
-        var file = files.FirstOrDefault();
-        if (file is null) return;
+        if (files.Count == 0) return;
+
+        var imported = 0;
+        var duplicates = 0;
+        var errors = new List<string>();
+        MaterialEntry? lastImported = null;
+
+        _status.Text = $"Analisi di {files.Count} materiali in corso...";
+
+        foreach (var file in files)
+        {
+            try
+            {
+                var material = await MaterialImporter.ImportAsync(file.Path.LocalPath);
+                if (_project.Materials.Any(existing =>
+                        string.Equals(existing.Sha256, material.Sha256, StringComparison.OrdinalIgnoreCase)))
+                {
+                    duplicates++;
+                    continue;
+                }
+
+                _project.Materials.Add(material);
+                imported++;
+                lastImported = material;
+            }
+            catch (Exception ex)
+            {
+                errors.Add($"{file.Name}: {ex.Message}");
+            }
+        }
 
         try
         {
-            _status.Text = "Analisi materiale in corso...";
-            var material = await MaterialImporter.ImportAsync(file.Path.LocalPath);
-            _project.Materials.Add(material);
-            await ProjectFileStore.SaveAsync(_currentProjectPath, _project);
+            if (imported > 0)
+                await ProjectFileStore.SaveAsync(_currentProjectPath, _project);
+
             RefreshMaterials();
-            _materialsList.SelectedIndex = _project.Materials.Count - 1;
-            _status.Text = $"Importato e salvato: {material.FileName} · {material.Summary}";
+            if (lastImported is not null)
+                _materialsList.SelectedIndex = _project.Materials.IndexOf(lastImported);
+
+            var message = $"Importati {imported} materiali";
+            if (duplicates > 0) message += $" · {duplicates} duplicati ignorati";
+            if (errors.Count > 0) message += $" · {errors.Count} errori: {string.Join("; ", errors.Take(2))}";
+            else if (imported > 0) message += " · originali incorporati nel .diez";
+            _status.Text = message;
         }
         catch (Exception ex)
         {
-            _status.Text = $"Errore importazione: {ex.Message}";
+            _status.Text = $"Errore durante il salvataggio del pacchetto: {ex.Message}";
+        }
+    }
+
+    private async Task RemoveSelectedMaterialAsync()
+    {
+        if (_project is null || string.IsNullOrWhiteSpace(_currentProjectPath) ||
+            _materialsList.SelectedIndex < 0 || _materialsList.SelectedIndex >= _project.Materials.Count)
+        {
+            _status.Text = "Seleziona prima un materiale da rimuovere.";
+            return;
+        }
+
+        var index = _materialsList.SelectedIndex;
+        var removed = _project.Materials[index];
+        _project.Materials.RemoveAt(index);
+
+        try
+        {
+            await ProjectFileStore.SaveAsync(_currentProjectPath, _project);
+            RefreshMaterials();
+            _status.Text = $"Rimosso dal progetto: {removed.FileName}. Il file sorgente originale sul PC non è stato toccato.";
+        }
+        catch (Exception ex)
+        {
+            _project.Materials.Insert(index, removed);
+            RefreshMaterials();
+            _status.Text = $"Rimozione annullata per errore di salvataggio: {ex.Message}";
         }
     }
 
@@ -241,14 +317,15 @@ public sealed class MainWindow : Window
     {
         if (_project is null || string.IsNullOrWhiteSpace(_currentProjectPath))
         {
-            _status.Text = "Nessun progetto aperto. Usa Nuovo progetto o Apri progetto .diez.";
+            _status.Text = "Nessun progetto aperto. Usa Nuovo progetto o Apri .diez.";
             return;
         }
 
         try
         {
             await ProjectFileStore.SaveAsync(_currentProjectPath, _project);
-            _status.Text = $"Salvato: {_currentProjectPath}";
+            RefreshMaterials();
+            _status.Text = $"Salvato pacchetto .diez: {_currentProjectPath}";
         }
         catch (Exception ex)
         {
@@ -266,7 +343,7 @@ public sealed class MainWindow : Window
         }
 
         _materialsList.ItemsSource = _project.Materials
-            .Select(m => $"{m.Kind}  ·  {m.FileName}  ·  {m.Summary}")
+            .Select(m => $"{(m.IsEmbedded ? "●" : "○")}  {m.Kind}  ·  {m.FileName}  ·  {m.Summary}")
             .ToList();
     }
 
@@ -283,9 +360,10 @@ public sealed class MainWindow : Window
         _preview.Text =
             $"{material.FileName}\n" +
             $"Tipo: {material.Kind}\n" +
-            $"Origine: {material.SourcePath}\n" +
+            $"Origine importazione: {material.SourcePath}\n" +
             $"Dimensione: {material.SizeBytes:N0} byte\n" +
             $"SHA-256: {shortHash}...\n" +
+            $"Nel progetto: {(material.IsEmbedded ? "originale incorporato nel .diez" : "solo metadati — sorgente non disponibile al salvataggio")}\n" +
             $"{material.Summary}\n\n" +
             material.Preview;
     }

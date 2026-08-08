@@ -28,6 +28,13 @@ jobs:
       - name: Publish self-contained Windows x64
         run: dotnet publish src/Diez.Desktop/Diez.Desktop.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -o artifacts/publish
 
+      - name: Self-test .diez package and intake
+        shell: powershell
+        run: |
+          $exe = (Resolve-Path "artifacts\publish\DiezPublishingStudio.exe").Path
+          $test = Start-Process -FilePath $exe -ArgumentList "--self-test" -Wait -PassThru
+          if ($test.ExitCode -ne 0) { throw "Diez package self-test failed with exit code $($test.ExitCode)" }
+
       - name: Install Inno Setup
         shell: powershell
         run: choco install innosetup -y --no-progress
@@ -75,7 +82,7 @@ jobs:
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
-          name: DiezPublishingStudio-Setup-0.1.0-preview
+          name: DiezPublishingStudio-Setup-0.2.0-preview
           path: artifacts/installer/DiezPublishingStudio-Setup.exe
           if-no-files-found: error
           retention-days: 90

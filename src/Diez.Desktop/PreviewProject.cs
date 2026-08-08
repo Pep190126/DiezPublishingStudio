@@ -1,11 +1,12 @@
+using System.IO.Compression;
 using System.Text.Json;
 
 namespace DiezPublishingStudio;
 
 internal sealed class PreviewProject
 {
-    public string Format { get; set; } = "diez-project-preview";
-    public int SchemaVersion { get; set; } = 2;
+    public string Format { get; set; } = "diez-project-package";
+    public int SchemaVersion { get; set; } = 3;
     public string Name { get; set; } = "Nuovo progetto";
     public string SavedAtLocal { get; set; } = string.Empty;
     public Guid ProjectId { get; set; } = Guid.NewGuid();
@@ -24,10 +25,14 @@ internal sealed class MaterialEntry
     public string Summary { get; set; } = string.Empty;
     public string Preview { get; set; } = string.Empty;
     public List<string> Columns { get; set; } = [];
+    public string EmbeddedPath { get; set; } = string.Empty;
+    public bool IsEmbedded { get; set; }
 }
 
 internal static class ProjectFileStore
 {
+    private const string ManifestEntryName = "project.json";
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
@@ -42,26 +47,177 @@ internal static class ProjectFileStore
 
     public static async Task<PreviewProject> LoadAsync(string path)
     {
-        var json = await File.ReadAllTextAsync(path);
-        var project = JsonSerializer.Deserialize<PreviewProject>(json, JsonOptions)
-            ?? throw new InvalidDataException("Il file non contiene un progetto Diez valido.");
+        if (!File.Exists(path))
+            throw new FileNotFoundException("Il progetto selezionato non esiste più.", path);
 
-        if (!project.Format.StartsWith("diez-project", StringComparison.OrdinalIgnoreCase))
+        PreviewProject project;
+        if (IsPackageFile(path))
+        {
+            using var archive = ZipFile.OpenRead(path);
+            var manifest = archive.GetEntry(ManifestEntryName)
+                ?? throw new InvalidDataException("Pacchetto .diez non valido: project.json mancante.");
+
+            using var reader = new StreamReader(manifest.Open());
+            var json = await reader.ReadToEndAsync();
+            project = JsonSerializer.Deserialize<PreviewProject>(json, JsonOptions)
+                ?? throw new InvalidDataException("Il pacchetto non contiene un progetto Diez valido.");
+        }
+        else
+        {
+            // Compatibilità con la Preview 0.1: il vecchio .diez era JSON puro.
+            var json = await File.ReadAllTextAsync(path);
+            project = JsonSerializer.Deserialize<PreviewProject>(json, JsonOptions)
+                ?? throw new InvalidDataException("Il file non contiene un progetto Diez valido.");
+        }
+
+        if (string.IsNullOrWhiteSpace(project.Format) ||
+            !project.Format.StartsWith("diez-project", StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("Formato progetto non riconosciuto.");
 
-        project.Materials ??= [];
+        Normalize(project);
         return project;
     }
 
     public static async Task SaveAsync(string path, PreviewProject project)
     {
-        project.Format = "diez-project-preview";
-        project.SchemaVersion = 2;
+        if (string.IsNullOrWhiteSpace(path))
+            throw new ArgumentException("Percorso progetto non valido.", nameof(path));
+
+        Normalize(project);
+        project.Format = "diez-project-package";
+        project.SchemaVersion = 3;
         project.SavedAtLocal = DateTimeOffset.Now.ToString("G");
 
-        var json = JsonSerializer.Serialize(project, JsonOptions);
+        var directory = Path.GetDirectoryName(Path.GetFullPath(path));
+        if (!string.IsNullOrWhiteSpace(directory))
+            Directory.CreateDirectory(directory);
+
         var tempPath = path + ".tmp";
-        await File.WriteAllTextAsync(tempPath, json);
-        File.Move(tempPath, path, true);
+        if (File.Exists(tempPath))
+            File.Delete(tempPath);
+
+        FileStream? oldStream = null;
+        ZipArchive? oldArchive = null;
+
+        try
+        {
+            if (File.Exists(path) && IsPackageFile(path))
+            {
+                oldStream = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+                oldArchive = new ZipArchive(oldStream, ZipArchiveMode.Read, leaveOpen: false);
+            }
+
+            await using (var tempStream = File.Open(tempPath, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None))
+            using (var newArchive = new ZipArchive(tempStream, ZipArchiveMode.Create, leaveOpen: true))
+            {
+                foreach (var material in project.Materials)
+                {
+                    material.EmbeddedPath = BuildEmbeddedPath(material);
+                    material.IsEmbedded = await CopyMaterialIntoPackageAsync(oldArchive, newArchive, material);
+                }
+
+                var manifest = newArchive.CreateEntry(ManifestEntryName, CompressionLevel.Optimal);
+                await using var manifestStream = manifest.Open();
+                await JsonSerializer.SerializeAsync(manifestStream, project, JsonOptions);
+            }
+        }
+        catch
+        {
+            if (File.Exists(tempPath))
+                File.Delete(tempPath);
+            throw;
+        }
+        finally
+        {
+            oldArchive?.Dispose();
+            oldStream?.Dispose();
+        }
+
+        File.Move(tempPath, path, overwrite: true);
+    }
+
+    public static bool IsPackageFile(string path)
+    {
+        if (!File.Exists(path)) return false;
+        using var stream = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        if (stream.Length < 4) return false;
+        Span<byte> signature = stackalloc byte[4];
+        _ = stream.Read(signature);
+        return signature[0] == (byte)'P' && signature[1] == (byte)'K' &&
+               signature[2] == 3 && signature[3] == 4;
+    }
+
+    public static async Task<byte[]?> ReadEmbeddedMaterialAsync(string projectPath, MaterialEntry material)
+    {
+        if (!IsPackageFile(projectPath) || string.IsNullOrWhiteSpace(material.EmbeddedPath))
+            return null;
+
+        using var archive = ZipFile.OpenRead(projectPath);
+        var entry = archive.GetEntry(material.EmbeddedPath);
+        if (entry is null) return null;
+
+        await using var source = entry.Open();
+        await using var memory = new MemoryStream();
+        await source.CopyToAsync(memory);
+        return memory.ToArray();
+    }
+
+    private static async Task<bool> CopyMaterialIntoPackageAsync(
+        ZipArchive? oldArchive,
+        ZipArchive newArchive,
+        MaterialEntry material)
+    {
+        // Se il materiale era già incorporato, manteniamo esattamente lo snapshot importato,
+        // anche se il file sorgente sul PC nel frattempo è cambiato o è stato rimosso.
+        var previous = oldArchive?.GetEntry(material.EmbeddedPath);
+        if (previous is not null)
+        {
+            var destination = newArchive.CreateEntry(material.EmbeddedPath, CompressionLevel.Optimal);
+            await using var source = previous.Open();
+            await using var target = destination.Open();
+            await source.CopyToAsync(target);
+            return true;
+        }
+
+        if (!string.IsNullOrWhiteSpace(material.SourcePath) && File.Exists(material.SourcePath))
+        {
+            var destination = newArchive.CreateEntry(material.EmbeddedPath, CompressionLevel.Optimal);
+            await using var source = File.Open(material.SourcePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            await using var target = destination.Open();
+            await source.CopyToAsync(target);
+            return true;
+        }
+
+        return false;
+    }
+
+    private static string BuildEmbeddedPath(MaterialEntry material)
+    {
+        var safeName = string.Concat(material.FileName.Select(ch =>
+            Path.GetInvalidFileNameChars().Contains(ch) ? '_' : ch));
+        if (string.IsNullOrWhiteSpace(safeName)) safeName = "materiale.bin";
+        return $"materials/{material.MaterialId:N}/{safeName}";
+    }
+
+    private static void Normalize(PreviewProject project)
+    {
+        if (project.ProjectId == Guid.Empty)
+            project.ProjectId = Guid.NewGuid();
+        project.Materials ??= [];
+
+        foreach (var material in project.Materials)
+        {
+            if (material.MaterialId == Guid.Empty)
+                material.MaterialId = Guid.NewGuid();
+            material.Columns ??= [];
+            material.FileName ??= string.Empty;
+            material.SourcePath ??= string.Empty;
+            material.Kind ??= string.Empty;
+            material.ImportedAtLocal ??= string.Empty;
+            material.Sha256 ??= string.Empty;
+            material.Summary ??= string.Empty;
+            material.Preview ??= string.Empty;
+            material.EmbeddedPath ??= string.Empty;
+        }
     }
 }
