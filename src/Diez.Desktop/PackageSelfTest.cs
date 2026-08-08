@@ -13,7 +13,7 @@ internal static class PackageSelfTest
         try
         {
             await VerifyEmbeddedMaterialStructureGraphAndBibleRoundTripAsync(root);
-            await VerifyConsistencyContradictionAsync(root);
+            await VerifyConsistencyReviewLifecycleAsync(root);
             await VerifyLegacyProjectMigrationAsync(root);
             await VerifyDocxIntakeAndStructureAsync(root);
         }
@@ -63,7 +63,7 @@ internal static class PackageSelfTest
         Require(ProjectFileStore.IsPackageFile(projectPath), "Il .diez salvato non è un pacchetto ZIP.");
 
         var loaded = await ProjectFileStore.LoadAsync(projectPath);
-        Require(loaded.SchemaVersion == 6, "Schema .diez inatteso.");
+        Require(loaded.SchemaVersion == 7, "Schema .diez inatteso.");
         Require(loaded.Materials.Count == 1, "Il materiale non è sopravvissuto al round-trip.");
         Require(loaded.ContentNodes.Count == project.ContentNodes.Count, "La struttura editoriale non è sopravvissuta al round-trip.");
         Require(loaded.Entities.Any(e => e.Name == "Milo" && !e.IsCandidate), "Milo confermato non è sopravvissuto al round-trip.");
@@ -88,9 +88,9 @@ internal static class PackageSelfTest
         Require(reloaded.BibleEntries.Any(b => b.Value == "Milo"), "La Bible è stata persa dopo un secondo salvataggio.");
     }
 
-    private static async Task VerifyConsistencyContradictionAsync(string root)
+    private static async Task VerifyConsistencyReviewLifecycleAsync(string root)
     {
-        var project = ProjectFileStore.Create("Consistency Test");
+        var project = ProjectFileStore.Create("Consistency Review Test");
         var materialId = Guid.NewGuid();
         var milo = new GraphEntity
         {
@@ -110,7 +110,8 @@ internal static class PackageSelfTest
             Authority = "Binding",
             IsActive = true
         });
-        project.ContentNodes.Add(new ContentNode
+
+        var chapter1 = new ContentNode
         {
             MaterialId = materialId,
             Kind = "Chapter",
@@ -118,8 +119,8 @@ internal static class PackageSelfTest
             Body = "Milo ha gli occhi blu e guarda il mare.",
             Ordinal = 1,
             SourceLocator = "Capitolo 1"
-        });
-        project.ContentNodes.Add(new ContentNode
+        };
+        var chapter2 = new ContentNode
         {
             MaterialId = materialId,
             Kind = "Chapter",
@@ -127,21 +128,60 @@ internal static class PackageSelfTest
             Body = "Milo ha gli occhi verdi mentre entra nella stanza.",
             Ordinal = 2,
             SourceLocator = "Capitolo 2"
-        });
+        };
+        project.ContentNodes.Add(chapter1);
+        project.ContentNodes.Add(chapter2);
 
+        var originalChapter1 = chapter1.Body;
+        var originalChapter2 = chapter2.Body;
         var analysis = ConsistencyEngine.Rebuild(project);
         Require(analysis.FactsDetected == 2, "Il Consistency Engine non ha rilevato entrambi i fatti.");
-        Require(project.ConsistencyIssues.Any(i => i.Code == "FACT_CONTRADICTION" && i.SubjectEntityId == milo.EntityId),
-            "La contraddizione blu/verdi non è stata rilevata.");
-        Require(milo.Notes.Contains("[Coerenza]", StringComparison.Ordinal),
-            "Il riepilogo di coerenza non è visibile nell'entità.");
+        var issue = project.ConsistencyIssues.SingleOrDefault(i => i.Code == "FACT_CONTRADICTION" && i.SubjectEntityId == milo.EntityId);
+        Require(issue is not null, "La contraddizione blu/verdi non è stata rilevata.");
+        Require(!string.IsNullOrWhiteSpace(issue!.Signature), "Il problema non ha una firma stabile.");
+        var issueId = issue.IssueId;
+        var signature = issue.Signature;
 
-        var path = Path.Combine(root, "consistency.diez");
+        Require(ConsistencyReviewService.AcceptException(project, issueId), "La decisione di eccezione non è stata registrata.");
+        Require(issue.Status == "AcceptedException", "Lo stato AcceptedException non è stato applicato.");
+        Require(project.ConsistencyResolutions.Count == 1, "La cronologia di revisione non contiene la decisione.");
+        Require(chapter1.Body == originalChapter1 && chapter2.Body == originalChapter2,
+            "La revisione ha modificato il manoscritto senza approvazione editoriale.");
+
+        ConsistencyEngine.Rebuild(project);
+        var rebuiltIssue = project.ConsistencyIssues.Single(i => i.Signature == signature);
+        Require(rebuiltIssue.IssueId == issueId, "L'identità del problema non è stabile dopo il rebuild.");
+        Require(rebuiltIssue.Status == "AcceptedException", "Lo stato umano è stato perso dopo il rebuild.");
+
+        Require(ConsistencyReviewService.Reopen(project, rebuiltIssue.IssueId), "La riapertura del problema è fallita.");
+        Require(ConsistencyReviewService.MarkReviewed(project, rebuiltIssue.IssueId), "Lo stato Reviewed non è stato applicato.");
+        Require(ConsistencyReviewService.MarkResolved(project, rebuiltIssue.IssueId), "Lo stato Resolved non è stato applicato.");
+        Require(project.ConsistencyResolutions.Count == 4, "La cronologia non registra tutte le transizioni umane.");
+        Require(chapter1.Body == originalChapter1 && chapter2.Body == originalChapter2,
+            "Le transizioni di stato hanno modificato il contenuto editoriale.");
+
+        ConsistencyEngine.Rebuild(project);
+        Require(project.ConsistencyIssues.Single(i => i.Signature == signature).Status == "Resolved",
+            "Lo stato Resolved non è sopravvissuto al rebuild.");
+
+        var path = Path.Combine(root, "consistency-review.diez");
         await ProjectFileStore.SaveAsync(path, project);
         var loaded = await ProjectFileStore.LoadAsync(path);
-        Require(loaded.SchemaVersion == 6, "Il progetto di coerenza non usa schema 6.");
-        Require(loaded.ConsistencyIssues.Any(i => i.Code == "FACT_CONTRADICTION"),
-            "Il conflitto di coerenza non è stato persistito.");
+        Require(loaded.SchemaVersion == 7, "Il progetto di revisione non usa schema 7.");
+        ConsistencyEngine.Rebuild(loaded);
+        var loadedIssue = loaded.ConsistencyIssues.Single(i => i.Signature == signature);
+        Require(loadedIssue.Status == "Resolved", "Lo stato di revisione non è sopravvissuto al round-trip.");
+        Require(loaded.ConsistencyResolutions.Count == 4, "La cronologia di revisione non è sopravvissuta al round-trip.");
+        Require(loaded.ContentNodes.Single(n => n.ContentId == chapter1.ContentId).Body == originalChapter1 &&
+                loaded.ContentNodes.Single(n => n.ContentId == chapter2.ContentId).Body == originalChapter2,
+            "Il round-trip di revisione ha alterato il manoscritto.");
+
+        loaded.ContentNodes.Single(n => n.ContentId == chapter2.ContentId).Body = "Milo ha gli occhi blu mentre entra nella stanza.";
+        ConsistencyEngine.Rebuild(loaded);
+        Require(!loaded.ConsistencyIssues.Any(i => i.Signature == signature),
+            "Il problema rimane attivo dopo la correzione effettiva del contenuto.");
+        Require(loaded.ConsistencyResolutions.Count == 4,
+            "La cronologia umana è stata cancellata quando il problema è scomparso.");
     }
 
     private static async Task VerifyLegacyProjectMigrationAsync(string root)
@@ -162,7 +202,7 @@ internal static class PackageSelfTest
         Require(loadedLegacy.Name == "Legacy Preview", "Il progetto 0.1 non è stato letto correttamente.");
         await ProjectFileStore.SaveAsync(legacyPath, loadedLegacy);
         Require(ProjectFileStore.IsPackageFile(legacyPath), "Il progetto legacy non è stato migrato.");
-        Require((await ProjectFileStore.LoadAsync(legacyPath)).SchemaVersion == 6, "Il progetto legacy non è arrivato allo schema 6.");
+        Require((await ProjectFileStore.LoadAsync(legacyPath)).SchemaVersion == 7, "Il progetto legacy non è arrivato allo schema 7.");
     }
 
     private static async Task VerifyDocxIntakeAndStructureAsync(string root)
