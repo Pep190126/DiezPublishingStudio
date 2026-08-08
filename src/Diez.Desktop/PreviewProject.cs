@@ -6,7 +6,7 @@ namespace DiezPublishingStudio;
 internal sealed class PreviewProject
 {
     public string Format { get; set; } = "diez-project-package";
-    public int SchemaVersion { get; set; } = 11;
+    public int SchemaVersion { get; set; } = 10;
     public string Name { get; set; } = "Nuovo progetto";
     public string SavedAtLocal { get; set; } = string.Empty;
     public Guid ProjectId { get; set; } = Guid.NewGuid();
@@ -38,6 +38,7 @@ internal sealed class EditionMetadata
 
 internal sealed class AiProductionSettings
 {
+    public int SchemaVersion { get; set; } = 1;
     public string ProjectBrief { get; set; } = string.Empty;
 }
 
@@ -249,7 +250,7 @@ internal static class ProjectFileStore
 
         Normalize(project);
         project.Format = "diez-project-package";
-        project.SchemaVersion = 11;
+        project.SchemaVersion = 10;
         project.SavedAtLocal = DateTimeOffset.Now.ToString("G");
 
         var directory = Path.GetDirectoryName(Path.GetFullPath(path));
@@ -369,6 +370,7 @@ internal static class ProjectFileStore
         project.EditionMetadata.Publisher ??= string.Empty;
         project.EditionMetadata.Isbn ??= string.Empty;
         project.EditionMetadata.Description ??= string.Empty;
+        if (project.AiProduction.SchemaVersion <= 0) project.AiProduction.SchemaVersion = 1;
         project.AiProduction.ProjectBrief ??= string.Empty;
         project.AiProductionJobs ??= [];
         project.Materials ??= [];
