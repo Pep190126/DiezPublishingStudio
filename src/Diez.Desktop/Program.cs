@@ -29,6 +29,7 @@ internal static class Program
                 DocxExportSelfTest.RunAsync().GetAwaiter().GetResult();
                 HandoffExportSelfTest.RunAsync().GetAwaiter().GetResult();
                 ProductionPackageSelfTest.RunAsync().GetAwaiter().GetResult();
+                AiProductionSelfTest.RunAsync().GetAwaiter().GetResult();
                 return 0;
             }
             catch (Exception ex)
