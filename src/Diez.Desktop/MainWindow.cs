@@ -19,17 +19,17 @@ public sealed class MainWindow : Window
 
     public MainWindow(string? startupProjectPath = null)
     {
-        Title = "Diez Publishing Studio — 0.6 Preview";
+        Title = "Diez Publishing Studio — 0.7 Preview";
         Width = 1200;
-        Height = 980;
+        Height = 1000;
         MinWidth = 960;
-        MinHeight = 760;
+        MinHeight = 780;
 
         var logo = new TextBlock { Text = "∞", FontSize = 36, HorizontalAlignment = HorizontalAlignment.Center };
         var title = new TextBlock { Text = "Diez Publishing Studio", FontSize = 27, HorizontalAlignment = HorizontalAlignment.Center };
         var subtitle = new TextBlock
         {
-            Text = "Preview 0.6 — Consistency Review: rileva, valuta e registra senza modifiche automatiche al manoscritto",
+            Text = "Preview 0.7 — Revision Candidate: proposta separata, approvazione umana e applicazione esplicita",
             FontSize = 15,
             HorizontalAlignment = HorizontalAlignment.Center
         };
@@ -59,27 +59,36 @@ public sealed class MainWindow : Window
         var reopenButton = MakeSmallButton("Riapri");
         reopenButton.Click += async (_, _) => await ChangeSelectedIssueStatusAsync("Open");
 
+        var proposeButton = MakeSmallButton("Crea proposta");
+        proposeButton.Click += async (_, _) => await CreateRevisionCandidateAsync();
+        var approveButton = MakeSmallButton("Approva proposta");
+        approveButton.Click += async (_, _) => await ChangeRevisionCandidateStatusAsync("Approved");
+        var rejectButton = MakeSmallButton("Scarta proposta");
+        rejectButton.Click += async (_, _) => await ChangeRevisionCandidateStatusAsync("Rejected");
+        var applyButton = MakeSmallButton("Applica approvata");
+        applyButton.Click += async (_, _) => await ApplyRevisionCandidateAsync();
+
         _status = new TextBlock
         {
-            Text = "Pronto. I problemi di coerenza hanno ora uno stato umano persistente. Nessuna azione di revisione cambia automaticamente il testo.",
+            Text = "Pronto. Una proposta di revisione resta separata dal manoscritto finché non viene prima approvata e poi applicata esplicitamente.",
             TextWrapping = Avalonia.Media.TextWrapping.Wrap,
             HorizontalAlignment = HorizontalAlignment.Center,
             MaxWidth = 1040
         };
 
-        _materialsList = new ListBox { Width = 1040, Height = 85 };
+        _materialsList = new ListBox { Width = 1040, Height = 78 };
         _materialsList.SelectionChanged += (_, _) => ShowSelectedMaterial();
-        _structureList = new ListBox { Width = 1040, Height = 105 };
+        _structureList = new ListBox { Width = 1040, Height = 95 };
         _structureList.SelectionChanged += (_, _) => ShowSelectedContentNode();
-        _entitiesList = new ListBox { Width = 1040, Height = 105 };
+        _entitiesList = new ListBox { Width = 1040, Height = 95 };
         _entitiesList.SelectionChanged += (_, _) => ShowSelectedEntity();
-        _issuesList = new ListBox { Width = 1040, Height = 120 };
+        _issuesList = new ListBox { Width = 1040, Height = 115 };
         _issuesList.SelectionChanged += (_, _) => ShowSelectedIssue();
 
         _preview = new TextBox
         {
             Width = 1040,
-            Height = 170,
+            Height = 185,
             AcceptsReturn = true,
             IsReadOnly = true,
             TextWrapping = Avalonia.Media.TextWrapping.Wrap,
@@ -107,21 +116,28 @@ public sealed class MainWindow : Window
             HorizontalAlignment = HorizontalAlignment.Center,
             Children = { reviewedButton, exceptionButton, resolvedButton, reopenButton }
         };
+        var revisionButtons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Children = { proposeButton, approveButton, rejectButton, applyButton }
+        };
 
         Content = new Border
         {
-            Padding = new Thickness(20),
+            Padding = new Thickness(18),
             Child = new StackPanel
             {
                 HorizontalAlignment = HorizontalAlignment.Center,
-                Spacing = 6,
+                Spacing = 5,
                 Children =
                 {
                     logo, title, subtitle, projectButtons, _status,
                     MakeSectionLabel("Materiali incorporati"), _materialsList,
                     MakeSectionLabel("Struttura editoriale"), _structureList,
                     MakeSectionLabel("Content Graph / Bible"), _entitiesList, graphButtons,
-                    MakeSectionLabel("Consistency Review"), _issuesList, reviewButtons,
+                    MakeSectionLabel("Consistency Review / Revision Candidate"), _issuesList, reviewButtons, revisionButtons,
                     MakeSectionLabel("Dettaglio"), _preview
                 }
             }
@@ -203,7 +219,7 @@ public sealed class MainWindow : Window
             _project = project;
             RefreshViews();
             _status.Text = wasPackage
-                ? $"Aperto: {project.Name} · {project.Materials.Count} materiali · {project.Entities.Count} entità · {OpenIssueCount()} problemi aperti · {project.ConsistencyResolutions.Count} decisioni di revisione"
+                ? $"Aperto: {project.Name} · {project.Materials.Count} materiali · {project.Entities.Count} entità · {OpenIssueCount()} problemi aperti · {project.RevisionCandidates.Count} proposte di revisione"
                 : $"Aperto progetto legacy: {project.Name}. Al prossimo Salva verrà convertito nel pacchetto .diez corrente.";
         }
         catch (Exception ex) { _status.Text = $"Errore apertura: {ex.Message}"; }
@@ -266,6 +282,7 @@ public sealed class MainWindow : Window
             catch (Exception ex) { errors.Add($"{file.Name}: {ex.Message}"); }
         }
 
+        ConsistencyEngine.Rebuild(_project);
         try
         {
             if (imported > 0) await ProjectFileStore.SaveAsync(_currentProjectPath, _project);
@@ -307,6 +324,7 @@ public sealed class MainWindow : Window
         _project.Entities.RemoveAll(e => removedEntityIds.Contains(e.EntityId));
         _project.Relations.RemoveAll(r => removedRelations.Contains(r));
         _project.BibleEntries.RemoveAll(b => removedEntityIds.Contains(b.SubjectEntityId));
+        _project.RevisionCandidates.RemoveAll(c => removedNodeIds.Contains(c.ContentId) || removedEntityIds.Contains(c.SubjectEntityId));
 
         foreach (var entity in _project.Entities.Where(e => e.FirstSourceContentId.HasValue && removedNodeIds.Contains(e.FirstSourceContentId.Value)))
             entity.FirstSourceContentId = null;
@@ -353,12 +371,15 @@ public sealed class MainWindow : Window
         }
 
         var name = entity.Name;
-        if (!ContentGraphEngine.IgnoreEntity(_project, entity.EntityId)) return;
+        var entityId = entity.EntityId;
+        if (!ContentGraphEngine.IgnoreEntity(_project, entityId)) return;
+        _project.RevisionCandidates.RemoveAll(c => c.SubjectEntityId == entityId);
+        ConsistencyEngine.Rebuild(_project);
         try
         {
             await ProjectFileStore.SaveAsync(_currentProjectPath, _project);
             RefreshViews();
-            _status.Text = $"Ignorata entità candidata: {name}. Rimosse relazioni e voci Bible collegate.";
+            _status.Text = $"Ignorata entità candidata: {name}. Rimosse relazioni, voci Bible e proposte collegate.";
         }
         catch (Exception ex) { _status.Text = $"Errore salvataggio dopo esclusione: {ex.Message}"; }
     }
@@ -392,6 +413,105 @@ public sealed class MainWindow : Window
         catch (Exception ex) { _status.Text = $"Errore salvataggio decisione di revisione: {ex.Message}"; }
     }
 
+    private async Task CreateRevisionCandidateAsync()
+    {
+        if (_project is null || string.IsNullOrWhiteSpace(_currentProjectPath)) return;
+        var issue = GetSelectedIssue();
+        if (issue is null)
+        {
+            _status.Text = "Seleziona prima un problema di coerenza da trasformare in proposta.";
+            return;
+        }
+
+        var result = RevisionCandidateService.CreateForIssue(_project, issue.IssueId);
+        if (result.Candidate is null)
+        {
+            _status.Text = result.Message;
+            return;
+        }
+
+        try
+        {
+            await ProjectFileStore.SaveAsync(_currentProjectPath, _project);
+            RefreshViews(selectIssueId: issue.IssueId);
+            _status.Text = result.Message;
+        }
+        catch (Exception ex) { _status.Text = $"Errore salvataggio proposta: {ex.Message}"; }
+    }
+
+    private async Task ChangeRevisionCandidateStatusAsync(string newStatus)
+    {
+        if (_project is null || string.IsNullOrWhiteSpace(_currentProjectPath)) return;
+        var issue = GetSelectedIssue();
+        if (issue is null)
+        {
+            _status.Text = "Seleziona il problema a cui appartiene la proposta.";
+            return;
+        }
+
+        var candidate = GetLatestCandidate(issue);
+        if (candidate is null)
+        {
+            _status.Text = "Non esiste ancora una proposta per questo problema. Usa Crea proposta.";
+            return;
+        }
+
+        var changed = newStatus switch
+        {
+            "Approved" => RevisionCandidateService.Approve(_project, candidate.CandidateId),
+            "Rejected" => RevisionCandidateService.Reject(_project, candidate.CandidateId),
+            _ => false
+        };
+        if (!changed)
+        {
+            _status.Text = $"La proposta è già nello stato {CandidateStatusLabel(candidate.Status)} o non può effettuare questa transizione.";
+            return;
+        }
+
+        try
+        {
+            await ProjectFileStore.SaveAsync(_currentProjectPath, _project);
+            RefreshViews(selectIssueId: issue.IssueId);
+            _status.Text = newStatus == "Approved"
+                ? "Proposta approvata. Il contenuto non è ancora cambiato: serve il comando Applica approvata."
+                : "Proposta scartata. Il contenuto non è stato modificato.";
+        }
+        catch (Exception ex) { _status.Text = $"Errore salvataggio stato proposta: {ex.Message}"; }
+    }
+
+    private async Task ApplyRevisionCandidateAsync()
+    {
+        if (_project is null || string.IsNullOrWhiteSpace(_currentProjectPath)) return;
+        var issue = GetSelectedIssue();
+        if (issue is null)
+        {
+            _status.Text = "Seleziona il problema a cui appartiene la proposta approvata.";
+            return;
+        }
+
+        var candidate = GetLatestCandidate(issue);
+        if (candidate is null)
+        {
+            _status.Text = "Non esiste una proposta per questo problema.";
+            return;
+        }
+
+        var result = RevisionCandidateService.ApplyApproved(_project, candidate.CandidateId);
+        if (!result.Applied)
+        {
+            _status.Text = result.Message;
+            return;
+        }
+
+        try
+        {
+            await ProjectFileStore.SaveAsync(_currentProjectPath, _project);
+            RefreshViews();
+            _status.Text = $"{result.Message} Problemi aperti rimasti: {OpenIssueCount()}.";
+        }
+        catch (Exception ex) { _status.Text = $"La proposta è stata applicata in memoria ma il salvataggio è fallito: {ex.Message}. Riapri il progetto prima di continuare."; }
+    }
+
     private async Task SaveCurrentAsync()
     {
         if (_project is null || string.IsNullOrWhiteSpace(_currentProjectPath))
@@ -405,7 +525,7 @@ public sealed class MainWindow : Window
             ConsistencyEngine.Rebuild(_project);
             await ProjectFileStore.SaveAsync(_currentProjectPath, _project);
             RefreshViews();
-            _status.Text = $"Salvato: {_project.ContentNodes.Count} elementi · {_project.Entities.Count} entità · {_project.BibleEntries.Count(b => b.IsActive)} voci Bible · {OpenIssueCount()} problemi aperti · {_project.ConsistencyResolutions.Count} decisioni";
+            _status.Text = $"Salvato: {_project.ContentNodes.Count} elementi · {_project.Entities.Count} entità · {_project.BibleEntries.Count(b => b.IsActive)} voci Bible · {OpenIssueCount()} problemi aperti · {_project.RevisionCandidates.Count} proposte";
         }
         catch (Exception ex) { _status.Text = $"Errore salvataggio: {ex.Message}"; }
     }
@@ -442,7 +562,12 @@ public sealed class MainWindow : Window
 
         var orderedIssues = GetOrderedIssues();
         _issuesList.ItemsSource = orderedIssues
-            .Select(i => $"{IssueStatusSymbol(i.Status)}  [{i.Severity}]  {EntityName(i.SubjectEntityId)} · {i.Message}")
+            .Select(i =>
+            {
+                var candidate = GetLatestCandidate(i);
+                var candidateText = candidate is null ? string.Empty : $" · proposta {CandidateStatusLabel(candidate.Status)}";
+                return $"{IssueStatusSymbol(i.Status)}  [{i.Severity}]  {EntityName(i.SubjectEntityId)} · {i.Message}{candidateText}";
+            })
             .ToList();
 
         if (selectEntityId.HasValue)
@@ -479,7 +604,8 @@ public sealed class MainWindow : Window
         var node = ordered[_structureList.SelectedIndex];
         var mentions = _project.Relations.Count(r => r.Type == "AppearsIn" && r.ToKind == "Content" && r.ToId == node.ContentId);
         var consistencyReferences = _project.ConsistencyIssues.Count(i => i.Status == "Open" && i.ContentIds.Contains(node.ContentId));
-        _preview.Text = $"{node.Kind}: {node.Title}\nProvenienza: {node.SourceLocator}\nOrdine: {node.Ordinal}\nEntità collegate: {mentions}\nProblemi aperti collegati: {consistencyReferences}\n\n{node.Body}";
+        var revisionCount = _project.RevisionCandidates.Count(c => c.ContentId == node.ContentId);
+        _preview.Text = $"{node.Kind}: {node.Title}\nProvenienza: {node.SourceLocator}\nOrdine: {node.Ordinal}\nEntità collegate: {mentions}\nProblemi aperti collegati: {consistencyReferences}\nProposte di revisione: {revisionCount}\n\n{node.Body}";
     }
 
     private void ShowSelectedEntity()
@@ -552,8 +678,37 @@ public sealed class MainWindow : Window
         else foreach (var resolution in history.TakeLast(8))
             builder.AppendLine($"- {resolution.PreviousStatus} → {resolution.NewStatus} · {resolution.CreatedAtLocal}");
 
+        var candidate = GetLatestCandidate(issue);
         builder.AppendLine();
-        builder.AppendLine("Le azioni di revisione cambiano solo lo stato del problema: il testo sorgente resta intatto.");
+        builder.AppendLine("Revision Candidate:");
+        if (candidate is null)
+        {
+            builder.AppendLine("- Nessuna proposta. Crea proposta prepara una possibile modifica senza toccare il testo.");
+        }
+        else
+        {
+            var node = _project.ContentNodes.FirstOrDefault(n => n.ContentId == candidate.ContentId);
+            builder.AppendLine($"- Stato: {CandidateStatusLabel(candidate.Status)}");
+            builder.AppendLine($"- Destinazione: {node?.Title ?? "contenuto mancante"}");
+            builder.AppendLine($"- Valore: {candidate.OriginalValue} → {candidate.ProposedValue}");
+            builder.AppendLine($"- Motivo: {candidate.Rationale}");
+            builder.AppendLine();
+            builder.AppendLine("PRIMA:");
+            builder.AppendLine(TrimForPreview(candidate.OriginalBody));
+            builder.AppendLine();
+            builder.AppendLine("DOPO PROPOSTO:");
+            builder.AppendLine(TrimForPreview(candidate.ProposedBody));
+            builder.AppendLine();
+            builder.AppendLine(candidate.Status switch
+            {
+                "Proposed" => "La proposta è separata dal contenuto: Approva proposta non modifica ancora il manoscritto.",
+                "Approved" => "La proposta è approvata ma non applicata. Solo Applica approvata può modificare il contenuto editoriale.",
+                "Applied" => "La proposta è stata applicata al contenuto editoriale; l'originale importato incorporato resta intatto.",
+                "Rejected" => "La proposta è stata scartata e non ha modificato il contenuto.",
+                _ => "La proposta non modifica automaticamente il contenuto."
+            });
+        }
+
         _preview.Text = builder.ToString().TrimEnd();
     }
 
@@ -577,6 +732,15 @@ public sealed class MainWindow : Window
         if (_project is null || _issuesList.SelectedIndex < 0) return null;
         var ordered = GetOrderedIssues();
         return _issuesList.SelectedIndex < ordered.Count ? ordered[_issuesList.SelectedIndex] : null;
+    }
+
+    private RevisionCandidate? GetLatestCandidate(ConsistencyIssue issue)
+    {
+        if (_project is null) return null;
+        return _project.RevisionCandidates
+            .Where(c => c.IssueId == issue.IssueId || (!string.IsNullOrWhiteSpace(issue.Signature) && c.IssueSignature == issue.Signature))
+            .OrderByDescending(c => c.CreatedAtLocal, StringComparer.Ordinal)
+            .FirstOrDefault();
     }
 
     private List<ContentNode> GetOrderedNodes() => _project is null ? [] : _project.ContentNodes
@@ -634,6 +798,15 @@ public sealed class MainWindow : Window
         _ => status
     };
 
+    private static string CandidateStatusLabel(string status) => status switch
+    {
+        "Proposed" => "proposta",
+        "Approved" => "approvata",
+        "Applied" => "applicata",
+        "Rejected" => "scartata",
+        _ => status
+    };
+
     private static string IssueStatusSymbol(string status) => status switch
     {
         "Open" => "⚠",
@@ -642,6 +815,12 @@ public sealed class MainWindow : Window
         "Resolved" => "✓",
         _ => "?"
     };
+
+    private static string TrimForPreview(string value)
+    {
+        var clean = value?.Trim() ?? string.Empty;
+        return clean.Length <= 600 ? clean : clean[..597] + "...";
+    }
 
     private string DescribeEndpoint(string kind, Guid id)
     {
