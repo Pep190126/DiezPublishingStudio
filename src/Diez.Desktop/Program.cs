@@ -8,14 +8,28 @@ internal static class Program
     private const string AppMutexName = "DiezPublishingStudio.App";
 
     [STAThread]
-    public static void Main(string[] args)
+    public static int Main(string[] args)
     {
+        if (args.Any(a => string.Equals(a, "--self-test", StringComparison.OrdinalIgnoreCase)))
+        {
+            try
+            {
+                PackageSelfTest.RunAsync().GetAwaiter().GetResult();
+                return 0;
+            }
+            catch
+            {
+                return 1;
+            }
+        }
+
         using var mutex = new Mutex(true, AppMutexName, out var createdNew);
         if (!createdNew)
-            return;
+            return 0;
 
-        BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+        var exitCode = BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
         GC.KeepAlive(mutex);
+        return exitCode;
     }
 
     public static AppBuilder BuildAvaloniaApp() =>
