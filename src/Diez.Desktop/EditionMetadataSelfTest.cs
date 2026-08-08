@@ -34,7 +34,7 @@ internal static class EditionMetadataSelfTest
             project = await ProjectFileStore.LoadAsync(projectPath);
             Require(project.Materials.Count == 1 && project.Materials[0].IsEmbedded,
                 "Il materiale deve essere incorporato prima del preflight metadata.");
-            Require(project.SchemaVersion == 9, "Il progetto deve essere salvato con schema 9.");
+            Require(project.SchemaVersion == 10, "Il progetto deve essere salvato con schema 10.");
             Require(project.EditionMetadata.Creator == "Ada Autrice", "Autore non persistito nel .diez.");
 
             var freeze = EditionFreezeService.CreateFreeze(project);
