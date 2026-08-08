@@ -134,13 +134,17 @@ public sealed class MainWindow : Window
         }
     }
 
-    private static StackPanel Row(params Control[] controls) => new()
+    private static StackPanel Row(params Control[] controls)
     {
-        Orientation = Orientation.Horizontal,
-        Spacing = 8,
-        HorizontalAlignment = HorizontalAlignment.Center,
-        Children = { controls }
-    };
+        var panel = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            HorizontalAlignment = HorizontalAlignment.Center
+        };
+        foreach (var control in controls) panel.Children.Add(control);
+        return panel;
+    }
 
     private static Button MakeButton(string text) => new()
     {
