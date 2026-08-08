@@ -46,11 +46,22 @@ internal static class FriendlyLayoutUi
             reviewButtons is null || revisionButtons is null || detailLabel is null || preview is null)
             return;
 
-        // Reparent only after every original child has been detached from the old StackPanel.
-        root.Children.Clear();
+        var buttonPanels = new[] { projectButtons, masterButtons, graphButtons, reviewButtons, revisionButtons };
+        var allButtons = buttonPanels.SelectMany(panel => panel.Children.OfType<Button>()).ToList();
 
         RenameSections(materialsLabel, masterLabel, entitiesLabel, issuesLabel, detailLabel);
-        RenameButtons(window);
+        RenameButtons(allButtons);
+
+        var helpText = new TextBlock
+        {
+            Text = DefaultHelp,
+            TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        AttachHelp(helpText, allButtons, materialsList, structureList, entitiesList, issuesList, preview);
+
+        // Reparent only after every original child has been captured and help handlers attached.
+        root.Children.Clear();
 
         PrepareList(materialsList);
         PrepareList(structureList);
@@ -77,19 +88,11 @@ internal static class FriendlyLayoutUi
         CompactButtonRow(reviewButtons);
         CompactButtonRow(revisionButtons);
 
-        var helpText = new TextBlock
-        {
-            Text = DefaultHelp,
-            TextWrapping = Avalonia.Media.TextWrapping.Wrap,
-            VerticalAlignment = VerticalAlignment.Center
-        };
         var helpBar = new Border
         {
             Padding = new Thickness(10, 6),
             Child = helpText
         };
-
-        AttachHelp(window, helpText, materialsList, structureList, entitiesList, issuesList, preview);
 
         var header = new Grid
         {
@@ -194,7 +197,7 @@ internal static class FriendlyLayoutUi
         }
     }
 
-    private static void RenameButtons(MainWindow window)
+    private static void RenameButtons(IEnumerable<Button> buttons)
     {
         var translations = new Dictionary<string, string>(StringComparer.Ordinal)
         {
@@ -216,22 +219,14 @@ internal static class FriendlyLayoutUi
             ["Export / Handoff"] = "Esporta / Consegna"
         };
 
-        foreach (var button in FindVisualButtons(window))
+        foreach (var button in buttons)
         {
             var text = button.Content?.ToString() ?? string.Empty;
             if (translations.TryGetValue(text, out var friendly)) button.Content = friendly;
         }
     }
 
-    private static IEnumerable<Button> FindVisualButtons(Window window)
-    {
-        if (window.Content is not Border border || border.Child is not StackPanel root) yield break;
-        foreach (var panel in root.Children.OfType<StackPanel>())
-            foreach (var button in panel.Children.OfType<Button>())
-                yield return button;
-    }
-
-    private static void AttachHelp(MainWindow window, TextBlock help, params Control[] contextControls)
+    private static void AttachHelp(TextBlock help, IEnumerable<Button> buttons, params Control[] contextControls)
     {
         var helpByButton = new Dictionary<string, string>(StringComparer.Ordinal)
         {
@@ -256,7 +251,7 @@ internal static class FriendlyLayoutUi
             ["Applica al testo"] = "Applica davvero al testo di lavoro una proposta che hai già approvato."
         };
 
-        foreach (var button in FindButtonsAfterLayout(window))
+        foreach (var button in buttons)
         {
             var key = button.Content?.ToString() ?? string.Empty;
             if (!helpByButton.TryGetValue(key, out var message)) continue;
@@ -280,16 +275,6 @@ internal static class FriendlyLayoutUi
             pair.Key.GotFocus += (_, _) => help.Text = pair.Value;
             pair.Key.PointerEntered += (_, _) => help.Text = pair.Value;
         }
-    }
-
-    private static IEnumerable<Button> FindButtonsAfterLayout(Window window)
-    {
-        // At this point the old root StackPanel still exists as the Border child;
-        // search it recursively before the final Grid is assigned.
-        if (window.Content is not Border border || border.Child is not StackPanel root) yield break;
-        foreach (var panel in root.Children.OfType<StackPanel>())
-            foreach (var button in panel.Children.OfType<Button>())
-                yield return button;
     }
 
     private static void PrepareList(ListBox list)
