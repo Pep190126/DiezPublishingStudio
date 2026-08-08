@@ -18,7 +18,7 @@ public sealed class MainWindow : Window
 
     public MainWindow(string? startupProjectPath = null)
     {
-        Title = "Diez Publishing Studio — 0.4 Preview";
+        Title = "Diez Publishing Studio — 0.5 Preview";
         Width = 1180;
         Height = 940;
         MinWidth = 940;
@@ -28,7 +28,7 @@ public sealed class MainWindow : Window
         var title = new TextBlock { Text = "Diez Publishing Studio", FontSize = 27, HorizontalAlignment = HorizontalAlignment.Center };
         var subtitle = new TextBlock
         {
-            Text = "Preview 0.4 — Intake, struttura editoriale, Content Graph e Bible",
+            Text = "Preview 0.5 — Content Graph, Bible e primo Consistency Engine",
             FontSize = 15,
             HorizontalAlignment = HorizontalAlignment.Center
         };
@@ -51,7 +51,7 @@ public sealed class MainWindow : Window
 
         _status = new TextBlock
         {
-            Text = "Pronto. Diez rileva candidati personaggio/luogo, li collega ai contenuti e li lascia da confermare prima che diventino canonici nella Bible.",
+            Text = "Pronto. Dopo la conferma di un'entità, Diez controlla automaticamente fatti ripetuti e possibili contraddizioni con la Bible.",
             TextWrapping = Avalonia.Media.TextWrapping.Wrap,
             HorizontalAlignment = HorizontalAlignment.Center,
             MaxWidth = 1020
@@ -101,7 +101,7 @@ public sealed class MainWindow : Window
                     logo, title, subtitle, projectButtons, _status,
                     MakeSectionLabel("Materiali incorporati"), _materialsList,
                     MakeSectionLabel("Struttura editoriale"), _structureList,
-                    MakeSectionLabel("Content Graph / candidati Bible"), _entitiesList, graphButtons,
+                    MakeSectionLabel("Content Graph / Bible / Coerenza"), _entitiesList, graphButtons,
                     MakeSectionLabel("Dettaglio"), _preview
                 }
             }
@@ -171,11 +171,12 @@ public sealed class MainWindow : Window
         {
             var wasPackage = ProjectFileStore.IsPackageFile(path);
             var project = await ProjectFileStore.LoadAsync(path);
+            ConsistencyEngine.Rebuild(project);
             _currentProjectPath = path;
             _project = project;
             RefreshViews();
             _status.Text = wasPackage
-                ? $"Aperto: {project.Name} · {project.Materials.Count} materiali · {project.ContentNodes.Count} elementi · {project.Entities.Count} entità · {project.BibleEntries.Count(b => b.IsActive)} voci Bible"
+                ? $"Aperto: {project.Name} · {project.Materials.Count} materiali · {project.ContentNodes.Count} elementi · {project.Entities.Count} entità · {project.BibleEntries.Count(b => b.IsActive)} voci Bible · {OpenIssueCount()} problemi coerenza"
                 : $"Aperto progetto legacy: {project.Name}. Al prossimo Salva verrà convertito nel pacchetto .diez corrente.";
         }
         catch (Exception ex) { _status.Text = $"Errore apertura: {ex.Message}"; }
@@ -244,7 +245,7 @@ public sealed class MainWindow : Window
             RefreshViews();
             if (lastImported is not null) _materialsList.SelectedIndex = _project.Materials.IndexOf(lastImported);
 
-            var message = $"Importati {imported} materiali · {editorialNodes} elementi · {entities} nuove entità · {relations} nuove relazioni";
+            var message = $"Importati {imported} materiali · {editorialNodes} elementi · {entities} nuove entità · {relations} nuove relazioni · {OpenIssueCount()} problemi coerenza";
             if (duplicates > 0) message += $" · {duplicates} duplicati ignorati";
             if (errors.Count > 0) message += $" · {errors.Count} errori: {string.Join("; ", errors.Take(2))}";
             else if (imported > 0) message += " · originali incorporati nel .diez";
@@ -282,12 +283,13 @@ public sealed class MainWindow : Window
 
         foreach (var entity in _project.Entities.Where(e => e.FirstSourceContentId.HasValue && removedNodeIds.Contains(e.FirstSourceContentId.Value)))
             entity.FirstSourceContentId = null;
+        ConsistencyEngine.Rebuild(_project);
 
         try
         {
             await ProjectFileStore.SaveAsync(_currentProjectPath, _project);
             RefreshViews();
-            _status.Text = $"Rimosso: {removed.FileName} · {removedNodes.Count} elementi e {removedEntities.Count} candidati collegati. Entità già confermate preservate.";
+            _status.Text = $"Rimosso: {removed.FileName} · {removedNodes.Count} elementi e {removedEntities.Count} candidati collegati · {OpenIssueCount()} problemi coerenza rimasti.";
         }
         catch (Exception ex)
         {
@@ -309,7 +311,7 @@ public sealed class MainWindow : Window
         {
             await ProjectFileStore.SaveAsync(_currentProjectPath, _project);
             RefreshViews(entity.EntityId);
-            _status.Text = $"Confermato: {entity.Name}. Inserito nella Bible come nome canonico e tipo vincolante.";
+            _status.Text = $"Confermato: {entity.Name}. Bible aggiornata · {EntityIssueCount(entity.EntityId)} problemi di coerenza collegati.";
         }
         catch (Exception ex) { _status.Text = $"Errore salvataggio Bible: {ex.Message}"; }
     }
@@ -344,9 +346,10 @@ public sealed class MainWindow : Window
 
         try
         {
+            ConsistencyEngine.Rebuild(_project);
             await ProjectFileStore.SaveAsync(_currentProjectPath, _project);
             RefreshViews();
-            _status.Text = $"Salvato: {_project.ContentNodes.Count} elementi · {_project.Entities.Count} entità · {_project.Relations.Count} relazioni · {_project.BibleEntries.Count(b => b.IsActive)} voci Bible";
+            _status.Text = $"Salvato: {_project.ContentNodes.Count} elementi · {_project.Entities.Count} entità · {_project.Relations.Count} relazioni · {_project.BibleEntries.Count(b => b.IsActive)} voci Bible · {OpenIssueCount()} problemi coerenza";
         }
         catch (Exception ex) { _status.Text = $"Errore salvataggio: {ex.Message}"; }
     }
@@ -372,7 +375,12 @@ public sealed class MainWindow : Window
 
         var orderedEntities = GetOrderedEntities();
         _entitiesList.ItemsSource = orderedEntities
-            .Select(e => $"{(e.IsCandidate ? "?" : "✓")}  {e.Kind}  ·  {e.Name}  ·  {_project.Relations.Count(r => (r.FromKind == "Entity" && r.FromId == e.EntityId) || (r.ToKind == "Entity" && r.ToId == e.EntityId))} relazioni")
+            .Select(e =>
+            {
+                var issueCount = EntityIssueCount(e.EntityId);
+                var issueText = issueCount > 0 ? $" · ⚠ {issueCount}" : string.Empty;
+                return $"{(e.IsCandidate ? "?" : "✓")}  {e.Kind}  ·  {e.Name}  ·  {_project.Relations.Count(r => (r.FromKind == "Entity" && r.FromId == e.EntityId) || (r.ToKind == "Entity" && r.ToId == e.EntityId))} relazioni{issueText}";
+            })
             .ToList();
 
         if (selectEntityId.HasValue)
@@ -405,7 +413,8 @@ public sealed class MainWindow : Window
         _entitiesList.SelectedIndex = -1;
         var node = ordered[_structureList.SelectedIndex];
         var mentions = _project.Relations.Count(r => r.Type == "AppearsIn" && r.ToKind == "Content" && r.ToId == node.ContentId);
-        _preview.Text = $"{node.Kind}: {node.Title}\nProvenienza: {node.SourceLocator}\nOrdine: {node.Ordinal}\nEntità collegate: {mentions}\n\n{node.Body}";
+        var consistencyReferences = _project.ConsistencyIssues.Count(i => i.Status == "Open" && i.ContentIds.Contains(node.ContentId));
+        _preview.Text = $"{node.Kind}: {node.Title}\nProvenienza: {node.SourceLocator}\nOrdine: {node.Ordinal}\nEntità collegate: {mentions}\nProblemi coerenza collegati: {consistencyReferences}\n\n{node.Body}";
     }
 
     private void ShowSelectedEntity()
@@ -433,6 +442,32 @@ public sealed class MainWindow : Window
         builder.AppendLine("Bible:");
         if (bible.Count == 0) builder.AppendLine("- Nessuna voce canonica: conferma l'entità per promuoverla nella Bible.");
         else foreach (var entry in bible) builder.AppendLine($"- [{entry.Authority}] {entry.Key} = {entry.Value}");
+
+        var issues = _project.ConsistencyIssues
+            .Where(i => i.SubjectEntityId == entity.EntityId && i.Status == "Open")
+            .OrderBy(i => SeverityRank(i.Severity))
+            .ThenBy(i => i.Key, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        builder.AppendLine();
+        builder.AppendLine("Coerenza:");
+        if (entity.IsCandidate)
+            builder.AppendLine("- Il controllo completo parte quando l'entità viene confermata.");
+        else if (issues.Count == 0)
+            builder.AppendLine("- Nessuna contraddizione rilevata dalle regole attive.");
+        else
+        {
+            foreach (var issue in issues.Take(8))
+            {
+                builder.AppendLine($"- [{issue.Severity}] {issue.Message}");
+                var sources = issue.ContentIds
+                    .Select(id => _project.ContentNodes.FirstOrDefault(n => n.ContentId == id)?.Title)
+                    .Where(t => !string.IsNullOrWhiteSpace(t))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                if (sources.Count > 0) builder.AppendLine($"  Fonti: {string.Join(", ", sources)}");
+            }
+        }
+
         _preview.Text = builder.ToString().TrimEnd();
     }
 
@@ -453,6 +488,19 @@ public sealed class MainWindow : Window
         .ThenBy(e => e.Kind, StringComparer.OrdinalIgnoreCase)
         .ThenBy(e => e.Name, StringComparer.OrdinalIgnoreCase)
         .ToList();
+
+    private int OpenIssueCount() => _project?.ConsistencyIssues.Count(i => i.Status == "Open") ?? 0;
+
+    private int EntityIssueCount(Guid entityId) => _project?.ConsistencyIssues.Count(i =>
+        i.Status == "Open" && i.SubjectEntityId == entityId) ?? 0;
+
+    private static int SeverityRank(string severity) => severity switch
+    {
+        "Critical" => 0,
+        "Error" => 1,
+        "Warning" => 2,
+        _ => 3
+    };
 
     private string DescribeEndpoint(string kind, Guid id)
     {
