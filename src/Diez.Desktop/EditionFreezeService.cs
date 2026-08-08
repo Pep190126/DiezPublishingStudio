@@ -20,7 +20,7 @@ internal static class EditionFreezeService
         var hash = Hash(snapshot);
         var latest = GetLatestFreeze(project);
         if (latest is not null && string.Equals(latest.BaseContentSha256, hash, StringComparison.Ordinal))
-            return new EditionFreezeResult(latest, $"Il Master coincide già con Edition Freeze #{FreezeSequence(latest)}.");
+            return new EditionFreezeResult(latest, $"Il progetto coincide già con Edition Freeze #{FreezeSequence(latest)}.");
 
         var sequence = project.RevisionCandidates.Count(c => c.Key == FreezeKey) + 1;
         var now = DateTimeOffset.Now.ToString("O");
@@ -38,7 +38,7 @@ internal static class EditionFreezeService
             ProposedBody = snapshot,
             BaseContentSha256 = hash,
             Rationale = string.IsNullOrWhiteSpace(note)
-                ? $"Edition Freeze #{sequence}: snapshot immutabile del Master e della Bible prima del preflight."
+                ? $"Edition Freeze #{sequence}: snapshot immutabile di metadati, Master e Bible prima del preflight."
                 : note.Trim(),
             Status = "Applied",
             CreatedAtLocal = now,
@@ -46,7 +46,7 @@ internal static class EditionFreezeService
             AppliedAtLocal = now
         };
         project.RevisionCandidates.Add(freeze);
-        return new EditionFreezeResult(freeze, $"Edition Freeze #{sequence} creato. Il Master resta modificabile, ma ogni modifica successiva renderà questo freeze non corrente.");
+        return new EditionFreezeResult(freeze, $"Edition Freeze #{sequence} creato. Modifiche successive a metadati, Master o Bible renderanno questo freeze non corrente.");
     }
 
     public static RevisionCandidate? GetLatestFreeze(PreviewProject project) =>
@@ -70,12 +70,13 @@ internal static class EditionFreezeService
         ConsistencyEngine.Rebuild(project);
         var freeze = GetLatestFreeze(project);
         var checks = new List<PreflightCheck>();
+        var metadata = project.EditionMetadata ?? new EditionMetadata();
 
         checks.Add(new PreflightCheck(
             "FREEZE_EXISTS",
             "Error",
             freeze is not null,
-            freeze is null ? "Manca un Edition Freeze del Master." : $"Edition Freeze #{FreezeSequence(freeze)} disponibile."));
+            freeze is null ? "Manca un Edition Freeze del progetto editoriale." : $"Edition Freeze #{FreezeSequence(freeze)} disponibile."));
 
         var freezeCurrent = freeze is not null && IsLatestFreezeCurrent(project);
         checks.Add(new PreflightCheck(
@@ -83,8 +84,35 @@ internal static class EditionFreezeService
             "Error",
             freezeCurrent,
             freeze is null
-                ? "Impossibile verificare il Master senza Edition Freeze."
-                : freezeCurrent ? "Il Master coincide con l'ultimo Edition Freeze." : "Il Master è cambiato dopo l'ultimo Edition Freeze: crea un nuovo freeze."));
+                ? "Impossibile verificare il progetto senza Edition Freeze."
+                : freezeCurrent ? "Metadati, Master e Bible coincidono con l'ultimo Edition Freeze." : "Il progetto editoriale è cambiato dopo l'ultimo Edition Freeze: crea un nuovo freeze."));
+
+        checks.Add(new PreflightCheck(
+            "EDITION_TITLE",
+            "Error",
+            !string.IsNullOrWhiteSpace(metadata.Title),
+            string.IsNullOrWhiteSpace(metadata.Title) ? "Manca il titolo dell'edizione." : $"Titolo edizione: {metadata.Title}."));
+
+        checks.Add(new PreflightCheck(
+            "EDITION_LANGUAGE",
+            "Error",
+            !string.IsNullOrWhiteSpace(metadata.Language),
+            string.IsNullOrWhiteSpace(metadata.Language) ? "Manca la lingua dell'edizione." : $"Lingua edizione: {metadata.Language}."));
+
+        var isbnValid = string.IsNullOrWhiteSpace(metadata.Isbn) || EditionMetadataService.IsValidIsbn(metadata.Isbn);
+        checks.Add(new PreflightCheck(
+            "ISBN_VALID",
+            "Error",
+            isbnValid,
+            isbnValid
+                ? string.IsNullOrWhiteSpace(metadata.Isbn) ? "ISBN non indicato: campo opzionale." : $"ISBN valido: {metadata.Isbn}."
+                : "L'ISBN indicato non è valido."));
+
+        checks.Add(new PreflightCheck(
+            "EDITION_CREATOR",
+            "Warning",
+            !string.IsNullOrWhiteSpace(metadata.Creator),
+            string.IsNullOrWhiteSpace(metadata.Creator) ? "Autore/creatore non indicato." : $"Autore/creatore: {metadata.Creator}."));
 
         var editable = project.ContentNodes.Where(n => EditableMasterService.CanEdit(project, n)).ToList();
         checks.Add(new PreflightCheck(
@@ -140,6 +168,16 @@ internal static class EditionFreezeService
 
     public static string BuildCanonicalSnapshot(PreviewProject project)
     {
+        var metadata = project.EditionMetadata ?? new EditionMetadata();
+        var freezeMetadata = new FreezeMetadata(
+            metadata.Title ?? string.Empty,
+            metadata.Subtitle ?? string.Empty,
+            metadata.Creator ?? string.Empty,
+            metadata.Language ?? string.Empty,
+            metadata.Publisher ?? string.Empty,
+            metadata.Isbn ?? string.Empty,
+            metadata.Description ?? string.Empty);
+
         var orderedContent = project.ContentNodes
             .OrderBy(n => MaterialOrder(project, n.MaterialId))
             .ThenBy(n => n.Ordinal)
@@ -163,7 +201,7 @@ internal static class EditionFreezeService
             .Select(b => new FreezeBible(b.SubjectEntityId, b.Key ?? string.Empty, b.Value ?? string.Empty, b.Authority ?? string.Empty))
             .ToList();
 
-        return JsonSerializer.Serialize(new FreezeSnapshot(project.ProjectId, orderedContent, bible));
+        return JsonSerializer.Serialize(new FreezeSnapshot(project.ProjectId, freezeMetadata, orderedContent, bible));
     }
 
     private static int FreezeSequence(RevisionCandidate freeze) =>
@@ -178,7 +216,8 @@ internal static class EditionFreezeService
     private static string Hash(string value) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value ?? string.Empty)));
 
-    private sealed record FreezeSnapshot(Guid ProjectId, List<FreezeContent> Contents, List<FreezeBible> Bible);
+    private sealed record FreezeSnapshot(Guid ProjectId, FreezeMetadata Metadata, List<FreezeContent> Contents, List<FreezeBible> Bible);
+    private sealed record FreezeMetadata(string Title, string Subtitle, string Creator, string Language, string Publisher, string Isbn, string Description);
     private sealed record FreezeContent(Guid ContentId, Guid MaterialId, Guid? ParentId, string Kind, string Title, string SourceLocator, int Ordinal, string Body);
     private sealed record FreezeBible(Guid SubjectEntityId, string Key, string Value, string Authority);
 }
