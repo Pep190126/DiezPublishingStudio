@@ -91,6 +91,15 @@ internal static class IllustrationPlanService
     public static bool Remove(PreviewProject project, Guid placementId) =>
         project.IllustrationPlacements.RemoveAll(p => p.PlacementId == placementId) > 0;
 
+    public static int PruneOrphans(PreviewProject project)
+    {
+        project.IllustrationPlacements ??= [];
+        var materialIds = project.Materials.Select(m => m.MaterialId).ToHashSet();
+        var contentIds = project.ContentNodes.Select(n => n.ContentId).ToHashSet();
+        return project.IllustrationPlacements.RemoveAll(p =>
+            !materialIds.Contains(p.MaterialId) || !contentIds.Contains(p.ContentId));
+    }
+
     public static bool IsImage(MaterialEntry material) =>
         material.Kind?.StartsWith("Immagine", StringComparison.OrdinalIgnoreCase) == true;
 
