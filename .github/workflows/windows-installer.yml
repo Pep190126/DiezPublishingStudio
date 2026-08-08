@@ -28,6 +28,25 @@ jobs:
       - name: Publish self-contained Windows x64
         run: dotnet publish src/Diez.Desktop/Diez.Desktop.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -o artifacts/publish
 
+      - name: Smoke launch real GUI startup
+        shell: powershell
+        run: |
+          $exe = (Resolve-Path "artifacts\publish\DiezPublishingStudio.exe").Path
+          $startupLog = Join-Path $env:LOCALAPPDATA "Diez Publishing Studio\logs\startup-errors.log"
+          if (Test-Path $startupLog) { Remove-Item $startupLog -Force }
+
+          $process = Start-Process -FilePath $exe -PassThru
+          Start-Sleep -Seconds 4
+          if ($process.HasExited) {
+            throw "Diez exited during normal GUI startup with code $($process.ExitCode)"
+          }
+          if (Test-Path $startupLog) {
+            Get-Content $startupLog
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+            throw "Diez entered startup diagnostic mode; one or more UI modules failed to attach"
+          }
+          Stop-Process -Id $process.Id -Force
+
       - name: Self-test complete pre-final editorial lifecycle and handoff
         shell: powershell
         run: |
