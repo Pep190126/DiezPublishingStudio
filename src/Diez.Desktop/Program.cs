@@ -26,6 +26,7 @@ internal static class Program
                 EditionFreezeSelfTest.RunAsync().GetAwaiter().GetResult();
                 PublicationCandidateSelfTest.RunAsync().GetAwaiter().GetResult();
                 EpubExportSelfTest.RunAsync().GetAwaiter().GetResult();
+                DocxExportSelfTest.RunAsync().GetAwaiter().GetResult();
                 return 0;
             }
             catch (Exception ex)
