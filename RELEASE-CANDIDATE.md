@@ -1,16 +1,17 @@
 # Diez Publishing Studio — current preview candidate
 
-## 0.13.0-preview
+## 0.14.0-preview
 
-- Product direction is now explicit: Diez prepares editable production handoff material; it does not generate PDF or EPUB final-output workflows.
-- EPUB export service, desktop UI and self-test have been removed from the product.
-- `.diez` schema remains 9; Edition Metadata, Edition Freeze and immutable Publication Candidate continue unchanged.
-- The desktop exposes one `Export / Handoff` center instead of separate final-format export buttons.
-- DOCX remains the primary editable editorial handoff and is exported only from a current Publication Candidate with preflight READY.
-- New CSV Master export writes UTF-8 structured editorial rows with order, source material, content kind, title, full editable text and source locator.
-- New XLSX Master export writes a real Office Open XML workbook. Long Master bodies are split across numbered parts to stay below spreadsheet cell limits without losing text.
-- New `ZIP immagini originali` export copies only image materials embedded in the `.diez`, in project order, byte-for-byte after extraction. The archive deliberately contains no manifest, metadata or other accessory files.
-- Image ZIP export is independent of Edition Freeze / Publication Candidate so image-only and coloring-book projects can export their original assets without requiring a textual Master.
-- Image ZIP export performs no resize, DPI rewrite, recompression or upscale. Future visual-generation settings will control requested pixel size/DPI at generation time instead of altering originals during handoff.
-- CSV/XLSX editorial handoff is blocked when the Publication Candidate is missing or stale, matching the existing DOCX safety boundary.
-- Windows installer pipeline runs package, graph, Bible, consistency, revision, editable-master, edition-metadata, freeze, preflight, publication-candidate, DOCX-export and handoff-export self-tests.
+- Product direction remains editable handoff: no PDF or EPUB final-output workflow is reintroduced.
+- `.diez` schema advances to 10 and persists an Illustration Placement Plan alongside Edition Metadata, Master, Bible and revision history.
+- Each illustration placement records the original image material, target chapter/section, placement position, indicative width and optional caption.
+- Supported DOCX placement positions are before the chapter/section heading, after the heading, after the text, or on a dedicated page after the text.
+- The Illustration Placement Plan is part of the canonical Edition Freeze snapshot. Changing image placement, width or caption after Freeze makes the Freeze and Publication Candidate stale.
+- Preflight validates every planned illustration: referenced image and target content must exist, the original must be embedded, the position/width must be valid, and the image must use a DOCX-interoperable format supported by this preview.
+- PNG, JPG/JPEG, GIF and BMP can be placed in the illustrated DOCX. Other imported image formats remain preserved in `.diez` and exportable in the original-images ZIP.
+- DOCX export now embeds planned images as real WordprocessingML/DrawingML media relationships. The embedded media bytes are copied from the `.diez` original without recompression.
+- DOCX illustrations are centered and sized from the stored width percentage while preserving aspect ratio and fitting within the document text area. Captions use a dedicated editable Word paragraph style.
+- The Export / Handoff center adds `Piano illustrazioni`, where users can add, update or remove placements before creating the Edition Freeze / Publication Candidate.
+- DOCX remains candidate-gated; CSV and XLSX Master exports remain candidate-gated; ZIP immagini originali remains independent so coloring/image-only projects can hand off original assets without a textual Master.
+- ZIP immagini originali still contains only image files, byte-for-byte from the embedded originals, with no manifest, metadata, resize, DPI rewrite, recompression or upscale.
+- Windows installer pipeline validates schema 10 migration/persistence, the existing editorial lifecycle, illustrated DOCX media embedding and stale-placement guard, CSV/XLSX handoff, byte-preserving image ZIP, installer generation and clean upgrade/uninstall.
