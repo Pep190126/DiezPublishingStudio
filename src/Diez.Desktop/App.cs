@@ -29,6 +29,8 @@ public sealed class App : Application
                 failures.Add(aiError);
             if (!StartupDiagnostics.TryAttach("Layout e aiuto contestuale", () => FriendlyLayoutUi.Attach(mainWindow), out var layoutError) && layoutError is not null)
                 failures.Add(layoutError);
+            if (!StartupDiagnostics.TryAttach("Guida passo passo", () => GuidedModeUi.Attach(mainWindow), out var guideError) && guideError is not null)
+                failures.Add(guideError);
 
             StartupDiagnostics.ShowWarning(mainWindow, failures);
         }
