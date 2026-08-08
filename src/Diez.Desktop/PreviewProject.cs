@@ -6,7 +6,7 @@ namespace DiezPublishingStudio;
 internal sealed class PreviewProject
 {
     public string Format { get; set; } = "diez-project-package";
-    public int SchemaVersion { get; set; } = 7;
+    public int SchemaVersion { get; set; } = 8;
     public string Name { get; set; } = "Nuovo progetto";
     public string SavedAtLocal { get; set; } = string.Empty;
     public Guid ProjectId { get; set; } = Guid.NewGuid();
@@ -18,6 +18,7 @@ internal sealed class PreviewProject
     public List<ConsistencyFact> ConsistencyFacts { get; set; } = [];
     public List<ConsistencyIssue> ConsistencyIssues { get; set; } = [];
     public List<ConsistencyResolution> ConsistencyResolutions { get; set; } = [];
+    public List<RevisionCandidate> RevisionCandidates { get; set; } = [];
 }
 
 internal sealed class MaterialEntry
@@ -120,6 +121,27 @@ internal sealed class ConsistencyResolution
     public string CreatedAtLocal { get; set; } = string.Empty;
 }
 
+internal sealed class RevisionCandidate
+{
+    public Guid CandidateId { get; set; } = Guid.NewGuid();
+    public Guid IssueId { get; set; }
+    public string IssueSignature { get; set; } = string.Empty;
+    public Guid SubjectEntityId { get; set; }
+    public Guid ContentId { get; set; }
+    public string Key { get; set; } = string.Empty;
+    public string OriginalValue { get; set; } = string.Empty;
+    public string ProposedValue { get; set; } = string.Empty;
+    public string OriginalBody { get; set; } = string.Empty;
+    public string ProposedBody { get; set; } = string.Empty;
+    public string BaseContentSha256 { get; set; } = string.Empty;
+    public string Rationale { get; set; } = string.Empty;
+    public string Status { get; set; } = "Proposed";
+    public string CreatedAtLocal { get; set; } = string.Empty;
+    public string ApprovedAtLocal { get; set; } = string.Empty;
+    public string AppliedAtLocal { get; set; } = string.Empty;
+    public string RejectedAtLocal { get; set; } = string.Empty;
+}
+
 internal static class ProjectFileStore
 {
     private const string ManifestEntryName = "project.json";
@@ -175,7 +197,7 @@ internal static class ProjectFileStore
 
         Normalize(project);
         project.Format = "diez-project-package";
-        project.SchemaVersion = 7;
+        project.SchemaVersion = 8;
         project.SavedAtLocal = DateTimeOffset.Now.ToString("G");
 
         var directory = Path.GetDirectoryName(Path.GetFullPath(path));
@@ -289,6 +311,7 @@ internal static class ProjectFileStore
         project.ConsistencyFacts ??= [];
         project.ConsistencyIssues ??= [];
         project.ConsistencyResolutions ??= [];
+        project.RevisionCandidates ??= [];
 
         foreach (var material in project.Materials)
         {
@@ -370,6 +393,24 @@ internal static class ProjectFileStore
             resolution.Action ??= string.Empty;
             resolution.Note ??= string.Empty;
             resolution.CreatedAtLocal ??= string.Empty;
+        }
+
+        foreach (var candidate in project.RevisionCandidates)
+        {
+            if (candidate.CandidateId == Guid.Empty) candidate.CandidateId = Guid.NewGuid();
+            candidate.IssueSignature ??= string.Empty;
+            candidate.Key ??= string.Empty;
+            candidate.OriginalValue ??= string.Empty;
+            candidate.ProposedValue ??= string.Empty;
+            candidate.OriginalBody ??= string.Empty;
+            candidate.ProposedBody ??= string.Empty;
+            candidate.BaseContentSha256 ??= string.Empty;
+            candidate.Rationale ??= string.Empty;
+            candidate.Status ??= "Proposed";
+            candidate.CreatedAtLocal ??= string.Empty;
+            candidate.ApprovedAtLocal ??= string.Empty;
+            candidate.AppliedAtLocal ??= string.Empty;
+            candidate.RejectedAtLocal ??= string.Empty;
         }
     }
 }
