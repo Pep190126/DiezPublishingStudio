@@ -19,6 +19,9 @@ internal static class DocxExportService
         return $"{SanitizeFileName(title)}-publication-{sequence:D3}.docx";
     }
 
+    public static Task<DocxExportResult> ExportAsync(PreviewProject project, string projectPath, string outputPath) =>
+        IllustratedDocxExportService.ExportAsync(project, projectPath, outputPath);
+
     public static async Task<DocxExportResult> ExportAsync(PreviewProject project, string outputPath)
     {
         var preflight = EditionFreezeService.RunPreflight(project);
