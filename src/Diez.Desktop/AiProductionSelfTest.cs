@@ -77,8 +77,8 @@ internal static class AiProductionSelfTest
 
             await ProjectFileStore.SaveAsync(projectPath, project);
             var reloaded = await ProjectFileStore.LoadAsync(projectPath);
-            if (reloaded.SchemaVersion != 11 || reloaded.AiProductionJobs.Count != 3)
-                throw new InvalidOperationException("La coda AI non persiste nello schema 11.");
+            if (reloaded.SchemaVersion != 10 || reloaded.AiProduction.SchemaVersion != 1 || reloaded.AiProductionJobs.Count != 3)
+                throw new InvalidOperationException("La coda AI non persiste correttamente nell'estensione Produzione AI dello schema 10.");
             var imageReloaded = reloaded.AiProductionJobs.Single(j => j.Code == "IMG-001");
             if (imageReloaded.Status != AiProductionService.StatusApproved || !imageReloaded.ResultMaterialId.HasValue)
                 throw new InvalidOperationException("Stato/collegamento del job immagine non persistono.");
