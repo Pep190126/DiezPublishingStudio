@@ -13,6 +13,7 @@ internal static class PackageSelfTest
         try
         {
             await VerifyEmbeddedMaterialStructureGraphAndBibleRoundTripAsync(root);
+            await VerifyConsistencyContradictionAsync(root);
             await VerifyLegacyProjectMigrationAsync(root);
             await VerifyDocxIntakeAndStructureAsync(root);
         }
@@ -27,7 +28,7 @@ internal static class PackageSelfTest
     {
         var sourcePath = Path.Combine(root, "manoscritto.txt");
         const string sourceContent =
-            "Capitolo 1\nMilo entra nel Faro. Milo osserva il Faro. Milo cerca una chiave.\n\n" +
+            "Capitolo 1\nMilo entra nel Faro. Milo osserva il Faro. Milo cerca una chiave. Milo ha gli occhi blu.\n\n" +
             "Capitolo 2\nMilo torna al Faro durante la tempesta.";
         await File.WriteAllTextAsync(sourcePath, sourceContent, Encoding.UTF8);
 
@@ -54,13 +55,15 @@ internal static class PackageSelfTest
         Require(!milo.IsCandidate, "Milo è ancora candidato dopo la conferma.");
         Require(project.BibleEntries.Any(b => b.SubjectEntityId == milo.EntityId && b.Key == "canonical_name" && b.Value == "Milo" && b.Authority == "Binding"),
             "Il nome canonico di Milo non è entrato nella Bible.");
+        Require(project.ConsistencyFacts.Any(f => f.SubjectEntityId == milo.EntityId && f.Key == "eye_color" && f.Value.Equals("blu", StringComparison.OrdinalIgnoreCase)),
+            "Il Consistency Engine non ha estratto il colore degli occhi.");
 
         var projectPath = Path.Combine(root, "roundtrip.diez");
         await ProjectFileStore.SaveAsync(projectPath, project);
         Require(ProjectFileStore.IsPackageFile(projectPath), "Il .diez salvato non è un pacchetto ZIP.");
 
         var loaded = await ProjectFileStore.LoadAsync(projectPath);
-        Require(loaded.SchemaVersion == 5, "Schema .diez inatteso.");
+        Require(loaded.SchemaVersion == 6, "Schema .diez inatteso.");
         Require(loaded.Materials.Count == 1, "Il materiale non è sopravvissuto al round-trip.");
         Require(loaded.ContentNodes.Count == project.ContentNodes.Count, "La struttura editoriale non è sopravvissuta al round-trip.");
         Require(loaded.Entities.Any(e => e.Name == "Milo" && !e.IsCandidate), "Milo confermato non è sopravvissuto al round-trip.");
@@ -68,6 +71,8 @@ internal static class PackageSelfTest
         Require(loaded.Relations.Any(r => r.Type == "LocatedIn"), "Le relazioni del Content Graph non sono sopravvissute.");
         Require(loaded.BibleEntries.Any(b => b.Key == "canonical_name" && b.Value == "Milo" && b.Authority == "Binding"),
             "La Bible non è sopravvissuta al round-trip.");
+        Require(loaded.ConsistencyFacts.Any(f => f.Key == "eye_color" && f.Value.Equals("blu", StringComparison.OrdinalIgnoreCase)),
+            "I fatti di coerenza non sono sopravvissuti al round-trip.");
         Require(loaded.Materials[0].IsEmbedded, "Il materiale non risulta incorporato.");
 
         var embedded = await ProjectFileStore.ReadEmbeddedMaterialAsync(projectPath, loaded.Materials[0]);
@@ -81,6 +86,62 @@ internal static class PackageSelfTest
         Require(embeddedAfterSourceRemoval is not null && Encoding.UTF8.GetString(embeddedAfterSourceRemoval).Contains("Milo entra nel Faro", StringComparison.Ordinal),
             "Lo snapshot è stato perso dopo la rimozione della sorgente.");
         Require(reloaded.BibleEntries.Any(b => b.Value == "Milo"), "La Bible è stata persa dopo un secondo salvataggio.");
+    }
+
+    private static async Task VerifyConsistencyContradictionAsync(string root)
+    {
+        var project = ProjectFileStore.Create("Consistency Test");
+        var materialId = Guid.NewGuid();
+        var milo = new GraphEntity
+        {
+            EntityId = Guid.NewGuid(),
+            Kind = "Character",
+            Name = "Milo",
+            IsCandidate = false,
+            SourceMaterialId = materialId,
+            Notes = "Personaggio confermato"
+        };
+        project.Entities.Add(milo);
+        project.BibleEntries.Add(new BibleEntry
+        {
+            SubjectEntityId = milo.EntityId,
+            Key = "canonical_name",
+            Value = "Milo",
+            Authority = "Binding",
+            IsActive = true
+        });
+        project.ContentNodes.Add(new ContentNode
+        {
+            MaterialId = materialId,
+            Kind = "Chapter",
+            Title = "Capitolo 1",
+            Body = "Milo ha gli occhi blu e guarda il mare.",
+            Ordinal = 1,
+            SourceLocator = "Capitolo 1"
+        });
+        project.ContentNodes.Add(new ContentNode
+        {
+            MaterialId = materialId,
+            Kind = "Chapter",
+            Title = "Capitolo 2",
+            Body = "Milo ha gli occhi verdi mentre entra nella stanza.",
+            Ordinal = 2,
+            SourceLocator = "Capitolo 2"
+        });
+
+        var analysis = ConsistencyEngine.Rebuild(project);
+        Require(analysis.FactsDetected == 2, "Il Consistency Engine non ha rilevato entrambi i fatti.");
+        Require(project.ConsistencyIssues.Any(i => i.Code == "FACT_CONTRADICTION" && i.SubjectEntityId == milo.EntityId),
+            "La contraddizione blu/verdi non è stata rilevata.");
+        Require(milo.Notes.Contains("[Coerenza]", StringComparison.Ordinal),
+            "Il riepilogo di coerenza non è visibile nell'entità.");
+
+        var path = Path.Combine(root, "consistency.diez");
+        await ProjectFileStore.SaveAsync(path, project);
+        var loaded = await ProjectFileStore.LoadAsync(path);
+        Require(loaded.SchemaVersion == 6, "Il progetto di coerenza non usa schema 6.");
+        Require(loaded.ConsistencyIssues.Any(i => i.Code == "FACT_CONTRADICTION"),
+            "Il conflitto di coerenza non è stato persistito.");
     }
 
     private static async Task VerifyLegacyProjectMigrationAsync(string root)
@@ -101,7 +162,7 @@ internal static class PackageSelfTest
         Require(loadedLegacy.Name == "Legacy Preview", "Il progetto 0.1 non è stato letto correttamente.");
         await ProjectFileStore.SaveAsync(legacyPath, loadedLegacy);
         Require(ProjectFileStore.IsPackageFile(legacyPath), "Il progetto legacy non è stato migrato.");
-        Require((await ProjectFileStore.LoadAsync(legacyPath)).SchemaVersion == 5, "Il progetto legacy non è arrivato allo schema 5.");
+        Require((await ProjectFileStore.LoadAsync(legacyPath)).SchemaVersion == 6, "Il progetto legacy non è arrivato allo schema 6.");
     }
 
     private static async Task VerifyDocxIntakeAndStructureAsync(string root)
