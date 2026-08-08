@@ -6,12 +6,15 @@ namespace DiezPublishingStudio;
 internal sealed class PreviewProject
 {
     public string Format { get; set; } = "diez-project-package";
-    public int SchemaVersion { get; set; } = 4;
+    public int SchemaVersion { get; set; } = 5;
     public string Name { get; set; } = "Nuovo progetto";
     public string SavedAtLocal { get; set; } = string.Empty;
     public Guid ProjectId { get; set; } = Guid.NewGuid();
     public List<MaterialEntry> Materials { get; set; } = [];
     public List<ContentNode> ContentNodes { get; set; } = [];
+    public List<GraphEntity> Entities { get; set; } = [];
+    public List<ContentRelation> Relations { get; set; } = [];
+    public List<BibleEntry> BibleEntries { get; set; } = [];
 }
 
 internal sealed class MaterialEntry
@@ -41,6 +44,40 @@ internal sealed class ContentNode
     public string Body { get; set; } = string.Empty;
     public int Ordinal { get; set; }
     public string SourceLocator { get; set; } = string.Empty;
+}
+
+internal sealed class GraphEntity
+{
+    public Guid EntityId { get; set; } = Guid.NewGuid();
+    public string Kind { get; set; } = "Concept";
+    public string Name { get; set; } = string.Empty;
+    public bool IsCandidate { get; set; } = true;
+    public Guid? SourceMaterialId { get; set; }
+    public Guid? FirstSourceContentId { get; set; }
+    public string Notes { get; set; } = string.Empty;
+}
+
+internal sealed class ContentRelation
+{
+    public Guid RelationId { get; set; } = Guid.NewGuid();
+    public string FromKind { get; set; } = "Entity";
+    public Guid FromId { get; set; }
+    public string Type { get; set; } = "References";
+    public string ToKind { get; set; } = "Content";
+    public Guid ToId { get; set; }
+    public bool IsCandidate { get; set; } = true;
+    public string Evidence { get; set; } = string.Empty;
+}
+
+internal sealed class BibleEntry
+{
+    public Guid BibleEntryId { get; set; } = Guid.NewGuid();
+    public Guid SubjectEntityId { get; set; }
+    public string Key { get; set; } = string.Empty;
+    public string Value { get; set; } = string.Empty;
+    public string Authority { get; set; } = "Proposed";
+    public bool IsActive { get; set; } = true;
+    public Guid? SourceContentId { get; set; }
 }
 
 internal static class ProjectFileStore
@@ -78,7 +115,6 @@ internal static class ProjectFileStore
         }
         else
         {
-            // Compatibilità Preview 0.1: il vecchio .diez era JSON puro.
             var json = await File.ReadAllTextAsync(path);
             project = JsonSerializer.Deserialize<PreviewProject>(json, JsonOptions)
                 ?? throw new InvalidDataException("Il file non contiene un progetto Diez valido.");
@@ -99,7 +135,7 @@ internal static class ProjectFileStore
 
         Normalize(project);
         project.Format = "diez-project-package";
-        project.SchemaVersion = 4;
+        project.SchemaVersion = 5;
         project.SavedAtLocal = DateTimeOffset.Now.ToString("G");
 
         var directory = Path.GetDirectoryName(Path.GetFullPath(path));
@@ -207,6 +243,9 @@ internal static class ProjectFileStore
         if (project.ProjectId == Guid.Empty) project.ProjectId = Guid.NewGuid();
         project.Materials ??= [];
         project.ContentNodes ??= [];
+        project.Entities ??= [];
+        project.Relations ??= [];
+        project.BibleEntries ??= [];
 
         foreach (var material in project.Materials)
         {
@@ -230,6 +269,31 @@ internal static class ProjectFileStore
             node.Title ??= string.Empty;
             node.Body ??= string.Empty;
             node.SourceLocator ??= string.Empty;
+        }
+
+        foreach (var entity in project.Entities)
+        {
+            if (entity.EntityId == Guid.Empty) entity.EntityId = Guid.NewGuid();
+            entity.Kind ??= "Concept";
+            entity.Name ??= string.Empty;
+            entity.Notes ??= string.Empty;
+        }
+
+        foreach (var relation in project.Relations)
+        {
+            if (relation.RelationId == Guid.Empty) relation.RelationId = Guid.NewGuid();
+            relation.FromKind ??= "Entity";
+            relation.ToKind ??= "Content";
+            relation.Type ??= "References";
+            relation.Evidence ??= string.Empty;
+        }
+
+        foreach (var entry in project.BibleEntries)
+        {
+            if (entry.BibleEntryId == Guid.Empty) entry.BibleEntryId = Guid.NewGuid();
+            entry.Key ??= string.Empty;
+            entry.Value ??= string.Empty;
+            entry.Authority ??= "Proposed";
         }
     }
 }
