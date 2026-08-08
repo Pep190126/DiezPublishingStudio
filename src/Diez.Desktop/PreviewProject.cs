@@ -6,10 +6,11 @@ namespace DiezPublishingStudio;
 internal sealed class PreviewProject
 {
     public string Format { get; set; } = "diez-project-package";
-    public int SchemaVersion { get; set; } = 8;
+    public int SchemaVersion { get; set; } = 9;
     public string Name { get; set; } = "Nuovo progetto";
     public string SavedAtLocal { get; set; } = string.Empty;
     public Guid ProjectId { get; set; } = Guid.NewGuid();
+    public EditionMetadata EditionMetadata { get; set; } = new();
     public List<MaterialEntry> Materials { get; set; } = [];
     public List<ContentNode> ContentNodes { get; set; } = [];
     public List<GraphEntity> Entities { get; set; } = [];
@@ -19,6 +20,17 @@ internal sealed class PreviewProject
     public List<ConsistencyIssue> ConsistencyIssues { get; set; } = [];
     public List<ConsistencyResolution> ConsistencyResolutions { get; set; } = [];
     public List<RevisionCandidate> RevisionCandidates { get; set; } = [];
+}
+
+internal sealed class EditionMetadata
+{
+    public string Title { get; set; } = string.Empty;
+    public string Subtitle { get; set; } = string.Empty;
+    public string Creator { get; set; } = string.Empty;
+    public string Language { get; set; } = string.Empty;
+    public string Publisher { get; set; } = string.Empty;
+    public string Isbn { get; set; } = string.Empty;
+    public string Description { get; set; } = string.Empty;
 }
 
 internal sealed class MaterialEntry
@@ -155,7 +167,12 @@ internal static class ProjectFileStore
     public static PreviewProject Create(string name) => new()
     {
         Name = name,
-        SavedAtLocal = DateTimeOffset.Now.ToString("G")
+        SavedAtLocal = DateTimeOffset.Now.ToString("G"),
+        EditionMetadata = new EditionMetadata
+        {
+            Title = name,
+            Language = "it"
+        }
     };
 
     public static async Task<PreviewProject> LoadAsync(string path)
@@ -197,7 +214,7 @@ internal static class ProjectFileStore
 
         Normalize(project);
         project.Format = "diez-project-package";
-        project.SchemaVersion = 8;
+        project.SchemaVersion = 9;
         project.SavedAtLocal = DateTimeOffset.Now.ToString("G");
 
         var directory = Path.GetDirectoryName(Path.GetFullPath(path));
@@ -303,6 +320,19 @@ internal static class ProjectFileStore
     private static void Normalize(PreviewProject project)
     {
         if (project.ProjectId == Guid.Empty) project.ProjectId = Guid.NewGuid();
+        project.EditionMetadata ??= new EditionMetadata();
+        if (project.SchemaVersion < 9)
+        {
+            if (string.IsNullOrWhiteSpace(project.EditionMetadata.Title)) project.EditionMetadata.Title = project.Name;
+            if (string.IsNullOrWhiteSpace(project.EditionMetadata.Language)) project.EditionMetadata.Language = "it";
+        }
+        project.EditionMetadata.Title ??= string.Empty;
+        project.EditionMetadata.Subtitle ??= string.Empty;
+        project.EditionMetadata.Creator ??= string.Empty;
+        project.EditionMetadata.Language ??= string.Empty;
+        project.EditionMetadata.Publisher ??= string.Empty;
+        project.EditionMetadata.Isbn ??= string.Empty;
+        project.EditionMetadata.Description ??= string.Empty;
         project.Materials ??= [];
         project.ContentNodes ??= [];
         project.Entities ??= [];
