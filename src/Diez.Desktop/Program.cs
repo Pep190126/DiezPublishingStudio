@@ -30,6 +30,7 @@ internal static class Program
                 HandoffExportSelfTest.RunAsync().GetAwaiter().GetResult();
                 ProductionPackageSelfTest.RunAsync().GetAwaiter().GetResult();
                 AiProductionSelfTest.RunAsync().GetAwaiter().GetResult();
+                AiImageBatchSelfTest.RunAsync().GetAwaiter().GetResult();
                 return 0;
             }
             catch (Exception ex)
