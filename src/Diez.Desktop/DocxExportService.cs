@@ -134,7 +134,7 @@ internal static class DocxExportService
             Optional(dc + "description", metadata.Description),
             Optional(dc + "language", metadata.Language),
             new XElement(dc + "identifier", string.IsNullOrWhiteSpace(metadata.Isbn) ? $"urn:uuid:{project.ProjectId:D}" : $"urn:isbn:{metadata.Isbn}"),
-            new XElement(cp + "lastModifiedBy", "Diez Publishing Studio"),
+            new XElement(cp + "lastModifiedBy", ProductInfo.ProductName),
             new XElement(dcterms + "created", new XAttribute(xsi + "type", "dcterms:W3CDTF"), modified),
             new XElement(dcterms + "modified", new XAttribute(xsi + "type", "dcterms:W3CDTF"), modified));
         return Xml(new XDocument(new XDeclaration("1.0", "UTF-8", "yes"), properties));
@@ -147,8 +147,8 @@ internal static class DocxExportService
         var document = new XDocument(new XDeclaration("1.0", "UTF-8", "yes"),
             new XElement(ep + "Properties",
                 new XAttribute(XNamespace.Xmlns + "vt", vt),
-                new XElement(ep + "Application", "Diez Publishing Studio"),
-                new XElement(ep + "AppVersion", "0.14")));
+                new XElement(ep + "Application", ProductInfo.ProductName),
+                new XElement(ep + "AppVersion", "1.0")));
         return Xml(document);
     }
 
