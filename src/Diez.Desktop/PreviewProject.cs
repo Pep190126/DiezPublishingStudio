@@ -167,13 +167,12 @@ internal static class ProjectFileStore
         ZipArchive newArchive,
         MaterialEntry material)
     {
-        var destination = newArchive.CreateEntry(material.EmbeddedPath, CompressionLevel.Optimal);
-
         // Se il materiale era già incorporato, manteniamo esattamente lo snapshot importato,
         // anche se il file sorgente sul PC nel frattempo è cambiato o è stato rimosso.
         var previous = oldArchive?.GetEntry(material.EmbeddedPath);
         if (previous is not null)
         {
+            var destination = newArchive.CreateEntry(material.EmbeddedPath, CompressionLevel.Optimal);
             await using var source = previous.Open();
             await using var target = destination.Open();
             await source.CopyToAsync(target);
@@ -182,14 +181,13 @@ internal static class ProjectFileStore
 
         if (!string.IsNullOrWhiteSpace(material.SourcePath) && File.Exists(material.SourcePath))
         {
+            var destination = newArchive.CreateEntry(material.EmbeddedPath, CompressionLevel.Optimal);
             await using var source = File.Open(material.SourcePath, FileMode.Open, FileAccess.Read, FileShare.Read);
             await using var target = destination.Open();
             await source.CopyToAsync(target);
             return true;
         }
 
-        // Nessuna sorgente disponibile: non lasciamo una falsa entry vuota nel pacchetto.
-        destination.Delete();
         return false;
     }
 
