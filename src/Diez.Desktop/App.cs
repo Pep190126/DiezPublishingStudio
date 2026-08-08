@@ -20,6 +20,7 @@ public sealed class App : Application
             var mainWindow = new MainWindow(startupProjectPath);
             EditionWorkflowUi.Attach(mainWindow);
             EpubWorkflowUi.Attach(mainWindow);
+            DocxWorkflowUi.Attach(mainWindow);
             desktop.MainWindow = mainWindow;
         }
 
