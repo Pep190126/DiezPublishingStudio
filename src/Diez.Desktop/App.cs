@@ -25,12 +25,16 @@ public sealed class App : Application
                 failures.Add(editionError);
             if (!StartupDiagnostics.TryAttach("Esporta / Consegna", () => HandoffWorkflowUi.Attach(mainWindow), out var handoffError) && handoffError is not null)
                 failures.Add(handoffError);
-            if (!StartupDiagnostics.TryAttach("Produzione AI", () => AiProductionUi.Attach(mainWindow), out var aiError) && aiError is not null)
+            if (!StartupDiagnostics.TryAttach("Contenuti con AI", () => AiProductionUi.Attach(mainWindow), out var aiError) && aiError is not null)
                 failures.Add(aiError);
+            if (!StartupDiagnostics.TryAttach("Serie immagini AI", () => AiImageBatchUi.Attach(mainWindow), out var batchError) && batchError is not null)
+                failures.Add(batchError);
             if (!StartupDiagnostics.TryAttach("Layout e aiuto contestuale", () => FriendlyLayoutUi.Attach(mainWindow), out var layoutError) && layoutError is not null)
                 failures.Add(layoutError);
             if (!StartupDiagnostics.TryAttach("Guida passo passo", () => GuidedModeUi.Attach(mainWindow), out var guideError) && guideError is not null)
                 failures.Add(guideError);
+            if (!StartupDiagnostics.TryAttach("Linguaggio semplice", () => PlainLanguageUi.Attach(mainWindow), out var languageError) && languageError is not null)
+                failures.Add(languageError);
 
             StartupDiagnostics.ShowWarning(mainWindow, failures);
         }
