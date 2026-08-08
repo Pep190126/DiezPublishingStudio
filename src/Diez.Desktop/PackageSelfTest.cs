@@ -64,7 +64,7 @@ internal static class PackageSelfTest
         Require(ProjectFileStore.IsPackageFile(projectPath), "Il .diez salvato non è un pacchetto ZIP.");
 
         var loaded = await ProjectFileStore.LoadAsync(projectPath);
-        Require(loaded.SchemaVersion == 8, "Schema .diez inatteso.");
+        Require(loaded.SchemaVersion == 9, "Schema .diez inatteso.");
         Require(loaded.Materials.Count == 1, "Il materiale non è sopravvissuto al round-trip.");
         Require(loaded.ContentNodes.Count == project.ContentNodes.Count, "La struttura editoriale non è sopravvissuta al round-trip.");
         Require(loaded.Entities.Any(e => e.Name == "Milo" && !e.IsCandidate), "Milo confermato non è sopravvissuto al round-trip.");
@@ -131,7 +131,7 @@ internal static class PackageSelfTest
         var path = Path.Combine(root, "consistency-review.diez");
         await ProjectFileStore.SaveAsync(path, project);
         var loaded = await ProjectFileStore.LoadAsync(path);
-        Require(loaded.SchemaVersion == 8, "Il progetto di revisione non usa schema 8.");
+        Require(loaded.SchemaVersion == 9, "Il progetto di revisione non usa schema 9.");
         ConsistencyEngine.Rebuild(loaded);
         var loadedIssue = loaded.ConsistencyIssues.Single(i => i.Signature == signature);
         Require(loadedIssue.Status == "Resolved", "Lo stato di revisione non è sopravvissuto al round-trip.");
@@ -172,7 +172,7 @@ internal static class PackageSelfTest
         var path = Path.Combine(root, "revision-candidate.diez");
         await ProjectFileStore.SaveAsync(path, project);
         var loaded = await ProjectFileStore.LoadAsync(path);
-        Require(loaded.SchemaVersion == 8, "Il progetto con Revision Candidate non usa schema 8.");
+        Require(loaded.SchemaVersion == 9, "Il progetto con Revision Candidate non usa schema 9.");
         var loadedCandidate = loaded.RevisionCandidates.Single(c => c.CandidateId == candidate.CandidateId);
         Require(loadedCandidate.Status == "Approved", "Lo stato Approved della proposta non è sopravvissuto al round-trip.");
         Require(loaded.ContentNodes.Single(n => n.ContentId == chapter2.ContentId).Body == originalBody,
@@ -271,7 +271,7 @@ internal static class PackageSelfTest
         Require(loadedLegacy.Name == "Legacy Preview", "Il progetto 0.1 non è stato letto correttamente.");
         await ProjectFileStore.SaveAsync(legacyPath, loadedLegacy);
         Require(ProjectFileStore.IsPackageFile(legacyPath), "Il progetto legacy non è stato migrato.");
-        Require((await ProjectFileStore.LoadAsync(legacyPath)).SchemaVersion == 8, "Il progetto legacy non è arrivato allo schema 8.");
+        Require((await ProjectFileStore.LoadAsync(legacyPath)).SchemaVersion == 9, "Il progetto legacy non è arrivato allo schema 9.");
     }
 
     private static async Task VerifyDocxIntakeAndStructureAsync(string root)
