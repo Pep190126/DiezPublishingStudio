@@ -1,12 +1,16 @@
+using System.Buffers.Binary;
 using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Xml.Linq;
 
 namespace DiezPublishingStudio;
 
 internal static class MaterialImporter
 {
+    private const int MaxPdfScanBytes = 16 * 1024 * 1024;
+
     public static async Task<MaterialEntry> ImportAsync(string path)
     {
         if (!File.Exists(path))
@@ -22,7 +26,12 @@ internal static class MaterialImporter
             ".txt" or ".md" => await ImportTextAsync(path),
             ".csv" => await ImportCsvAsync(path),
             ".xlsx" => ImportXlsx(path),
-            _ => throw new NotSupportedException("In questa build puoi importare TXT, Markdown, CSV e XLSX.")
+            ".docx" => ImportDocx(path),
+            ".odt" => ImportOdt(path),
+            ".rtf" => await ImportRtfAsync(path),
+            ".pdf" => await ImportPdfAsync(path),
+            ".png" or ".jpg" or ".jpeg" or ".gif" or ".bmp" or ".webp" => ImportImage(path),
+            _ => throw new NotSupportedException("Formato non ancora supportato in questa build.")
         };
 
         entry.FileName = info.Name;
@@ -42,7 +51,7 @@ internal static class MaterialImporter
         while (await reader.ReadLineAsync() is { } line)
         {
             lineCount++;
-            if (lineCount <= 30)
+            if (lineCount <= 40)
                 preview.AppendLine(line);
         }
 
@@ -179,6 +188,116 @@ internal static class MaterialImporter
         };
     }
 
+    private static MaterialEntry ImportDocx(string path)
+    {
+        using var archive = ZipFile.OpenRead(path);
+        var documentEntry = archive.GetEntry("word/document.xml")
+            ?? throw new InvalidDataException("DOCX non valido: word/document.xml mancante.");
+
+        XDocument document;
+        using (var stream = documentEntry.Open()) document = XDocument.Load(stream);
+        XNamespace w = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+
+        var paragraphs = document.Descendants(w + "p")
+            .Select(p => string.Concat(p.Descendants(w + "t").Select(t => t.Value)).Trim())
+            .Where(text => text.Length > 0)
+            .ToList();
+
+        var preview = string.Join(Environment.NewLine, paragraphs.Take(40));
+        var characters = paragraphs.Sum(p => p.Length);
+        return new MaterialEntry
+        {
+            Kind = "DOCX",
+            Summary = $"{paragraphs.Count:N0} paragrafi · {characters:N0} caratteri",
+            Preview = preview
+        };
+    }
+
+    private static MaterialEntry ImportOdt(string path)
+    {
+        using var archive = ZipFile.OpenRead(path);
+        var contentEntry = archive.GetEntry("content.xml")
+            ?? throw new InvalidDataException("ODT non valido: content.xml mancante.");
+
+        XDocument document;
+        using (var stream = contentEntry.Open()) document = XDocument.Load(stream);
+        XNamespace text = "urn:oasis:names:tc:opendocument:xmlns:text:1.0";
+
+        var paragraphs = document.Descendants()
+            .Where(e => e.Name == text + "p" || e.Name == text + "h")
+            .Select(e => string.Concat(e.DescendantNodes().OfType<XText>().Select(t => t.Value)).Trim())
+            .Where(value => value.Length > 0)
+            .ToList();
+
+        return new MaterialEntry
+        {
+            Kind = "ODT",
+            Summary = $"{paragraphs.Count:N0} paragrafi",
+            Preview = string.Join(Environment.NewLine, paragraphs.Take(40))
+        };
+    }
+
+    private static async Task<MaterialEntry> ImportRtfAsync(string path)
+    {
+        var rtf = await File.ReadAllTextAsync(path);
+        var plain = RtfToPlainText(rtf);
+        var lines = plain.Replace("\r\n", "\n").Split('\n');
+        var nonEmptyLines = lines.Count(l => !string.IsNullOrWhiteSpace(l));
+        return new MaterialEntry
+        {
+            Kind = "RTF",
+            Summary = $"{nonEmptyLines:N0} righe di testo · {plain.Length:N0} caratteri",
+            Preview = string.Join(Environment.NewLine, lines.Take(40)).Trim()
+        };
+    }
+
+    private static async Task<MaterialEntry> ImportPdfAsync(string path)
+    {
+        await using var stream = File.OpenRead(path);
+        var count = (int)Math.Min(stream.Length, MaxPdfScanBytes);
+        var buffer = new byte[count];
+        var read = 0;
+        while (read < count)
+        {
+            var chunk = await stream.ReadAsync(buffer.AsMemory(read, count - read));
+            if (chunk == 0) break;
+            read += chunk;
+        }
+
+        var ascii = Encoding.Latin1.GetString(buffer, 0, read);
+        var pageCount = Regex.Matches(ascii, @"/Type\s*/Page\b", RegexOptions.CultureInvariant).Count;
+        var titleMatch = Regex.Match(ascii, @"/Title\s*\((?<title>(?:\\.|[^)])*)\)", RegexOptions.CultureInvariant);
+        var title = titleMatch.Success ? UnescapePdfLiteral(titleMatch.Groups["title"].Value) : string.Empty;
+
+        var pageText = pageCount > 0 ? $"{pageCount:N0} pagine rilevate" : "numero pagine non determinato";
+        var preview = string.IsNullOrWhiteSpace(title)
+            ? "PDF incorporato nel progetto. In questa fase Diez ne registra impronta, dimensione e struttura di base; l'estrazione editoriale completa del testo verrà raffinata nei prossimi passaggi."
+            : $"Titolo PDF: {title}\n\nPDF incorporato nel progetto. In questa fase Diez ne registra impronta, dimensione e struttura di base.";
+
+        return new MaterialEntry
+        {
+            Kind = "PDF",
+            Summary = pageText,
+            Preview = preview
+        };
+    }
+
+    private static MaterialEntry ImportImage(string path)
+    {
+        var extension = Path.GetExtension(path).TrimStart('.').ToUpperInvariant();
+        var (width, height) = TryReadImageDimensions(path);
+        var dimensions = width.HasValue && height.HasValue
+            ? $"{width.Value:N0} × {height.Value:N0} px"
+            : "dimensioni non rilevate";
+
+        return new MaterialEntry
+        {
+            Kind = "Immagine " + extension,
+            Summary = dimensions,
+            Preview = $"Risorsa immagine {extension}\n{dimensions}\n\nL'originale viene incorporato nel file .diez, così il progetto non dipende dal percorso sorgente sul PC."
+        };
+    }
+
     private static List<string> ReadSharedStrings(ZipArchive archive, XNamespace main)
     {
         var entry = archive.GetEntry("xl/sharedStrings.xml");
@@ -285,6 +404,171 @@ internal static class MaterialImporter
         values.Add(current.ToString());
         return values;
     }
+
+    private static string RtfToPlainText(string rtf)
+    {
+        var output = new StringBuilder();
+        for (var i = 0; i < rtf.Length; i++)
+        {
+            var ch = rtf[i];
+            if (ch is '{' or '}') continue;
+            if (ch != '\\')
+            {
+                if (ch != '\r' && ch != '\n') output.Append(ch);
+                continue;
+            }
+
+            if (i + 1 >= rtf.Length) break;
+            var next = rtf[++i];
+            if (next is '\\' or '{' or '}')
+            {
+                output.Append(next);
+                continue;
+            }
+
+            if (next == '\'' && i + 2 < rtf.Length)
+            {
+                var hex = rtf.Substring(i + 1, 2);
+                if (byte.TryParse(hex, System.Globalization.NumberStyles.HexNumber, null, out var value))
+                    output.Append(Encoding.GetEncoding(1252).GetString([value]));
+                i += 2;
+                continue;
+            }
+
+            if (!char.IsLetter(next))
+            {
+                if (next == '~') output.Append(' ');
+                continue;
+            }
+
+            var word = new StringBuilder().Append(next);
+            while (i + 1 < rtf.Length && char.IsLetter(rtf[i + 1]))
+                word.Append(rtf[++i]);
+
+            var sign = 1;
+            if (i + 1 < rtf.Length && rtf[i + 1] == '-')
+            {
+                sign = -1;
+                i++;
+            }
+
+            var number = 0;
+            var hasNumber = false;
+            while (i + 1 < rtf.Length && char.IsDigit(rtf[i + 1]))
+            {
+                hasNumber = true;
+                number = number * 10 + (rtf[++i] - '0');
+            }
+            number *= sign;
+
+            if (i + 1 < rtf.Length && rtf[i + 1] == ' ') i++;
+
+            switch (word.ToString())
+            {
+                case "par":
+                case "line":
+                    output.AppendLine();
+                    break;
+                case "tab":
+                    output.Append('\t');
+                    break;
+                case "u" when hasNumber:
+                    output.Append((char)(number < 0 ? number + 65536 : number));
+                    if (i + 1 < rtf.Length && rtf[i + 1] != '\\' && rtf[i + 1] != '{' && rtf[i + 1] != '}')
+                        i++;
+                    break;
+            }
+        }
+
+        return Regex.Replace(output.ToString(), @"[ \t]+", " ").Trim();
+    }
+
+    private static (int? Width, int? Height) TryReadImageDimensions(string path)
+    {
+        var ext = Path.GetExtension(path).ToLowerInvariant();
+        try
+        {
+            return ext switch
+            {
+                ".png" => ReadPngDimensions(path),
+                ".gif" => ReadGifDimensions(path),
+                ".bmp" => ReadBmpDimensions(path),
+                ".jpg" or ".jpeg" => ReadJpegDimensions(path),
+                _ => (null, null)
+            };
+        }
+        catch
+        {
+            return (null, null);
+        }
+    }
+
+    private static (int?, int?) ReadPngDimensions(string path)
+    {
+        Span<byte> header = stackalloc byte[24];
+        using var stream = File.OpenRead(path);
+        if (stream.Read(header) < header.Length ||
+            header[0] != 0x89 || header[1] != 0x50 || header[2] != 0x4E || header[3] != 0x47)
+            return (null, null);
+        return (BinaryPrimitives.ReadInt32BigEndian(header[16..20]), BinaryPrimitives.ReadInt32BigEndian(header[20..24]));
+    }
+
+    private static (int?, int?) ReadGifDimensions(string path)
+    {
+        Span<byte> header = stackalloc byte[10];
+        using var stream = File.OpenRead(path);
+        if (stream.Read(header) < header.Length) return (null, null);
+        return (BinaryPrimitives.ReadUInt16LittleEndian(header[6..8]), BinaryPrimitives.ReadUInt16LittleEndian(header[8..10]));
+    }
+
+    private static (int?, int?) ReadBmpDimensions(string path)
+    {
+        Span<byte> header = stackalloc byte[26];
+        using var stream = File.OpenRead(path);
+        if (stream.Read(header) < header.Length || header[0] != (byte)'B' || header[1] != (byte)'M')
+            return (null, null);
+        return (Math.Abs(BinaryPrimitives.ReadInt32LittleEndian(header[18..22])), Math.Abs(BinaryPrimitives.ReadInt32LittleEndian(header[22..26])));
+    }
+
+    private static (int?, int?) ReadJpegDimensions(string path)
+    {
+        using var stream = File.OpenRead(path);
+        using var reader = new BinaryReader(stream);
+        if (ReadUInt16BigEndian(reader) != 0xFFD8) return (null, null);
+
+        while (stream.Position + 4 < stream.Length)
+        {
+            byte prefix;
+            do prefix = reader.ReadByte(); while (prefix != 0xFF && stream.Position < stream.Length);
+            byte marker;
+            do marker = reader.ReadByte(); while (marker == 0xFF && stream.Position < stream.Length);
+
+            if (marker is 0xD8 or 0xD9) continue;
+            var segmentLength = ReadUInt16BigEndian(reader);
+            if (segmentLength < 2 || stream.Position + segmentLength - 2 > stream.Length) break;
+
+            if (marker is 0xC0 or 0xC1 or 0xC2 or 0xC3 or 0xC5 or 0xC6 or 0xC7 or 0xC9 or 0xCA or 0xCB or 0xCD or 0xCE or 0xCF)
+            {
+                _ = reader.ReadByte();
+                var height = ReadUInt16BigEndian(reader);
+                var width = ReadUInt16BigEndian(reader);
+                return (width, height);
+            }
+
+            stream.Seek(segmentLength - 2, SeekOrigin.Current);
+        }
+        return (null, null);
+    }
+
+    private static int ReadUInt16BigEndian(BinaryReader reader) => (reader.ReadByte() << 8) | reader.ReadByte();
+
+    private static string UnescapePdfLiteral(string value) => value
+        .Replace("\\(", "(")
+        .Replace("\\)", ")")
+        .Replace("\\n", " ")
+        .Replace("\\r", " ")
+        .Replace("\\\\", "\\")
+        .Trim();
 
     private static string DescribeDelimiter(char delimiter) => delimiter switch
     {
