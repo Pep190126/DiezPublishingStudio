@@ -115,6 +115,7 @@ internal static class ContentGraphEngine
             }
         }
 
+        ConsistencyEngine.Rebuild(project);
         return new GraphAnalysisResult(createdEntities, createdRelations);
     }
 
@@ -131,6 +132,7 @@ internal static class ContentGraphEngine
 
         UpsertBible(project, entity, "canonical_name", entity.Name, "Binding");
         UpsertBible(project, entity, "entity_kind", entity.Kind, "Binding");
+        ConsistencyEngine.Rebuild(project);
         return true;
     }
 
@@ -142,6 +144,7 @@ internal static class ContentGraphEngine
             (r.FromKind == "Entity" && r.FromId == entityId) ||
             (r.ToKind == "Entity" && r.ToId == entityId));
         project.BibleEntries.RemoveAll(b => b.SubjectEntityId == entityId);
+        ConsistencyEngine.Rebuild(project);
         return true;
     }
 
