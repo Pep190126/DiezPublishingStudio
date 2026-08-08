@@ -6,12 +6,12 @@ internal static class PreFinalContractSelfTest
 {
     public static void Run()
     {
-        if (!string.Equals(ProductInfo.Version, "1.0.0-rc2", StringComparison.Ordinal))
+        if (!string.Equals(ProductInfo.Version, "1.0.0-rc3", StringComparison.Ordinal))
             throw new InvalidOperationException($"Identità prodotto inattesa: {ProductInfo.Version}");
 
-        if (!ProductInfo.WindowTitle.Contains("1.0 RC2", StringComparison.Ordinal) ||
+        if (!ProductInfo.WindowTitle.Contains("1.0 RC3", StringComparison.Ordinal) ||
             !ProductInfo.WindowTitle.Contains("Pre-finale", StringComparison.Ordinal))
-            throw new InvalidOperationException("Il titolo della build pre-finale non espone correttamente 1.0 RC2.");
+            throw new InvalidOperationException("Il titolo della build pre-finale non espone correttamente 1.0 RC3.");
 
         var informational = typeof(Program).Assembly
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
