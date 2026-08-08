@@ -1,5 +1,5 @@
 #define MyAppName "Diez Publishing Studio"
-#define MyAppVersion "0.2.0-preview"
+#define MyAppVersion "0.3.0-preview"
 #define MyAppPublisher "Diez Publishing Studio"
 #define MyAppExeName "DiezPublishingStudio.exe"
 
@@ -7,7 +7,7 @@
 AppId={{E6BE35BE-1F4B-4A3D-8CEB-27D970D85911}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
-VersionInfoVersion=0.2.0.0
+VersionInfoVersion=0.3.0.0
 AppPublisher={#MyAppPublisher}
 DefaultDirName={localappdata}\Programs\Diez Publishing Studio
 DefaultGroupName={#MyAppName}
@@ -72,18 +72,12 @@ begin
   begin
     Delete(S, 1, 1);
     P := Pos('"', S);
-    if P > 0 then
-      Result := Copy(S, 1, P - 1)
-    else
-      Result := S;
+    if P > 0 then Result := Copy(S, 1, P - 1) else Result := S;
   end
   else
   begin
     P := Pos(' ', S);
-    if P > 0 then
-      Result := Copy(S, 1, P - 1)
-    else
-      Result := S;
+    if P > 0 then Result := Copy(S, 1, P - 1) else Result := S;
   end;
 end;
 
@@ -94,8 +88,7 @@ var
   ResultCode: Integer;
 begin
   Result := True;
-  if not RegQueryStringValue(HKCU, PreviousUninstallKey, 'UninstallString', UninstallString) then
-    Exit;
+  if not RegQueryStringValue(HKCU, PreviousUninstallKey, 'UninstallString', UninstallString) then Exit;
 
   UninstallExe := ExtractExecutable(UninstallString);
   if (UninstallExe = '') or (not FileExists(UninstallExe)) then
@@ -104,16 +97,8 @@ begin
     Exit;
   end;
 
-  Result := Exec(
-    UninstallExe,
-    '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART',
-    '',
-    SW_HIDE,
-    ewWaitUntilTerminated,
-    ResultCode);
-
-  if Result and (ResultCode <> 0) then
-    Result := False;
+  Result := Exec(UninstallExe, '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  if Result and (ResultCode <> 0) then Result := False;
 end;
 
 procedure InitializeWizard;
@@ -140,14 +125,9 @@ begin
   Result := '';
   ForceCleanInstall := CompareText(ExpandConstant('{param:CLEANOLD|0}'), '1') = 0;
 
-  if PreviousInstallDetected then
+  if PreviousInstallDetected and (ForceCleanInstall or CleanInstallPage.Values[0]) then
   begin
-    if ForceCleanInstall or CleanInstallPage.Values[0] then
-    begin
-      if not RemovePreviousInstall() then
-      begin
-        Result := 'Non è stato possibile rimuovere la versione precedente. Chiudi Diez Publishing Studio e riprova. I tuoi file .diez non vengono toccati.';
-      end;
-    end;
+    if not RemovePreviousInstall() then
+      Result := 'Non è stato possibile rimuovere la versione precedente. Chiudi Diez Publishing Studio e riprova. I tuoi file .diez non vengono toccati.';
   end;
 end;

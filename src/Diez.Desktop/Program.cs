@@ -1,3 +1,4 @@
+using System.Text;
 using Avalonia;
 using Avalonia.Fonts.Inter;
 
@@ -10,6 +11,8 @@ internal static class Program
     [STAThread]
     public static int Main(string[] args)
     {
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+
         if (args.Any(a => string.Equals(a, "--self-test", StringComparison.OrdinalIgnoreCase)))
         {
             try
@@ -24,8 +27,7 @@ internal static class Program
         }
 
         using var mutex = new Mutex(true, AppMutexName, out var createdNew);
-        if (!createdNew)
-            return 0;
+        if (!createdNew) return 0;
 
         var exitCode = BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
         GC.KeepAlive(mutex);

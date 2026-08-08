@@ -6,11 +6,12 @@ namespace DiezPublishingStudio;
 internal sealed class PreviewProject
 {
     public string Format { get; set; } = "diez-project-package";
-    public int SchemaVersion { get; set; } = 3;
+    public int SchemaVersion { get; set; } = 4;
     public string Name { get; set; } = "Nuovo progetto";
     public string SavedAtLocal { get; set; } = string.Empty;
     public Guid ProjectId { get; set; } = Guid.NewGuid();
     public List<MaterialEntry> Materials { get; set; } = [];
+    public List<ContentNode> ContentNodes { get; set; } = [];
 }
 
 internal sealed class MaterialEntry
@@ -24,9 +25,22 @@ internal sealed class MaterialEntry
     public string Sha256 { get; set; } = string.Empty;
     public string Summary { get; set; } = string.Empty;
     public string Preview { get; set; } = string.Empty;
+    public string ExtractedText { get; set; } = string.Empty;
     public List<string> Columns { get; set; } = [];
     public string EmbeddedPath { get; set; } = string.Empty;
     public bool IsEmbedded { get; set; }
+}
+
+internal sealed class ContentNode
+{
+    public Guid ContentId { get; set; } = Guid.NewGuid();
+    public Guid MaterialId { get; set; }
+    public Guid? ParentId { get; set; }
+    public string Kind { get; set; } = "Section";
+    public string Title { get; set; } = string.Empty;
+    public string Body { get; set; } = string.Empty;
+    public int Ordinal { get; set; }
+    public string SourceLocator { get; set; } = string.Empty;
 }
 
 internal static class ProjectFileStore
@@ -64,7 +78,7 @@ internal static class ProjectFileStore
         }
         else
         {
-            // Compatibilità con la Preview 0.1: il vecchio .diez era JSON puro.
+            // Compatibilità Preview 0.1: il vecchio .diez era JSON puro.
             var json = await File.ReadAllTextAsync(path);
             project = JsonSerializer.Deserialize<PreviewProject>(json, JsonOptions)
                 ?? throw new InvalidDataException("Il file non contiene un progetto Diez valido.");
@@ -85,7 +99,7 @@ internal static class ProjectFileStore
 
         Normalize(project);
         project.Format = "diez-project-package";
-        project.SchemaVersion = 3;
+        project.SchemaVersion = 4;
         project.SavedAtLocal = DateTimeOffset.Now.ToString("G");
 
         var directory = Path.GetDirectoryName(Path.GetFullPath(path));
@@ -93,8 +107,7 @@ internal static class ProjectFileStore
             Directory.CreateDirectory(directory);
 
         var tempPath = path + ".tmp";
-        if (File.Exists(tempPath))
-            File.Delete(tempPath);
+        if (File.Exists(tempPath)) File.Delete(tempPath);
 
         FileStream? oldStream = null;
         ZipArchive? oldArchive = null;
@@ -123,8 +136,7 @@ internal static class ProjectFileStore
         }
         catch
         {
-            if (File.Exists(tempPath))
-                File.Delete(tempPath);
+            if (File.Exists(tempPath)) File.Delete(tempPath);
             throw;
         }
         finally
@@ -149,26 +161,18 @@ internal static class ProjectFileStore
 
     public static async Task<byte[]?> ReadEmbeddedMaterialAsync(string projectPath, MaterialEntry material)
     {
-        if (!IsPackageFile(projectPath) || string.IsNullOrWhiteSpace(material.EmbeddedPath))
-            return null;
-
+        if (!IsPackageFile(projectPath) || string.IsNullOrWhiteSpace(material.EmbeddedPath)) return null;
         using var archive = ZipFile.OpenRead(projectPath);
         var entry = archive.GetEntry(material.EmbeddedPath);
         if (entry is null) return null;
-
         await using var source = entry.Open();
         await using var memory = new MemoryStream();
         await source.CopyToAsync(memory);
         return memory.ToArray();
     }
 
-    private static async Task<bool> CopyMaterialIntoPackageAsync(
-        ZipArchive? oldArchive,
-        ZipArchive newArchive,
-        MaterialEntry material)
+    private static async Task<bool> CopyMaterialIntoPackageAsync(ZipArchive? oldArchive, ZipArchive newArchive, MaterialEntry material)
     {
-        // Se il materiale era già incorporato, manteniamo esattamente lo snapshot importato,
-        // anche se il file sorgente sul PC nel frattempo è cambiato o è stato rimosso.
         var previous = oldArchive?.GetEntry(material.EmbeddedPath);
         if (previous is not null)
         {
@@ -193,22 +197,20 @@ internal static class ProjectFileStore
 
     private static string BuildEmbeddedPath(MaterialEntry material)
     {
-        var safeName = string.Concat(material.FileName.Select(ch =>
-            Path.GetInvalidFileNameChars().Contains(ch) ? '_' : ch));
+        var safeName = string.Concat(material.FileName.Select(ch => Path.GetInvalidFileNameChars().Contains(ch) ? '_' : ch));
         if (string.IsNullOrWhiteSpace(safeName)) safeName = "materiale.bin";
         return $"materials/{material.MaterialId:N}/{safeName}";
     }
 
     private static void Normalize(PreviewProject project)
     {
-        if (project.ProjectId == Guid.Empty)
-            project.ProjectId = Guid.NewGuid();
+        if (project.ProjectId == Guid.Empty) project.ProjectId = Guid.NewGuid();
         project.Materials ??= [];
+        project.ContentNodes ??= [];
 
         foreach (var material in project.Materials)
         {
-            if (material.MaterialId == Guid.Empty)
-                material.MaterialId = Guid.NewGuid();
+            if (material.MaterialId == Guid.Empty) material.MaterialId = Guid.NewGuid();
             material.Columns ??= [];
             material.FileName ??= string.Empty;
             material.SourcePath ??= string.Empty;
@@ -217,7 +219,17 @@ internal static class ProjectFileStore
             material.Sha256 ??= string.Empty;
             material.Summary ??= string.Empty;
             material.Preview ??= string.Empty;
+            material.ExtractedText ??= string.Empty;
             material.EmbeddedPath ??= string.Empty;
+        }
+
+        foreach (var node in project.ContentNodes)
+        {
+            if (node.ContentId == Guid.Empty) node.ContentId = Guid.NewGuid();
+            node.Kind ??= "Section";
+            node.Title ??= string.Empty;
+            node.Body ??= string.Empty;
+            node.SourceLocator ??= string.Empty;
         }
     }
 }
