@@ -33,7 +33,11 @@ jobs:
         run: |
           $exe = (Resolve-Path "artifacts\publish\DiezPublishingStudio.exe").Path
           $test = Start-Process -FilePath $exe -ArgumentList "--self-test" -Wait -PassThru
-          if ($test.ExitCode -ne 0) { throw "Diez self-test failed with exit code $($test.ExitCode)" }
+          if ($test.ExitCode -ne 0) {
+            $errorFile = "artifacts\publish\self-test-error.txt"
+            if (Test-Path $errorFile) { Get-Content $errorFile }
+            throw "Diez self-test failed with exit code $($test.ExitCode)"
+          }
 
       - name: Install Inno Setup
         shell: powershell
