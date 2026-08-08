@@ -100,7 +100,7 @@ internal sealed class HandoffWindow : Window
         _projectPath = projectPath;
         _setMainStatus = setMainStatus;
 
-        Title = "Consegna / Export — Diez 1.0 RC1";
+        Title = $"Consegna / Export — Diez {ProductInfo.DisplayVersion}";
         Width = 760;
         Height = 535;
         MinWidth = 660;
