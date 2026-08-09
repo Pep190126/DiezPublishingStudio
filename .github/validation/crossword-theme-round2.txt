@@ -1,0 +1,1 @@
+Validate full Crossword implementation: editable definition XLSX round-trip plus thematic Required/Preferred/Normal/Fallback roles.
