@@ -14,8 +14,8 @@ internal static class WordSearchDatabaseService
             string.Equals(n.Kind, SettingsKind, StringComparison.OrdinalIgnoreCase) &&
             string.Equals(n.SourceLocator, record.Id, StringComparison.OrdinalIgnoreCase));
         if (node is not null && int.TryParse(node.Body, NumberStyles.Integer, CultureInfo.InvariantCulture, out var stored) && stored > 0)
-            return Math.Max(stored, record.Words.Count);
-        return Math.Max(20, record.Words.Count);
+            return stored;
+        return record.Words.Count > 0 ? record.Words.Count : 20;
     }
 
     public static void SetExpectedWordCount(PreviewProject project, string puzzleId, int count)
@@ -187,7 +187,7 @@ internal static class WordSearchDatabaseService
                     Notes = Value(fields, "Note", i),
                     UpdatedAtLocal = Value(fields, "Aggiornato", i)
                 });
-                expectedById[id] = Math.Max(expected, words.Count);
+                expectedById[id] = expected;
             }
             return records.Count > 0;
         }
