@@ -244,13 +244,15 @@ internal sealed class HandoffWindow : Window
         try
         {
             var result = await DocxExportService.ExportAsync(_project, _projectPath, path);
-            if (!result.Exported) { Report(result.Message); return; }
+            if (!result.Exported || string.IsNullOrWhiteSpace(result.OutputPath)) { Report(result.Message); return; }
 
             var messages = new List<string>();
+            var archived = await ArchiveIfFinalizedAsync(result.OutputPath, FinalizedOutputRecipes.EditableDocx, "Documento modificabile DOCX");
+            if (!string.IsNullOrWhiteSpace(archived)) messages.Add(archived);
             if (destination != OutputDestination.Google) messages.Add(result.Message);
             if (destination is OutputDestination.Google or OutputDestination.Both)
             {
-                var google = await GoogleDocsExportService.ExportDocxAsync(path, Path.GetFileName(path));
+                var google = await GoogleDocsExportService.ExportDocxAsync(result.OutputPath, Path.GetFileName(result.OutputPath));
                 messages.Add(google.Message);
             }
             Report(string.Join("  ", messages));
@@ -273,13 +275,15 @@ internal sealed class HandoffWindow : Window
         try
         {
             var result = await HandoffExportService.ExportMasterCsvAsync(_project, path);
-            if (!result.Exported) { Report(result.Message); return; }
+            if (!result.Exported || string.IsNullOrWhiteSpace(result.OutputPath)) { Report(result.Message); return; }
 
             var messages = new List<string>();
+            var archived = await ArchiveIfFinalizedAsync(result.OutputPath, FinalizedOutputRecipes.MasterCsv, "Tabella CSV");
+            if (!string.IsNullOrWhiteSpace(archived)) messages.Add(archived);
             if (destination != OutputDestination.Google) messages.Add(result.Message);
             if (destination is OutputDestination.Google or OutputDestination.Both)
             {
-                var google = await GoogleDocsExportService.ExportCsvAsSheetAsync(path, Path.GetFileNameWithoutExtension(path));
+                var google = await GoogleDocsExportService.ExportCsvAsSheetAsync(result.OutputPath, Path.GetFileNameWithoutExtension(result.OutputPath));
                 messages.Add(google.Message);
             }
             Report(string.Join("  ", messages));
@@ -302,19 +306,35 @@ internal sealed class HandoffWindow : Window
         try
         {
             var result = await HandoffExportService.ExportMasterXlsxAsync(_project, path);
-            if (!result.Exported) { Report(result.Message); return; }
+            if (!result.Exported || string.IsNullOrWhiteSpace(result.OutputPath)) { Report(result.Message); return; }
 
             var messages = new List<string>();
+            var archived = await ArchiveIfFinalizedAsync(result.OutputPath, FinalizedOutputRecipes.MasterXlsx, "Tabella XLSX");
+            if (!string.IsNullOrWhiteSpace(archived)) messages.Add(archived);
             if (destination != OutputDestination.Google) messages.Add(result.Message);
             if (destination is OutputDestination.Google or OutputDestination.Both)
             {
-                var google = await GoogleDocsExportService.ExportXlsxAsync(path, Path.GetFileName(path));
+                var google = await GoogleDocsExportService.ExportXlsxAsync(result.OutputPath, Path.GetFileName(result.OutputPath));
                 messages.Add(google.Message);
             }
             Report(string.Join("  ", messages));
         }
         catch (Exception ex) { Report($"Esportazione XLSX fallita: {ex.Message}"); }
         finally { if (deleteAfter) TryDelete(path); }
+    }
+
+    private async Task<string> ArchiveIfFinalizedAsync(string outputPath, string recipe, string label)
+    {
+        if (!PublicationCandidateService.IsLatestCandidateCurrent(_project)) return string.Empty;
+        try
+        {
+            await FinalizedLibraryService.RecordOutputAsync(_project, _projectPath, outputPath, recipe, label);
+            return "Copia conservata in Libri finalizzati.";
+        }
+        catch (Exception ex)
+        {
+            return "Output creato, ma non riesco ad archiviarlo in Libri finalizzati: " + ex.Message;
+        }
     }
 
     private async Task<string?> PickSavePathAsync(string title, string suggested, string extension, string typeName, string pattern)
