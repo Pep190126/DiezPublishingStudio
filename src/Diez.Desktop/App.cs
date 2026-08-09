@@ -33,6 +33,8 @@ public sealed class App : Application
                 failures.Add(layoutError);
             if (!StartupDiagnostics.TryAttach("Ambiente del libro", () => BookWorkspaceTabsUi.Attach(mainWindow), out var workspaceError) && workspaceError is not null)
                 failures.Add(workspaceError);
+            if (!StartupDiagnostics.TryAttach("Nome Tipo libro", () => BookWorkspaceTerminologyUi.Attach(mainWindow), out var terminologyError) && terminologyError is not null)
+                failures.Add(terminologyError);
             if (!StartupDiagnostics.TryAttach("Guida passo passo", () => GuidedModeUi.Attach(mainWindow), out var guideError) && guideError is not null)
                 failures.Add(guideError);
             if (!StartupDiagnostics.TryAttach("Linguaggio semplice", () => PlainLanguageUi.Attach(mainWindow), out var languageError) && languageError is not null)
