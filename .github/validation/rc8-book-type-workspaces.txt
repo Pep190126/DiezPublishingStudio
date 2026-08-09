@@ -1,2 +1,2 @@
 Validation marker for RC8 book-type workspaces, Word Search database tools, image collection layout choices, and TXT/DOCX companion descriptions.
-Round 3 after internal DOCX simplification, terminology fix, and common multiline TextBox compatibility.
+Round 3 passed: build, publish, GUI startup, self-tests, installer build, install/upgrade/uninstall, artifact upload.
