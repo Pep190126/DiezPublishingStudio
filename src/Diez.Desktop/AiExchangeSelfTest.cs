@@ -173,7 +173,7 @@ internal static class AiExchangeSelfTest
                     work_unit_id = workUnitId,
                     candidate_version = candidateVersion,
                     content_type = "IMAGE",
-                    status = image is not null && !string.IsNullOrWhiteSpace(description) ? "COMPLETE" : "INCOMPLETE",
+                    status = !string.IsNullOrWhiteSpace(description) ? "COMPLETE" : "INCOMPLETE",
                     primary_asset = primary,
                     description = description ?? string.Empty
                 }
