@@ -55,16 +55,15 @@ public sealed class App : Application
                 failures.Add(finalizedLibraryError);
             if (!StartupDiagnostics.TryAttach("Ambiente del libro", () => BookWorkspaceTabsUi.Attach(mainWindow), out var workspaceError) && workspaceError is not null)
                 failures.Add(workspaceError);
-            if (!StartupDiagnostics.TryAttach("Host unico dei tab del libro", () => UnifiedBookWorkspaceUi.Attach(mainWindow), out var unifiedWorkspaceError) && unifiedWorkspaceError is not null)
-                failures.Add(unifiedWorkspaceError);
             if (!StartupDiagnostics.TryAttach("Database e sostituzioni Word Search", () => WordSearchDatabaseToolsUi.Attach(mainWindow), out var wordSearchToolsError) && wordSearchToolsError is not null)
                 failures.Add(wordSearchToolsError);
             if (!StartupDiagnostics.TryAttach("Word Search su Fogli Google", () => WordSearchGoogleExportUi.Attach(mainWindow), out var wordSearchGoogleError) && wordSearchGoogleError is not null)
                 failures.Add(wordSearchGoogleError);
-            if (!StartupDiagnostics.TryAttach("Tipo libro persistente", () => BookTypeProfileUi.Attach(mainWindow), out var bookTypeError) && bookTypeError is not null)
-                failures.Add(bookTypeError);
-            if (!StartupDiagnostics.TryAttach("Linguaggio semplice", () => PlainLanguageUi.Attach(mainWindow), out var languageError) && languageError is not null)
-                failures.Add(languageError);
+
+            // Legacy polling modules (UnifiedBookWorkspaceUi, BookTypeProfileUi and
+            // PlainLanguageUi) intentionally do not run in the single-window path.
+            // They repeatedly traverse/rewrite the old visual tree and are replaced
+            // by explicit logical pages/state in SingleWindowBookFlowHost.
             if (!StartupDiagnostics.TryAttach("Percorso libro a finestra unica", () => SingleWindowSafeAttachUi.Attach(mainWindow), out var singleWindowError) && singleWindowError is not null)
                 failures.Add(singleWindowError);
 
