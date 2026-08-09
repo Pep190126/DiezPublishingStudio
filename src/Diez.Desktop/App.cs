@@ -29,6 +29,8 @@ public sealed class App : Application
                 failures.Add(aiError);
             if (!StartupDiagnostics.TryAttach("Serie immagini AI", () => AiImageBatchUi.Attach(mainWindow), out var batchError) && batchError is not null)
                 failures.Add(batchError);
+            if (!StartupDiagnostics.TryAttach("Descrizioni e impaginazione immagini", () => ImageCollectionDescriptionUi.Attach(mainWindow), out var imageDescriptionError) && imageDescriptionError is not null)
+                failures.Add(imageDescriptionError);
             if (!StartupDiagnostics.TryAttach("Layout e aiuto contestuale", () => FriendlyLayoutUi.Attach(mainWindow), out var layoutError) && layoutError is not null)
                 failures.Add(layoutError);
             if (!StartupDiagnostics.TryAttach("Ambiente del libro", () => BookWorkspaceTabsUi.Attach(mainWindow), out var workspaceError) && workspaceError is not null)
