@@ -41,10 +41,8 @@ public sealed class App : Application
                 failures.Add(finalizedLibraryError);
             if (!StartupDiagnostics.TryAttach("Ambiente del libro", () => BookWorkspaceTabsUi.Attach(mainWindow), out var workspaceError) && workspaceError is not null)
                 failures.Add(workspaceError);
-            if (!StartupDiagnostics.TryAttach("Nome Tipo libro", () => BookWorkspaceTerminologyUi.Attach(mainWindow), out var terminologyError) && terminologyError is not null)
-                failures.Add(terminologyError);
-            if (!StartupDiagnostics.TryAttach("Ambiente Coloring e raccolta immagini", () => ImageCollectionWorkspaceTabsUi.Attach(mainWindow), out var imageWorkspaceError) && imageWorkspaceError is not null)
-                failures.Add(imageWorkspaceError);
+            if (!StartupDiagnostics.TryAttach("Host unico dei tab del libro", () => UnifiedBookWorkspaceUi.Attach(mainWindow), out var unifiedWorkspaceError) && unifiedWorkspaceError is not null)
+                failures.Add(unifiedWorkspaceError);
             if (!StartupDiagnostics.TryAttach("Database e sostituzioni Word Search", () => WordSearchDatabaseToolsUi.Attach(mainWindow), out var wordSearchToolsError) && wordSearchToolsError is not null)
                 failures.Add(wordSearchToolsError);
             if (!StartupDiagnostics.TryAttach("Word Search su Fogli Google", () => WordSearchGoogleExportUi.Attach(mainWindow), out var wordSearchGoogleError) && wordSearchGoogleError is not null)
