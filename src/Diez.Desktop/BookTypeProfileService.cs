@@ -24,7 +24,6 @@ internal static class BookTypeProfileService
             .FirstOrDefault(e => string.Equals(e.Kind, EntityKind, StringComparison.OrdinalIgnoreCase));
         if (stored is not null && !string.IsNullOrWhiteSpace(stored.Name))
             return Normalize(stored.Name);
-
         return Infer(project);
     }
 
@@ -32,7 +31,6 @@ internal static class BookTypeProfileService
     {
         var normalized = Normalize(value);
         if (string.IsNullOrWhiteSpace(normalized)) return;
-
         var matches = project.Entities
             .Where(e => string.Equals(e.Kind, EntityKind, StringComparison.OrdinalIgnoreCase))
             .ToList();
@@ -53,7 +51,6 @@ internal static class BookTypeProfileService
             entity.Name = normalized;
             entity.IsCandidate = false;
         }
-
         foreach (var duplicate in matches.Skip(1)) project.Entities.Remove(duplicate);
     }
 
@@ -87,7 +84,6 @@ internal static class BookTypeProfileService
     private static string Infer(PreviewProject project)
     {
         if (WordSearchWorkspaceService.HasWordSearchDatabase(project)) return WordSearch;
-
         var combined = $"{project.Name} {project.EditionMetadata?.Title}";
         if (combined.Contains("word search", StringComparison.OrdinalIgnoreCase) ||
             combined.Contains("wordsearch", StringComparison.OrdinalIgnoreCase) ||
@@ -97,13 +93,11 @@ internal static class BookTypeProfileService
             combined.Contains("image collection", StringComparison.OrdinalIgnoreCase)) return ImageCollection;
         if (combined.Contains("romanzo", StringComparison.OrdinalIgnoreCase) || combined.Contains("novel", StringComparison.OrdinalIgnoreCase)) return Novel;
         if (combined.Contains("libro illustrato", StringComparison.OrdinalIgnoreCase) || combined.Contains("illustrated book", StringComparison.OrdinalIgnoreCase)) return IllustratedBook;
-
         if (project.Materials.Any(m =>
                 m.FileName.Contains("wordsearch", StringComparison.OrdinalIgnoreCase) ||
                 m.FileName.Contains("word_search", StringComparison.OrdinalIgnoreCase) ||
                 m.Columns.Any(c => c.Contains("puzzle", StringComparison.OrdinalIgnoreCase) || c.Contains("parola", StringComparison.OrdinalIgnoreCase))))
             return WordSearch;
-
         return string.Empty;
     }
 }
@@ -119,13 +113,16 @@ internal static class BookTypeProfileUi
         var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(350) };
         timer.Tick += async (_, _) =>
         {
+            EnsureImageCollectionChoice(window);
             foreach (var radio in Descendants(window).OfType<RadioButton>()
                          .Where(r => string.Equals(r.GroupName, "project-type", StringComparison.Ordinal)))
             {
                 if (!AttachedChoices.Add(radio)) continue;
                 radio.IsCheckedChanged += (_, _) =>
                 {
-                    if (radio.IsChecked == true) _pendingChoice = radio.Content?.ToString();
+                    if (radio.IsChecked != true) return;
+                    _pendingChoice = radio.Content?.ToString();
+                    SetGuideProjectType(window, _pendingChoice);
                 };
             }
 
@@ -149,6 +146,31 @@ internal static class BookTypeProfileUi
         };
         window.Closed += (_, _) => timer.Stop();
         timer.Start();
+    }
+
+    private static void EnsureImageCollectionChoice(MainWindow window)
+    {
+        foreach (var panel in Descendants(window).OfType<StackPanel>())
+        {
+            var choices = panel.Children.OfType<RadioButton>()
+                .Where(r => string.Equals(r.GroupName, "project-type", StringComparison.Ordinal))
+                .ToList();
+            if (choices.Count == 0 || choices.Any(r => string.Equals(r.Content?.ToString(), BookTypeProfileService.ImageCollection, StringComparison.Ordinal))) continue;
+            panel.Children.Add(new RadioButton
+            {
+                Content = BookTypeProfileService.ImageCollection,
+                GroupName = "project-type",
+                IsChecked = false
+            });
+        }
+    }
+
+    private static void SetGuideProjectType(MainWindow window, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return;
+        var guide = Descendants(window).OfType<PublisherGuideView>().FirstOrDefault();
+        if (guide is null) return;
+        typeof(PublisherGuideView).GetField("_projectType", BindingFlags.Instance | BindingFlags.NonPublic)?.SetValue(guide, value);
     }
 
     private static bool TrySession(MainWindow window, out PreviewProject project, out string path)
