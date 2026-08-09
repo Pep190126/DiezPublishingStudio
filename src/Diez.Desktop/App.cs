@@ -33,6 +33,8 @@ public sealed class App : Application
                 failures.Add(correctionError);
             if (!StartupDiagnostics.TryAttach("Istruzioni AI: deve fare / non deve fare", () => HumanAiPromptUi.Attach(mainWindow), out var humanPromptError) && humanPromptError is not null)
                 failures.Add(humanPromptError);
+            if (!StartupDiagnostics.TryAttach("Box AI editabili", () => HumanAiPromptInputGuard.Attach(mainWindow), out var humanPromptInputError) && humanPromptInputError is not null)
+                failures.Add(humanPromptInputError);
             if (!StartupDiagnostics.TryAttach("Scelte AI per Tipo libro", () => BookTypeAiOptionsUi.Attach(mainWindow), out var bookAiOptionsError) && bookAiOptionsError is not null)
                 failures.Add(bookAiOptionsError);
             if (!StartupDiagnostics.TryAttach("Serie immagini AI", () => AiImageBatchUi.Attach(mainWindow), out var batchError) && batchError is not null)
