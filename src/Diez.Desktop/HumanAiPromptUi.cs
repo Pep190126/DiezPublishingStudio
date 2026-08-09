@@ -65,9 +65,18 @@ internal static class HumanAiPromptService
             builder.AppendLine(title);
             builder.AppendLine();
         }
+
+        var optionLines = BookTypeAiOptionsService.PromptLines(project);
+        if (optionLines.Count > 0)
+        {
+            builder.AppendLine("SCELTE IMPOSTATE IN DIEZ:");
+            foreach (var line in optionLines) builder.AppendLine("- " + line);
+            builder.AppendLine();
+        }
+
         builder.AppendLine(MustDoHeading);
         builder.AppendLine(string.IsNullOrWhiteSpace(intent.MustDo)
-            ? "Segui le regole comuni del progetto per creare questo contenuto."
+            ? "Segui le regole comuni e le scelte impostate in Diez per creare questo contenuto."
             : intent.MustDo);
         builder.AppendLine();
         builder.AppendLine(MustNotDoHeading);
@@ -159,22 +168,11 @@ internal static class HumanAiPromptUi
         field.Children.Add(mustNotDo);
         field.Children.Add(new TextBlock
         {
-            Text = "Diez costruisce le istruzioni complete usando questi due campi e le regole comuni del progetto.",
+            Text = "Diez costruisce le istruzioni complete usando questi due campi e le scelte del Tipo libro.",
             TextWrapping = Avalonia.Media.TextWrapping.Wrap,
             FontSize = 12
         });
 
-        void Sync()
-        {
-            if (syncing) return;
-            syncing = true;
-            var mustDo = request.Text ?? string.Empty;
-            request.Text = HumanAiPromptService.Write(mustDo, mustNotDo.Text);
-            syncing = false;
-        }
-
-        // Il TextBox originale resta quello letto dalla finestra al momento della creazione.
-        // Mostriamo il testo umano nel controllo e codifichiamo la coppia solo immediatamente prima del click.
         request.TextChanged += (_, _) =>
         {
             if (syncing) return;
@@ -199,7 +197,7 @@ internal static class HumanAiPromptUi
         var technical = Descendants(window).OfType<TextBlock>()
             .FirstOrDefault(t => (t.Text ?? string.Empty).Contains("prompt verrà costruito", StringComparison.OrdinalIgnoreCase));
         if (technical is not null)
-            technical.Text = "Diez unirà queste indicazioni alle regole comuni del progetto e preparerà il testo da copiare nella tua AI.";
+            technical.Text = "Diez unirà questi due box alle scelte del Tipo libro e preparerà il testo da copiare nella tua AI.";
     }
 
     private static void AttachProductionWindow(Window window)
@@ -286,7 +284,6 @@ internal static class HumanAiPromptUi
         stack.Children.Insert(index + 1, new TextBlock { Text = "NON DEVE FARE" });
         stack.Children.Insert(index + 2, mustNotDo);
 
-        // La finestra guidata può crescere: rendiamo il contenuto scorrevole invece di forzare un'altezza enorme.
         border.Child = null;
         border.Child = new ScrollViewer
         {
