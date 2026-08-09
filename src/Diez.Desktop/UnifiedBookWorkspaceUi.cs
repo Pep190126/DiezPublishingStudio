@@ -17,6 +17,8 @@ internal static class UnifiedBookWorkspaceUi
 
     public static void Attach(MainWindow window)
     {
+        CrosswordThemeUi.Attach(window);
+
         TabControl? host = null;
         List<TabItem>? tabs = null;
         List<object?>? wordSearchContents = null;
