@@ -19,7 +19,7 @@ internal static class WordSearchExportService
         await WriteWorkbookAsync(fullPath,
             ("DATABASE", DatabaseRows(records)),
             ("INFO", InfoRows(project, records.Count)));
-        return new(true, $"Database Word Search salvato: {Path.GetFileName(fullPath)} · {records.Count} puzzle. Può essere reimportato in Diez.");
+        return new(true, $"Database Word Search salvato: {Path.GetFileName(fullPath)} · {records.Count} puzzle in colonne. Può essere reimportato in Diez.");
     }
 
     public static async Task<AiProductionActionResult> ExportFlatXlsxAsync(PreviewProject project, string path)
@@ -28,7 +28,7 @@ internal static class WordSearchExportService
         if (records.Count == 0) return new(false, "Non ci sono puzzle da esportare.");
         var fullPath = EnsureExtension(path, ".xlsx");
         await WriteWorkbookAsync(fullPath, ("PUZZLE", FlatRows(records)));
-        return new(true, $"Tabella XLSX esportata: {Path.GetFileName(fullPath)} · parole distribuite in colonne.");
+        return new(true, $"Tabella XLSX esportata: {Path.GetFileName(fullPath)} · un puzzle per riga e parole in colonne.");
     }
 
     public static async Task<AiProductionActionResult> ExportFlatCsvAsync(PreviewProject project, string path)
@@ -49,32 +49,37 @@ internal static class WordSearchExportService
         }
         EnsureDirectory(fullPath);
         await File.WriteAllTextAsync(fullPath, builder.ToString(), new UTF8Encoding(true));
-        return new(true, $"Tabella CSV esportata: {Path.GetFileName(fullPath)} · parole distribuite in colonne.");
+        return new(true, $"Tabella CSV esportata: {Path.GetFileName(fullPath)} · un puzzle per riga e parole in colonne.");
     }
 
     private static IReadOnlyList<IReadOnlyList<string>> DatabaseRows(IReadOnlyList<WordSearchRecord> records)
     {
-        var rows = new List<IReadOnlyList<string>>
-        {
-            new[] { "Ordine", "ID", "Titolo", "Tema", "Parole", "Numero parole", "Stato", "Origine", "Note", "Aggiornato" }
-        };
-        foreach (var record in records)
-        {
-            rows.Add(new[]
-            {
-                record.Order.ToString(CultureInfo.InvariantCulture),
-                record.Id,
-                record.Title,
-                record.Theme,
-                string.Join(Environment.NewLine, record.Words),
-                record.Words.Count.ToString(CultureInfo.InvariantCulture),
-                record.Status,
-                record.Origin,
-                record.Notes,
-                record.UpdatedAtLocal
-            });
-        }
+        var maxWords = Math.Max(1, records.Max(r => r.Words.Count));
+        var rows = new List<IReadOnlyList<string>>();
+
+        var header = new List<string> { "Campo" };
+        header.AddRange(Enumerable.Range(1, records.Count).Select(i => $"Puzzle {i}"));
+        rows.Add(header);
+
+        AddDatabaseRow(rows, "Ordine", records.Select(r => r.Order.ToString(CultureInfo.InvariantCulture)));
+        AddDatabaseRow(rows, "ID", records.Select(r => r.Id));
+        AddDatabaseRow(rows, "Titolo", records.Select(r => r.Title));
+        AddDatabaseRow(rows, "Tema", records.Select(r => r.Theme));
+        for (var wordIndex = 0; wordIndex < maxWords; wordIndex++)
+            AddDatabaseRow(rows, $"Parola {wordIndex + 1:D2}", records.Select(r => wordIndex < r.Words.Count ? r.Words[wordIndex] : string.Empty));
+        AddDatabaseRow(rows, "Numero parole", records.Select(r => r.Words.Count.ToString(CultureInfo.InvariantCulture)));
+        AddDatabaseRow(rows, "Stato", records.Select(r => r.Status));
+        AddDatabaseRow(rows, "Origine", records.Select(r => r.Origin));
+        AddDatabaseRow(rows, "Note", records.Select(r => r.Notes));
+        AddDatabaseRow(rows, "Aggiornato", records.Select(r => r.UpdatedAtLocal));
         return rows;
+    }
+
+    private static void AddDatabaseRow(List<IReadOnlyList<string>> rows, string field, IEnumerable<string> values)
+    {
+        var row = new List<string> { field };
+        row.AddRange(values);
+        rows.Add(row);
     }
 
     private static IReadOnlyList<IReadOnlyList<string>> FlatRows(IReadOnlyList<WordSearchRecord> records)
@@ -105,8 +110,8 @@ internal static class WordSearchExportService
             new[] { "Scopo", "Database completo di lavoro, leggibile e reimportabile in Diez" },
             new[] { "Titolo", project.EditionMetadata?.Title ?? project.Name },
             new[] { "Puzzle presenti", count.ToString(CultureInfo.InvariantCulture) },
-            new[] { "Regola ID", "PUZ-### identifica stabilmente il puzzle anche dopo correzioni o reimportazioni" },
-            new[] { "Parole", "Nel foglio DATABASE ogni lista resta unita in una sola cella multilinea" }
+            new[] { "Struttura", "Ogni colonna è un puzzle: Puzzle 1, Puzzle 2, ... Puzzle N" },
+            new[] { "Regola ID", "PUZ-### identifica stabilmente il puzzle anche dopo correzioni o reimportazioni" }
         };
 
     private static async Task WriteWorkbookAsync(string path, params (string Name, IReadOnlyList<IReadOnlyList<string>> Rows)[] sheets)
