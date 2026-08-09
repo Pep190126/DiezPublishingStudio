@@ -1,0 +1,1 @@
+Validation marker for universal DEVE FARE / NON DEVE FARE prompt boxes plus configurable on-screen controls per book type, with selected controls included in generated prompts and preserved as project settings.
