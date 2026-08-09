@@ -31,10 +31,6 @@ public sealed class App : Application
                 failures.Add(exchangeError);
             if (!StartupDiagnostics.TryAttach("Correzione AI mirata", () => AiExchangeCorrectionUi.Attach(mainWindow), out var correctionError) && correctionError is not null)
                 failures.Add(correctionError);
-            if (!StartupDiagnostics.TryAttach("Editor AI deve fare / non deve fare / prompt", () => HumanAiPromptEditingUi.Attach(mainWindow), out var humanPromptError) && humanPromptError is not null)
-                failures.Add(humanPromptError);
-            if (!StartupDiagnostics.TryAttach("Box AI editabili e undo", () => HumanAiPromptInputGuard.Attach(mainWindow), out var humanPromptInputError) && humanPromptInputError is not null)
-                failures.Add(humanPromptInputError);
             if (!StartupDiagnostics.TryAttach("Scelte AI per Tipo libro", () => BookTypeAiOptionsUi.Attach(mainWindow), out var bookAiOptionsError) && bookAiOptionsError is not null)
                 failures.Add(bookAiOptionsError);
             if (!StartupDiagnostics.TryAttach("Serie immagini AI", () => AiImageBatchUi.Attach(mainWindow), out var batchError) && batchError is not null)
@@ -53,14 +49,17 @@ public sealed class App : Application
                 failures.Add(wordSearchToolsError);
             if (!StartupDiagnostics.TryAttach("Word Search su Fogli Google", () => WordSearchGoogleExportUi.Attach(mainWindow), out var wordSearchGoogleError) && wordSearchGoogleError is not null)
                 failures.Add(wordSearchGoogleError);
-            if (!StartupDiagnostics.TryAttach("Guida passo passo", () => GuidedModeUi.Attach(mainWindow), out var guideError) && guideError is not null)
-                failures.Add(guideError);
-            if (!StartupDiagnostics.TryAttach("Coloring Book: numero immagini e prompt", () => ColoringAiCreationUi.Attach(mainWindow), out var coloringAiError) && coloringAiError is not null)
-                failures.Add(coloringAiError);
             if (!StartupDiagnostics.TryAttach("Tipo libro persistente", () => BookTypeProfileUi.Attach(mainWindow), out var bookTypeError) && bookTypeError is not null)
                 failures.Add(bookTypeError);
             if (!StartupDiagnostics.TryAttach("Linguaggio semplice", () => PlainLanguageUi.Attach(mainWindow), out var languageError) && languageError is not null)
                 failures.Add(languageError);
+
+            // This attaches last on purpose: it keeps the completed project UI as the
+            // logical Home screen and hosts all subsequent workflow screens inside the
+            // same physical MainWindow. Older popup AI code remains available only as
+            // compatibility infrastructure and is hidden from the normal path.
+            if (!StartupDiagnostics.TryAttach("Percorso libro a finestra unica", () => SingleWindowBookFlowUi.Attach(mainWindow), out var singleWindowError) && singleWindowError is not null)
+                failures.Add(singleWindowError);
 
             StartupDiagnostics.ShowWarning(mainWindow, failures);
         }
