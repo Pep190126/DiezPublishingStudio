@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Themes.Fluent;
+using Avalonia.Threading;
 
 namespace DiezPublishingStudio;
 
@@ -15,6 +16,17 @@ public sealed class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
+            var unhandledLogged = false;
+            Dispatcher.UIThread.UnhandledException += (_, e) =>
+            {
+                if (!unhandledLogged)
+                {
+                    unhandledLogged = true;
+                    StartupDiagnostics.WriteUnhandled("UI thread after startup", e.Exception);
+                }
+                e.Handled = true;
+            };
+
             var startupProjectPath = desktop.Args?
                 .FirstOrDefault(a => a.EndsWith(".diez", StringComparison.OrdinalIgnoreCase));
             var mainWindow = new MainWindow(startupProjectPath);
@@ -53,11 +65,6 @@ public sealed class App : Application
                 failures.Add(bookTypeError);
             if (!StartupDiagnostics.TryAttach("Linguaggio semplice", () => PlainLanguageUi.Attach(mainWindow), out var languageError) && languageError is not null)
                 failures.Add(languageError);
-
-            // This attaches last on purpose: it keeps the completed project UI as the
-            // logical Home screen and hosts all subsequent workflow screens inside the
-            // same physical MainWindow. Older popup AI code remains available only as
-            // compatibility infrastructure and is hidden from the normal path.
             if (!StartupDiagnostics.TryAttach("Percorso libro a finestra unica", () => SingleWindowBookFlowUi.Attach(mainWindow), out var singleWindowError) && singleWindowError is not null)
                 failures.Add(singleWindowError);
 
