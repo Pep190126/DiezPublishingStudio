@@ -1,6 +1,7 @@
 using System.IO.Compression;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Xml.Linq;
 
 namespace DiezPublishingStudio;
 
@@ -13,6 +14,9 @@ internal readonly record struct ImageCollectionExportResult(
 
 internal static class ImageCollectionDescriptionService
 {
+    public const string DescriptionTxt = "TXT";
+    public const string DescriptionDocx = "DOCX";
+
     private static readonly Regex CodeRegex = new(@"IMG-(\d+)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private static readonly HashSet<string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -33,11 +37,19 @@ internal static class ImageCollectionDescriptionService
         job.UpdatedAtLocal = DateTimeOffset.Now.ToString("O");
     }
 
+    public static Task<ImageCollectionExportResult> ExportApprovedCollectionAsync(
+        PreviewProject project,
+        string projectPath,
+        string path,
+        bool includeDescriptions) =>
+        ExportApprovedCollectionAsync(project, projectPath, path, includeDescriptions, DescriptionTxt);
+
     public static async Task<ImageCollectionExportResult> ExportApprovedCollectionAsync(
         PreviewProject project,
         string projectPath,
         string path,
-        bool includeDescriptions)
+        bool includeDescriptions,
+        string descriptionFormat)
     {
         var jobs = project.AiProductionJobs
             .Where(j => string.Equals(j.OutputType, AiProductionService.TypeImage, StringComparison.OrdinalIgnoreCase))
@@ -49,6 +61,11 @@ internal static class ImageCollectionDescriptionService
 
         if (jobs.Count == 0)
             return new(false, 0, 0, 0, "Non ci sono immagini approvate da esportare.");
+
+        var normalizedDescriptionFormat = string.Equals(descriptionFormat, DescriptionDocx, StringComparison.OrdinalIgnoreCase)
+            ? DescriptionDocx
+            : DescriptionTxt;
+        var descriptionExtension = normalizedDescriptionFormat == DescriptionDocx ? ".docx" : ".txt";
 
         var fullPath = EnsureExtension(path, ".zip");
         var directory = Path.GetDirectoryName(Path.GetFullPath(fullPath));
@@ -84,10 +101,18 @@ internal static class ImageCollectionDescriptionService
 
                 var description = GetDescription(job);
                 if (string.IsNullOrWhiteSpace(description)) missingDescriptions++;
-                var descriptionEntry = archive.CreateEntry(baseName + ".txt", CompressionLevel.Optimal);
+                var descriptionEntry = archive.CreateEntry(baseName + descriptionExtension, CompressionLevel.Optimal);
                 await using var descriptionStream = descriptionEntry.Open();
-                await using var writer = new StreamWriter(descriptionStream, new UTF8Encoding(false));
-                await writer.WriteAsync(description);
+                if (normalizedDescriptionFormat == DescriptionDocx)
+                {
+                    var docxBytes = await BuildDescriptionDocxAsync(baseName, description);
+                    await descriptionStream.WriteAsync(docxBytes);
+                }
+                else
+                {
+                    await using var writer = new StreamWriter(descriptionStream, new UTF8Encoding(false));
+                    await writer.WriteAsync(description);
+                }
                 descriptions++;
             }
         }
@@ -100,7 +125,7 @@ internal static class ImageCollectionDescriptionService
 
         File.Move(temp, fullPath, true);
         var message = includeDescriptions
-            ? $"Raccolta esportata: {images} immagini + {descriptions} descrizioni con lo stesso nome base"
+            ? $"Raccolta esportata: {images} immagini + {descriptions} descrizioni {normalizedDescriptionFormat} con lo stesso nome base"
             : $"Raccolta esportata: {images} immagini, senza descrizioni";
         if (includeDescriptions && missingDescriptions > 0)
             message += $" · {missingDescriptions} descrizioni sono ancora vuote";
@@ -114,6 +139,74 @@ internal static class ImageCollectionDescriptionService
         var invalid = Path.GetInvalidFileNameChars();
         var safe = string.Concat((title ?? "raccolta-immagini").Select(ch => invalid.Contains(ch) ? '_' : ch)).Trim();
         return (string.IsNullOrWhiteSpace(safe) ? "raccolta-immagini" : safe) + "-immagini-approvate.zip";
+    }
+
+    private static async Task<byte[]> BuildDescriptionDocxAsync(string baseName, string description)
+    {
+        await using var memory = new MemoryStream();
+        using (var docx = new ZipArchive(memory, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            await WriteDocxTextEntryAsync(docx, "[Content_Types].xml", DescriptionContentTypes());
+            await WriteDocxTextEntryAsync(docx, "_rels/.rels", DescriptionRootRelationships());
+            await WriteDocxTextEntryAsync(docx, "word/document.xml", DescriptionDocument(baseName, description));
+        }
+        return memory.ToArray();
+    }
+
+    private static string DescriptionContentTypes()
+    {
+        XNamespace x = "http://schemas.openxmlformats.org/package/2006/content-types";
+        return new XDocument(new XDeclaration("1.0", "UTF-8", "yes"),
+            new XElement(x + "Types",
+                new XElement(x + "Default", new XAttribute("Extension", "rels"), new XAttribute("ContentType", "application/vnd.openxmlformats-package.relationships+xml")),
+                new XElement(x + "Default", new XAttribute("Extension", "xml"), new XAttribute("ContentType", "application/xml")),
+                new XElement(x + "Override", new XAttribute("PartName", "/word/document.xml"), new XAttribute("ContentType", "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"))))
+            .ToString(SaveOptions.DisableFormatting);
+    }
+
+    private static string DescriptionRootRelationships()
+    {
+        XNamespace x = "http://schemas.openxmlformats.org/package/2006/relationships";
+        return new XDocument(new XDeclaration("1.0", "UTF-8", "yes"),
+            new XElement(x + "Relationships",
+                new XElement(x + "Relationship",
+                    new XAttribute("Id", "rId1"),
+                    new XAttribute("Type", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument"),
+                    new XAttribute("Target", "word/document.xml"))))
+            .ToString(SaveOptions.DisableFormatting);
+    }
+
+    private static string DescriptionDocument(string baseName, string description)
+    {
+        XNamespace w = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+        var body = new XElement(w + "body");
+        body.Add(new XElement(w + "p",
+            new XElement(w + "pPr", new XElement(w + "pStyle", new XAttribute(w + "val", "Title"))),
+            Run(w, baseName)));
+
+        var normalized = (description ?? string.Empty)
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace('\r', '\n');
+        foreach (var line in normalized.Split('\n'))
+            body.Add(new XElement(w + "p", Run(w, line)));
+
+        body.Add(new XElement(w + "sectPr",
+            new XElement(w + "pgSz", new XAttribute(w + "w", "11906"), new XAttribute(w + "h", "16838")),
+            new XElement(w + "pgMar", new XAttribute(w + "top", "1134"), new XAttribute(w + "right", "1134"), new XAttribute(w + "bottom", "1134"), new XAttribute(w + "left", "1134"), new XAttribute(w + "header", "567"), new XAttribute(w + "footer", "567"), new XAttribute(w + "gutter", "0"))));
+
+        return new XDocument(new XDeclaration("1.0", "UTF-8", "yes"), new XElement(w + "document", body))
+            .ToString(SaveOptions.DisableFormatting);
+    }
+
+    private static XElement Run(XNamespace w, string text) =>
+        new(w + "r", new XElement(w + "t", new XAttribute(XNamespace.Xml + "space", "preserve"), text ?? string.Empty));
+
+    private static async Task WriteDocxTextEntryAsync(ZipArchive archive, string name, string content)
+    {
+        var entry = archive.CreateEntry(name, CompressionLevel.Optimal);
+        await using var stream = entry.Open();
+        await using var writer = new StreamWriter(stream, new UTF8Encoding(false));
+        await writer.WriteAsync(content);
     }
 
     private static string StableBaseName(string? code)
