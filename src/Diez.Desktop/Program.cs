@@ -34,6 +34,7 @@ internal static class Program
                 ImageCollectionLayoutSelfTest.RunAsync().GetAwaiter().GetResult();
                 WordSearchWorkspaceSelfTest.RunAsync().GetAwaiter().GetResult();
                 WordSearchReplacementSelfTest.Run();
+                CrosswordSelfTest.RunAsync().GetAwaiter().GetResult();
                 return 0;
             }
             catch (Exception ex)
