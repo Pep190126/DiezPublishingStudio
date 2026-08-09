@@ -64,30 +64,55 @@ internal static class GoogleDocsExportService
 {
     internal const string DriveFileScope = "https://www.googleapis.com/auth/drive.file";
     internal const string GoogleDocumentMime = "application/vnd.google-apps.document";
+    internal const string GoogleSpreadsheetMime = "application/vnd.google-apps.spreadsheet";
     internal const string DocxMime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    internal const string XlsxMime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    internal const string CsvMime = "text/csv";
+
     private const string TokenEndpoint = "https://oauth2.googleapis.com/token";
     private const string AuthorizationEndpoint = "https://accounts.google.com/o/oauth2/v2/auth";
-    private const string UploadEndpoint = "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,mimeType";
+    private const string UploadEndpoint = "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,mimeType,webViewLink";
 
-    public static async Task<GoogleDocsExportResult> ExportDocxAsync(
+    public static Task<GoogleDocsExportResult> ExportDocxAsync(
         string docxPath,
+        string title,
+        bool openInBrowser = true,
+        CancellationToken cancellationToken = default) =>
+        UploadOriginalAsync(docxPath, title, DocxMime, ".docx", "Google Documenti", openInBrowser, cancellationToken);
+
+    public static Task<GoogleDocsExportResult> ExportXlsxAsync(
+        string xlsxPath,
+        string title,
+        bool openInBrowser = true,
+        CancellationToken cancellationToken = default) =>
+        UploadOriginalAsync(xlsxPath, title, XlsxMime, ".xlsx", "Fogli Google", openInBrowser, cancellationToken);
+
+    public static async Task<GoogleDocsExportResult> ExportCsvAsSheetAsync(
+        string csvPath,
         string title,
         bool openInBrowser = true,
         CancellationToken cancellationToken = default)
     {
-        if (!File.Exists(docxPath))
-            return new(false, "Il documento modificabile da inviare a Google non esiste.");
-
+        if (!File.Exists(csvPath))
+            return new(false, "Il CSV da inviare a Fogli Google non esiste.");
         var clientId = GoogleDocsConfiguration.ClientId;
         if (string.IsNullOrWhiteSpace(clientId))
-            return new(false, "Google Documenti non è ancora collegato in questa build di Diez.");
+            return NotConfigured("Fogli Google");
 
         try
         {
             var accessToken = await GetAccessTokenAsync(clientId, cancellationToken);
-            var document = await UploadAndConvertAsync(accessToken, docxPath, title, cancellationToken);
-            if (openInBrowser) OpenBrowser(document.Url);
-            return new(true, $"Google Documento creato: {document.Name}. Si apre nel browser.", document.Url);
+            var baseName = CleanTitle(title, csvPath, string.Empty);
+            var uploaded = await UploadAsync(
+                accessToken,
+                csvPath,
+                baseName,
+                CsvMime,
+                GoogleSpreadsheetMime,
+                editorFallback: "spreadsheets",
+                cancellationToken);
+            if (openInBrowser) OpenBrowser(uploaded.Url);
+            return new(true, $"CSV importato in Fogli Google: {uploaded.Name}. Si apre nel browser.", uploaded.Url);
         }
         catch (OperationCanceledException)
         {
@@ -95,9 +120,53 @@ internal static class GoogleDocsExportService
         }
         catch (Exception ex)
         {
-            return new(false, "Creazione del Google Documento non riuscita: " + Friendly(ex.Message));
+            return new(false, "Invio a Fogli Google non riuscito: " + Friendly(ex.Message));
         }
     }
+
+    private static async Task<GoogleDocsExportResult> UploadOriginalAsync(
+        string path,
+        string title,
+        string contentMime,
+        string extension,
+        string editorName,
+        bool openInBrowser,
+        CancellationToken cancellationToken)
+    {
+        if (!File.Exists(path))
+            return new(false, "Il file da inviare a Google Drive non esiste.");
+        var clientId = GoogleDocsConfiguration.ClientId;
+        if (string.IsNullOrWhiteSpace(clientId))
+            return NotConfigured(editorName);
+
+        try
+        {
+            var accessToken = await GetAccessTokenAsync(clientId, cancellationToken);
+            var name = CleanTitle(title, path, extension);
+            var editor = extension.Equals(".docx", StringComparison.OrdinalIgnoreCase) ? "document" : "spreadsheets";
+            var uploaded = await UploadAsync(
+                accessToken,
+                path,
+                name,
+                contentMime,
+                contentMime,
+                editor,
+                cancellationToken);
+            if (openInBrowser) OpenBrowser(uploaded.Url);
+            return new(true, $"{uploaded.Name} caricato nel tuo Drive e aperto in {editorName}. Il formato {extension.ToUpperInvariant()} resta invariato.", uploaded.Url);
+        }
+        catch (OperationCanceledException)
+        {
+            return new(false, "Collegamento a Google annullato.");
+        }
+        catch (Exception ex)
+        {
+            return new(false, $"Invio a {editorName} non riuscito: " + Friendly(ex.Message));
+        }
+    }
+
+    private static GoogleDocsExportResult NotConfigured(string destination) => new(false,
+        $"{destination} è predisposto ma questa build non contiene ancora l'identità Google di Diez. Va registrato una sola volta il Client ID desktop dell'app; non serve alcun segreto dell'utente.");
 
     internal static string BuildAuthorizationUrl(
         string clientId,
@@ -114,6 +183,7 @@ internal static class GoogleDocsExportService
             Pair("code_challenge_method", "S256"),
             Pair("state", state),
             Pair("access_type", "offline"),
+            Pair("include_granted_scopes", "true"),
             Pair("prompt", "consent")
         });
 
@@ -144,8 +214,7 @@ internal static class GoogleDocsExportService
         var state = Base64Url(RandomNumberGenerator.GetBytes(24));
         var verifier = CreatePkceVerifier();
         var challenge = CreatePkceChallenge(verifier);
-        var authorizationUrl = BuildAuthorizationUrl(clientId, redirectUri, state, challenge);
-        OpenBrowser(authorizationUrl);
+        OpenBrowser(BuildAuthorizationUrl(clientId, redirectUri, state, challenge));
 
         using var client = await listener.AcceptTcpClientAsync(cancellationToken);
         using var stream = client.GetStream();
@@ -159,12 +228,12 @@ internal static class GoogleDocsExportService
 
         await SendBrowserResponseAsync(stream, query.ContainsKey("error")
             ? "Autorizzazione non concessa. Puoi chiudere questa scheda e tornare in Diez."
-            : "Google Documenti è collegato a Diez. Puoi chiudere questa scheda.", cancellationToken);
+            : "Google Drive è collegato a Diez. Puoi chiudere questa scheda: il file verrà aperto automaticamente.", cancellationToken);
 
         if (query.TryGetValue("error", out var error))
             throw new InvalidOperationException("Google ha rifiutato l'autorizzazione: " + error);
-        if (!query.TryGetValue("state", out var returnedState) || !CryptographicOperations.FixedTimeEquals(
-                Encoding.UTF8.GetBytes(state), Encoding.UTF8.GetBytes(returnedState)))
+        if (!query.TryGetValue("state", out var returnedState) ||
+            !CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(state), Encoding.UTF8.GetBytes(returnedState)))
             throw new InvalidOperationException("Risposta Google non valida: controllo di sicurezza fallito.");
         if (!query.TryGetValue("code", out var code) || string.IsNullOrWhiteSpace(code))
             throw new InvalidOperationException("Google non ha restituito il codice di autorizzazione.");
@@ -207,22 +276,23 @@ internal static class GoogleDocsExportService
             : throw new InvalidOperationException("Google non ha restituito un token di accesso.");
     }
 
-    private static async Task<(string Name, string Url)> UploadAndConvertAsync(
+    private static async Task<(string Name, string Url)> UploadAsync(
         string accessToken,
-        string docxPath,
-        string title,
+        string sourcePath,
+        string driveName,
+        string sourceMime,
+        string driveMime,
+        string editorFallback,
         CancellationToken cancellationToken)
     {
-        title = string.IsNullOrWhiteSpace(title) ? Path.GetFileNameWithoutExtension(docxPath) : title.Trim();
-        var metadata = JsonSerializer.Serialize(new { name = title, mimeType = GoogleDocumentMime });
-        var bytes = await File.ReadAllBytesAsync(docxPath, cancellationToken);
+        var metadata = JsonSerializer.Serialize(new { name = driveName, mimeType = driveMime });
+        var bytes = await File.ReadAllBytesAsync(sourcePath, cancellationToken);
         var boundary = "diez_" + Guid.NewGuid().ToString("N");
 
         using var multipart = new MultipartContent("related", boundary);
-        var metadataContent = new StringContent(metadata, Encoding.UTF8, "application/json");
+        multipart.Add(new StringContent(metadata, Encoding.UTF8, "application/json"));
         var fileContent = new ByteArrayContent(bytes);
-        fileContent.Headers.ContentType = new MediaTypeHeaderValue(DocxMime);
-        multipart.Add(metadataContent);
+        fileContent.Headers.ContentType = new MediaTypeHeaderValue(sourceMime);
         multipart.Add(fileContent);
 
         using var request = new HttpRequestMessage(HttpMethod.Post, UploadEndpoint) { Content = multipart };
@@ -231,12 +301,25 @@ internal static class GoogleDocsExportService
         using var response = await http.SendAsync(request, cancellationToken);
         var json = await response.Content.ReadAsStringAsync(cancellationToken);
         if (!response.IsSuccessStatusCode) throw new InvalidOperationException(ApiError(json));
+
         using var document = JsonDocument.Parse(json);
         var root = document.RootElement;
         var id = root.GetProperty("id").GetString();
-        if (string.IsNullOrWhiteSpace(id)) throw new InvalidOperationException("Google Drive non ha restituito l'ID del documento.");
-        var name = root.TryGetProperty("name", out var n) && !string.IsNullOrWhiteSpace(n.GetString()) ? n.GetString()! : title;
-        return (name, $"https://docs.google.com/document/d/{id}/edit");
+        if (string.IsNullOrWhiteSpace(id)) throw new InvalidOperationException("Google Drive non ha restituito l'ID del file.");
+        var name = root.TryGetProperty("name", out var n) && !string.IsNullOrWhiteSpace(n.GetString()) ? n.GetString()! : driveName;
+        var webViewLink = root.TryGetProperty("webViewLink", out var link) ? link.GetString() : null;
+        var fallback = editorFallback == "document"
+            ? $"https://docs.google.com/document/d/{id}/edit"
+            : $"https://docs.google.com/spreadsheets/d/{id}/edit";
+        return (name, string.IsNullOrWhiteSpace(webViewLink) ? fallback : webViewLink!);
+    }
+
+    private static string CleanTitle(string title, string path, string extension)
+    {
+        var name = string.IsNullOrWhiteSpace(title) ? Path.GetFileName(path) : title.Trim();
+        if (!string.IsNullOrWhiteSpace(extension) && !name.EndsWith(extension, StringComparison.OrdinalIgnoreCase))
+            name += extension;
+        return name;
     }
 
     private static async Task SendBrowserResponseAsync(NetworkStream stream, string message, CancellationToken cancellationToken)
@@ -266,13 +349,11 @@ internal static class GoogleDocsExportService
     private static string Pair(string name, string value) => Uri.EscapeDataString(name) + "=" + Uri.EscapeDataString(value);
     private static string Base64Url(byte[] bytes) => Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 
-    private static void OpenBrowser(string url)
-    {
+    private static void OpenBrowser(string url) =>
         Process.Start(new ProcessStartInfo { FileName = url, UseShellExecute = true });
-    }
 
     private static string TokenError(string json) => ExtractGoogleError(json, "Autorizzazione Google non riuscita.");
-    private static string ApiError(string json) => ExtractGoogleError(json, "Google Drive non ha accettato il documento.");
+    private static string ApiError(string json) => ExtractGoogleError(json, "Google Drive non ha accettato il file.");
 
     private static string ExtractGoogleError(string json, string fallback)
     {
