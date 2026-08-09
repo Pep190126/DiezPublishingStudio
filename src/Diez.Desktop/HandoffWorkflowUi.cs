@@ -101,10 +101,10 @@ internal sealed class HandoffWindow : Window
         _setMainStatus = setMainStatus;
 
         Title = $"Esporta / Consegna — Diez {ProductInfo.DisplayVersion}";
-        Width = 780;
-        Height = 545;
-        MinWidth = 680;
-        MinHeight = 470;
+        Width = 820;
+        Height = 575;
+        MinWidth = 700;
+        MinHeight = 490;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
 
         var title = new TextBlock
@@ -115,23 +115,23 @@ internal sealed class HandoffWindow : Window
         };
         var explanation = new TextBlock
         {
-            Text = "Puoi creare un singolo file modificabile oppure un pacchetto completo da dare a Word, Publisher, Excel, Canva o a un impaginatore. Diez non blocca il lavoro in un PDF o EPUB finale.",
+            Text = "DOCX, CSV e XLSX possono essere salvati sul computer, aperti direttamente nel tuo Drive con Google Documenti/Fogli oppure in entrambe le destinazioni. Il formato resta modificabile e non richiede Microsoft Office.",
             TextWrapping = Avalonia.Media.TextWrapping.Wrap,
-            MaxWidth = 690,
+            MaxWidth = 720,
             HorizontalAlignment = HorizontalAlignment.Center
         };
 
-        var docx = MakeButton("Documento Word (DOCX)");
+        var docx = MakeButton("Documento modificabile (DOCX)");
         docx.Click += async (_, _) => await ExportDocxAsync();
-        SetHelp(docx, "Crea il manoscritto modificabile per Word, Publisher o un impaginatore. Se hai pianificato immagini, le inserisce anche nel documento.");
+        SetHelp(docx, "Crea il documento modificabile. Poi scegli se salvarlo sul PC, aprirlo in Google Documenti o fare entrambe le cose.");
 
         var csv = MakeButton("Tabella CSV");
         csv.Click += async (_, _) => await ExportCsvAsync();
-        SetHelp(csv, "Esporta il testo di lavoro in una tabella CSV semplice e riutilizzabile.");
+        SetHelp(csv, "Crea la tabella CSV. Per Fogli Google viene importata in un foglio modificabile; con Entrambi conservi anche il CSV originale.");
 
-        var xlsx = MakeButton("Tabella Excel (XLSX)");
+        var xlsx = MakeButton("Tabella XLSX");
         xlsx.Click += async (_, _) => await ExportXlsxAsync();
-        SetHelp(xlsx, "Esporta il testo di lavoro in un vero file Excel modificabile.");
+        SetHelp(xlsx, "Crea il file XLSX. In Google Drive rimane XLSX e viene aperto con Fogli Google.");
 
         var plan = MakeButton("Posizione immagini");
         plan.Click += async (_, _) => await OpenIllustrationPlanAsync();
@@ -155,7 +155,7 @@ internal sealed class HandoffWindow : Window
         {
             Text = BuildReadinessText(),
             TextWrapping = Avalonia.Media.TextWrapping.Wrap,
-            MaxWidth = 690,
+            MaxWidth = 720,
             HorizontalAlignment = HorizontalAlignment.Center
         };
 
@@ -215,7 +215,7 @@ internal sealed class HandoffWindow : Window
     private static Button MakeButton(string text) => new()
     {
         Content = text,
-        Width = 205,
+        Width = 220,
         HorizontalContentAlignment = HorizontalAlignment.Center
     };
 
@@ -232,59 +232,101 @@ internal sealed class HandoffWindow : Window
 
     private async Task ExportDocxAsync()
     {
-        var file = await _owner.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
-        {
-            Title = "Crea documento Word modificabile",
-            SuggestedFileName = DocxExportService.SuggestedFileName(_project),
-            DefaultExtension = "docx",
-            FileTypeChoices = [new FilePickerFileType("Documento Word DOCX") { Patterns = ["*.docx"] }]
-        });
-        if (file is null) return;
+        var destination = await OutputDestinationUi.ChooseAsync(this, "Google Documenti", "Documento modificabile (DOCX)");
+        if (destination is null) return;
+        var suggested = DocxExportService.SuggestedFileName(_project);
+        var path = destination == OutputDestination.Google
+            ? OutputDestinationUi.TempPath(suggested)
+            : await PickSavePathAsync("Crea documento modificabile", suggested, "docx", "Documento DOCX", "*.docx");
+        if (string.IsNullOrWhiteSpace(path)) return;
 
+        var deleteAfter = destination == OutputDestination.Google;
         try
         {
-            var result = await DocxExportService.ExportAsync(_project, _projectPath, file.Path.LocalPath);
-            Report(result.Message);
+            var result = await DocxExportService.ExportAsync(_project, _projectPath, path);
+            if (!result.Success) { Report(result.Message); return; }
+
+            var messages = new List<string>();
+            if (destination != OutputDestination.Google) messages.Add(result.Message);
+            if (destination is OutputDestination.Google or OutputDestination.Both)
+            {
+                var google = await GoogleDocsExportService.ExportDocxAsync(path, Path.GetFileName(path));
+                messages.Add(google.Message);
+            }
+            Report(string.Join("  ", messages));
         }
         catch (Exception ex) { Report($"Esportazione DOCX fallita: {ex.Message}"); }
+        finally { if (deleteAfter) TryDelete(path); }
     }
 
     private async Task ExportCsvAsync()
     {
-        var file = await _owner.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
-        {
-            Title = "Crea tabella CSV",
-            SuggestedFileName = HandoffExportService.SuggestedCsvFileName(_project),
-            DefaultExtension = "csv",
-            FileTypeChoices = [new FilePickerFileType("CSV UTF-8") { Patterns = ["*.csv"] }]
-        });
-        if (file is null) return;
+        var destination = await OutputDestinationUi.ChooseAsync(this, "Fogli Google", "Tabella CSV");
+        if (destination is null) return;
+        var suggested = HandoffExportService.SuggestedCsvFileName(_project);
+        var path = destination == OutputDestination.Google
+            ? OutputDestinationUi.TempPath(suggested)
+            : await PickSavePathAsync("Crea tabella CSV", suggested, "csv", "CSV UTF-8", "*.csv");
+        if (string.IsNullOrWhiteSpace(path)) return;
 
+        var deleteAfter = destination == OutputDestination.Google;
         try
         {
-            var result = await HandoffExportService.ExportMasterCsvAsync(_project, file.Path.LocalPath);
-            Report(result.Message);
+            var result = await HandoffExportService.ExportMasterCsvAsync(_project, path);
+            if (!result.Success) { Report(result.Message); return; }
+
+            var messages = new List<string>();
+            if (destination != OutputDestination.Google) messages.Add(result.Message);
+            if (destination is OutputDestination.Google or OutputDestination.Both)
+            {
+                var google = await GoogleDocsExportService.ExportCsvAsSheetAsync(path, Path.GetFileNameWithoutExtension(path));
+                messages.Add(google.Message);
+            }
+            Report(string.Join("  ", messages));
         }
         catch (Exception ex) { Report($"Esportazione CSV fallita: {ex.Message}"); }
+        finally { if (deleteAfter) TryDelete(path); }
     }
 
     private async Task ExportXlsxAsync()
     {
-        var file = await _owner.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
-        {
-            Title = "Crea tabella Excel",
-            SuggestedFileName = HandoffExportService.SuggestedXlsxFileName(_project),
-            DefaultExtension = "xlsx",
-            FileTypeChoices = [new FilePickerFileType("Cartella di lavoro Excel XLSX") { Patterns = ["*.xlsx"] }]
-        });
-        if (file is null) return;
+        var destination = await OutputDestinationUi.ChooseAsync(this, "Fogli Google", "Tabella XLSX");
+        if (destination is null) return;
+        var suggested = HandoffExportService.SuggestedXlsxFileName(_project);
+        var path = destination == OutputDestination.Google
+            ? OutputDestinationUi.TempPath(suggested)
+            : await PickSavePathAsync("Crea tabella XLSX", suggested, "xlsx", "Foglio XLSX", "*.xlsx");
+        if (string.IsNullOrWhiteSpace(path)) return;
 
+        var deleteAfter = destination == OutputDestination.Google;
         try
         {
-            var result = await HandoffExportService.ExportMasterXlsxAsync(_project, file.Path.LocalPath);
-            Report(result.Message);
+            var result = await HandoffExportService.ExportMasterXlsxAsync(_project, path);
+            if (!result.Success) { Report(result.Message); return; }
+
+            var messages = new List<string>();
+            if (destination != OutputDestination.Google) messages.Add(result.Message);
+            if (destination is OutputDestination.Google or OutputDestination.Both)
+            {
+                var google = await GoogleDocsExportService.ExportXlsxAsync(path, Path.GetFileName(path));
+                messages.Add(google.Message);
+            }
+            Report(string.Join("  ", messages));
         }
         catch (Exception ex) { Report($"Esportazione XLSX fallita: {ex.Message}"); }
+        finally { if (deleteAfter) TryDelete(path); }
+    }
+
+    private async Task<string?> PickSavePathAsync(string title, string suggested, string extension, string typeName, string pattern)
+    {
+        var file = await _owner.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = title,
+            SuggestedFileName = suggested,
+            DefaultExtension = extension,
+            FileTypeChoices = [new FilePickerFileType(typeName) { Patterns = [pattern] }]
+        });
+        return file?.Path.LocalPath;
     }
 
     private async Task ExportImagesAsync()
@@ -329,6 +371,11 @@ internal sealed class HandoffWindow : Window
             Report(result.Message);
         }
         catch (Exception ex) { Report($"Creazione pacchetto completo fallita: {ex.Message}"); }
+    }
+
+    private static void TryDelete(string path)
+    {
+        try { if (File.Exists(path)) File.Delete(path); } catch { }
     }
 
     private void Report(string message)
