@@ -1,0 +1,1 @@
+Validate Crossword lexicon/definitions plus thematic Required/Preferred/Normal/Fallback word roles inside the unified MainWindow.
