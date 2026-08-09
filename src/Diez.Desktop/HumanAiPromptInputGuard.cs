@@ -6,9 +6,9 @@ using Avalonia.Threading;
 namespace DiezPublishingStudio;
 
 /// <summary>
-/// Keeps the human-facing "DEVE FARE / NON DEVE FARE" editors writable.
-/// These fields are injected on top of older AI windows, so other compatibility
-/// layers must never leave them read-only, disabled or unable to receive input.
+/// Keeps DEVE FARE / NON DEVE FARE / PROMPT writable and keyboard-editable.
+/// Avalonia TextBox provides native copy, undo and redo shortcuts when the box is
+/// editable and IsUndoEnabled is true.
 /// </summary>
 internal static class HumanAiPromptInputGuard
 {
@@ -31,25 +31,22 @@ internal static class HumanAiPromptInputGuard
 
     internal static void Repair(Window window)
     {
-        // The original request box is the DEVE FARE editor in all three AI windows.
+        // DEVE FARE.
         if (GetPrivate<TextBox>(window, "_request") is TextBox request)
             MakeEditable(request);
 
-        // NON DEVE FARE is injected dynamically, therefore find it by its visible
-        // label/watermark instead of relying on a private field that does not exist.
+        // PROMPT / ISTRUZIONI: now intentionally editable by the user.
+        if (GetPrivate<TextBox>(window, "_prompt") is TextBox prompt)
+            MakeEditable(prompt);
+        if (GetPrivate<TextBox>(window, "_instructions") is TextBox instructions)
+            MakeEditable(instructions);
+
+        // NON DEVE FARE is injected dynamically, so identify it by label/watermark.
         foreach (var box in Descendants(window).OfType<TextBox>())
         {
-            if (IsTechnicalReadOnlyBox(window, box)) continue;
             if (HasHumanPromptLabel(box) || HasHumanPromptWatermark(box))
                 MakeEditable(box);
         }
-    }
-
-    private static bool IsTechnicalReadOnlyBox(Window window, TextBox box)
-    {
-        var prompt = GetPrivate<TextBox>(window, "_prompt");
-        var instructions = GetPrivate<TextBox>(window, "_instructions");
-        return ReferenceEquals(box, prompt) || ReferenceEquals(box, instructions);
     }
 
     private static bool HasHumanPromptWatermark(TextBox box)
@@ -60,7 +57,8 @@ internal static class HumanAiPromptInputGuard
                text.Contains("non deve fare", StringComparison.OrdinalIgnoreCase) ||
                text.Contains("cosa vuoi che l'AI faccia", StringComparison.OrdinalIgnoreCase) ||
                text.Contains("cosa deve evitare", StringComparison.OrdinalIgnoreCase) ||
-               text.Contains("concreto ciò che vuoi ottenere", StringComparison.OrdinalIgnoreCase);
+               text.Contains("concreto ciò che vuoi ottenere", StringComparison.OrdinalIgnoreCase) ||
+               text.Contains("Prompt pronto", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool HasHumanPromptLabel(TextBox box)
@@ -72,7 +70,9 @@ internal static class HumanAiPromptInputGuard
             if (panel.Children[index - 1] is not TextBlock label) continue;
             var text = (label.Text ?? string.Empty).Trim();
             if (text.Equals("DEVE FARE", StringComparison.OrdinalIgnoreCase) ||
-                text.Equals("NON DEVE FARE", StringComparison.OrdinalIgnoreCase))
+                text.Equals("NON DEVE FARE", StringComparison.OrdinalIgnoreCase) ||
+                text.Contains("istruzioni", StringComparison.OrdinalIgnoreCase) ||
+                text.Contains("prompt", StringComparison.OrdinalIgnoreCase))
                 return true;
         }
         return false;
@@ -84,6 +84,7 @@ internal static class HumanAiPromptInputGuard
         box.IsEnabled = true;
         box.IsHitTestVisible = true;
         box.Focusable = true;
+        box.IsUndoEnabled = true;
     }
 
     private static IEnumerable<Panel> AncestorPanels(Control control)
