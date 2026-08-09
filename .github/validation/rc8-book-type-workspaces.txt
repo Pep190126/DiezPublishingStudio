@@ -1,1 +1,2 @@
 Validation marker for RC8 book-type workspaces, Word Search database tools, image collection layout choices, and TXT/DOCX companion descriptions.
+Round 2 after simplifying the internal DOCX drawing construction.
