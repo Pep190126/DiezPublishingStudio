@@ -1,0 +1,1 @@
+Validation marker for the user-facing AI prompt editor with DEVE FARE / NON DEVE FARE fields, backward-compatible request handling, plain-language generated prompts, guided creation, full-control creation, GUI startup and installer validation.
