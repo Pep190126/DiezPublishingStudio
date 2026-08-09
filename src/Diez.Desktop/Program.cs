@@ -32,6 +32,7 @@ internal static class Program
                 AiProductionSelfTest.RunAsync().GetAwaiter().GetResult();
                 AiImageBatchSelfTest.RunAsync().GetAwaiter().GetResult();
                 WordSearchWorkspaceSelfTest.RunAsync().GetAwaiter().GetResult();
+                WordSearchReplacementSelfTest.Run();
                 return 0;
             }
             catch (Exception ex)
