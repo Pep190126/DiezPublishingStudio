@@ -8,8 +8,8 @@ namespace DiezPublishingStudio;
 internal static class WordSearchExportService
 {
     public static string SuggestedDatabaseName(PreviewProject project) => SafeBase(project) + "-database-word-search.xlsx";
-    public static string SuggestedFlatXlsxName(PreviewProject project) => SafeBase(project) + "-tabella-word-search.xlsx";
-    public static string SuggestedFlatCsvName(PreviewProject project) => SafeBase(project) + "-tabella-word-search.csv";
+    public static string SuggestedFlatXlsxName(PreviewProject project) => SafeBase(project) + "-puzzle.xlsx";
+    public static string SuggestedFlatCsvName(PreviewProject project) => SafeBase(project) + "-puzzle.csv";
 
     public static async Task<AiProductionActionResult> ExportDatabaseAsync(PreviewProject project, string path)
     {
@@ -27,8 +27,8 @@ internal static class WordSearchExportService
         var records = WordSearchWorkspaceService.GetRecords(project);
         if (records.Count == 0) return new(false, "Non ci sono puzzle da esportare.");
         var fullPath = EnsureExtension(path, ".xlsx");
-        await WriteWorkbookAsync(fullPath, ("PUZZLE", FlatRows(project, records)));
-        return new(true, $"Tabella XLSX esportata: {Path.GetFileName(fullPath)} · un puzzle per riga e parole in colonne.");
+        await WriteWorkbookAsync(fullPath, ("PUZZLE", PuzzleColumnsRows(project, records)));
+        return new(true, $"XLSX esportato: {Path.GetFileName(fullPath)} · una colonna per puzzle, con il numero di parole previsto.");
     }
 
     public static async Task<AiProductionActionResult> ExportFlatCsvAsync(PreviewProject project, string path)
@@ -36,7 +36,7 @@ internal static class WordSearchExportService
         var records = WordSearchWorkspaceService.GetRecords(project);
         if (records.Count == 0) return new(false, "Non ci sono puzzle da esportare.");
         var fullPath = EnsureExtension(path, ".csv");
-        var rows = FlatRows(project, records);
+        var rows = PuzzleColumnsRows(project, records);
         var builder = new StringBuilder();
         foreach (var row in rows)
         {
@@ -49,7 +49,7 @@ internal static class WordSearchExportService
         }
         EnsureDirectory(fullPath);
         await File.WriteAllTextAsync(fullPath, builder.ToString(), new UTF8Encoding(true));
-        return new(true, $"Tabella CSV esportata: {Path.GetFileName(fullPath)} · un puzzle per riga e parole in colonne.");
+        return new(true, $"CSV esportato: {Path.GetFileName(fullPath)} · una colonna per puzzle, con il numero di parole previsto.");
     }
 
     private static IReadOnlyList<IReadOnlyList<string>> DatabaseRows(PreviewProject project, IReadOnlyList<WordSearchRecord> records)
@@ -67,7 +67,8 @@ internal static class WordSearchExportService
         AddDatabaseRow(rows, "Tema", records.Select(r => r.Theme));
         AddDatabaseRow(rows, "Numero parole previste", records.Select(r => expected[r.ContentId].ToString(CultureInfo.InvariantCulture)));
         for (var wordIndex = 0; wordIndex < maxWords; wordIndex++)
-            AddDatabaseRow(rows, $"Parola {wordIndex + 1:D2}", records.Select(r => wordIndex < expected[r.ContentId] && wordIndex < r.Words.Count ? r.Words[wordIndex] : string.Empty));
+            AddDatabaseRow(rows, $"Parola {wordIndex + 1:D2}", records.Select(r =>
+                wordIndex < expected[r.ContentId] && wordIndex < r.Words.Count ? r.Words[wordIndex] : string.Empty));
         AddDatabaseRow(rows, "Numero parole presenti", records.Select(r => r.Words.Count.ToString(CultureInfo.InvariantCulture)));
         AddDatabaseRow(rows, "Stato", records.Select(r => r.Status));
         AddDatabaseRow(rows, "Origine", records.Select(r => r.Origin));
@@ -76,33 +77,30 @@ internal static class WordSearchExportService
         return rows;
     }
 
+    private static IReadOnlyList<IReadOnlyList<string>> PuzzleColumnsRows(PreviewProject project, IReadOnlyList<WordSearchRecord> records)
+    {
+        var expected = records.ToDictionary(r => r.ContentId, r => WordSearchDatabaseService.ExpectedWordCount(project, r));
+        var maxWords = Math.Max(1, expected.Values.DefaultIfEmpty(20).Max());
+        var rows = new List<IReadOnlyList<string>>
+        {
+            Enumerable.Range(1, records.Count).Select(i => $"Puzzle {i}").ToList()
+        };
+
+        for (var wordIndex = 0; wordIndex < maxWords; wordIndex++)
+        {
+            rows.Add(records.Select(r =>
+                wordIndex < expected[r.ContentId] && wordIndex < r.Words.Count
+                    ? r.Words[wordIndex]
+                    : string.Empty).ToList());
+        }
+        return rows;
+    }
+
     private static void AddDatabaseRow(List<IReadOnlyList<string>> rows, string field, IEnumerable<string> values)
     {
         var row = new List<string> { field };
         row.AddRange(values);
         rows.Add(row);
-    }
-
-    private static IReadOnlyList<IReadOnlyList<string>> FlatRows(PreviewProject project, IReadOnlyList<WordSearchRecord> records)
-    {
-        var expected = records.ToDictionary(r => r.ContentId, r => WordSearchDatabaseService.ExpectedWordCount(project, r));
-        var maxWords = Math.Max(1, expected.Values.DefaultIfEmpty(20).Max());
-        var headers = new List<string> { "Ordine", "ID", "Titolo", "Tema", "Parole previste" };
-        headers.AddRange(Enumerable.Range(1, maxWords).Select(i => $"Parola {i:D2}"));
-        headers.AddRange(["Parole presenti", "Stato", "Origine", "Note"]);
-        var rows = new List<IReadOnlyList<string>> { headers };
-        foreach (var record in records)
-        {
-            var row = new List<string>
-            {
-                record.Order.ToString(CultureInfo.InvariantCulture), record.Id, record.Title, record.Theme,
-                expected[record.ContentId].ToString(CultureInfo.InvariantCulture)
-            };
-            for (var i = 0; i < maxWords; i++) row.Add(i < expected[record.ContentId] && i < record.Words.Count ? record.Words[i] : string.Empty);
-            row.AddRange([record.Words.Count.ToString(CultureInfo.InvariantCulture), record.Status, record.Origin, record.Notes]);
-            rows.Add(row);
-        }
-        return rows;
     }
 
     private static IReadOnlyList<IReadOnlyList<string>> InfoRows(PreviewProject project, int count) =>
@@ -114,7 +112,7 @@ internal static class WordSearchExportService
             new[] { "Titolo", project.EditionMetadata?.Title ?? project.Name },
             new[] { "Puzzle presenti", count.ToString(CultureInfo.InvariantCulture) },
             new[] { "Struttura", "Ogni colonna è un puzzle: Puzzle 1, Puzzle 2, ... Puzzle N" },
-            new[] { "Parole", "Se un puzzle prevede 20 parole, conserva sempre Parola 01 ... Parola 20; le mancanti restano celle vuote" },
+            new[] { "Parole", "Il numero di righe di parole segue quello previsto per ciascun puzzle; le parole mancanti restano celle vuote" },
             new[] { "Regola ID", "PUZ-### identifica stabilmente il puzzle anche dopo correzioni o reimportazioni" }
         };
 
@@ -157,8 +155,11 @@ internal static class WordSearchExportService
         }
         return Xml(new XDocument(new XDeclaration("1.0", "UTF-8", "yes"),
             new XElement(x + "worksheet",
-                new XElement(x + "sheetViews", new XElement(x + "sheetView", new XAttribute("workbookViewId", "0"),
-                    new XElement(x + "pane", new XAttribute("ySplit", "1"), new XAttribute("topLeftCell", "A2"), new XAttribute("state", "frozen")))),
+                new XElement(x + "sheetViews",
+                    new XElement(x + "sheetView",
+                        new XAttribute("workbookViewId", "0"),
+                        new XAttribute("showGridLines", "1"),
+                        new XElement(x + "pane", new XAttribute("ySplit", "1"), new XAttribute("topLeftCell", "A2"), new XAttribute("state", "frozen")))),
                 data)));
     }
 
@@ -209,13 +210,17 @@ internal static class WordSearchExportService
             new XElement(x + "fonts", new XAttribute("count", "2"),
                 new XElement(x + "font", new XElement(x + "sz", new XAttribute("val", "11")), new XElement(x + "name", new XAttribute("val", "Aptos"))),
                 new XElement(x + "font", new XElement(x + "b"), new XElement(x + "sz", new XAttribute("val", "11")), new XElement(x + "name", new XAttribute("val", "Aptos")))),
-            new XElement(x + "fills", new XAttribute("count", "2"), new XElement(x + "fill", new XElement(x + "patternFill", new XAttribute("patternType", "none"))), new XElement(x + "fill", new XElement(x + "patternFill", new XAttribute("patternType", "gray125")))),
+            new XElement(x + "fills", new XAttribute("count", "2"),
+                new XElement(x + "fill", new XElement(x + "patternFill", new XAttribute("patternType", "none"))),
+                new XElement(x + "fill", new XElement(x + "patternFill", new XAttribute("patternType", "gray125")))),
             new XElement(x + "borders", new XAttribute("count", "1"), new XElement(x + "border")),
-            new XElement(x + "cellStyleXfs", new XAttribute("count", "1"), new XElement(x + "xf", new XAttribute("numFmtId", "0"), new XAttribute("fontId", "0"), new XAttribute("fillId", "0"), new XAttribute("borderId", "0"))),
+            new XElement(x + "cellStyleXfs", new XAttribute("count", "1"),
+                new XElement(x + "xf", new XAttribute("numFmtId", "0"), new XAttribute("fontId", "0"), new XAttribute("fillId", "0"), new XAttribute("borderId", "0"))),
             new XElement(x + "cellXfs", new XAttribute("count", "2"),
                 new XElement(x + "xf", new XAttribute("numFmtId", "0"), new XAttribute("fontId", "0"), new XAttribute("fillId", "0"), new XAttribute("borderId", "0"), new XAttribute("xfId", "0")),
                 new XElement(x + "xf", new XAttribute("numFmtId", "0"), new XAttribute("fontId", "1"), new XAttribute("fillId", "0"), new XAttribute("borderId", "0"), new XAttribute("xfId", "0"), new XAttribute("applyFont", "1"))),
-            new XElement(x + "cellStyles", new XAttribute("count", "1"), new XElement(x + "cellStyle", new XAttribute("name", "Normal"), new XAttribute("xfId", "0"), new XAttribute("builtinId", "0"))))));
+            new XElement(x + "cellStyles", new XAttribute("count", "1"),
+                new XElement(x + "cellStyle", new XAttribute("name", "Normal"), new XAttribute("xfId", "0"), new XAttribute("builtinId", "0"))))));
     }
 
     private static async Task WriteEntry(ZipArchive archive, string name, string content)
