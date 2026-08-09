@@ -10,6 +10,7 @@ internal static class BookTypeProfileService
     private const string EntityKind = "DiezBookType";
 
     public const string WordSearch = "Word Search";
+    public const string Crossword = "Cruciverba";
     public const string Quiz = "Quiz / trivia";
     public const string ColoringBook = "Coloring book";
     public const string ImageCollection = "Raccolta immagini";
@@ -64,10 +65,16 @@ internal static class BookTypeProfileService
     public static bool IsWordSearch(PreviewProject project) =>
         string.Equals(Get(project), WordSearch, StringComparison.OrdinalIgnoreCase);
 
+    public static bool IsCrossword(PreviewProject project) =>
+        string.Equals(Get(project), Crossword, StringComparison.OrdinalIgnoreCase);
+
     public static string Normalize(string? value)
     {
         var text = (value ?? string.Empty).Trim();
         if (text.Length == 0) return string.Empty;
+        if (text.Equals(Crossword, StringComparison.OrdinalIgnoreCase) ||
+            text.Contains("cruciverba", StringComparison.OrdinalIgnoreCase) ||
+            text.Contains("crossword", StringComparison.OrdinalIgnoreCase)) return Crossword;
         if (text.Equals("Puzzle / giochi di parole", StringComparison.OrdinalIgnoreCase) ||
             text.Contains("word search", StringComparison.OrdinalIgnoreCase) ||
             text.Contains("wordsearch", StringComparison.OrdinalIgnoreCase) ||
@@ -83,8 +90,10 @@ internal static class BookTypeProfileService
 
     private static string Infer(PreviewProject project)
     {
+        if (project.Entities.Any(e => string.Equals(e.Kind, "CrosswordWord", StringComparison.OrdinalIgnoreCase))) return Crossword;
         if (WordSearchWorkspaceService.HasWordSearchDatabase(project)) return WordSearch;
         var combined = $"{project.Name} {project.EditionMetadata?.Title}";
+        if (combined.Contains("cruciverba", StringComparison.OrdinalIgnoreCase) || combined.Contains("crossword", StringComparison.OrdinalIgnoreCase)) return Crossword;
         if (combined.Contains("word search", StringComparison.OrdinalIgnoreCase) ||
             combined.Contains("wordsearch", StringComparison.OrdinalIgnoreCase) ||
             combined.Contains("cerca parole", StringComparison.OrdinalIgnoreCase)) return WordSearch;
@@ -113,7 +122,7 @@ internal static class BookTypeProfileUi
         var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(350) };
         timer.Tick += async (_, _) =>
         {
-            EnsureImageCollectionChoice(window);
+            EnsureAdditionalChoices(window);
             foreach (var radio in Descendants(window).OfType<RadioButton>()
                          .Where(r => string.Equals(r.GroupName, "project-type", StringComparison.Ordinal)))
             {
@@ -148,21 +157,29 @@ internal static class BookTypeProfileUi
         timer.Start();
     }
 
-    private static void EnsureImageCollectionChoice(MainWindow window)
+    private static void EnsureAdditionalChoices(MainWindow window)
     {
         foreach (var panel in Descendants(window).OfType<StackPanel>())
         {
             var choices = panel.Children.OfType<RadioButton>()
                 .Where(r => string.Equals(r.GroupName, "project-type", StringComparison.Ordinal))
                 .ToList();
-            if (choices.Count == 0 || choices.Any(r => string.Equals(r.Content?.ToString(), BookTypeProfileService.ImageCollection, StringComparison.Ordinal))) continue;
-            panel.Children.Add(new RadioButton
-            {
-                Content = BookTypeProfileService.ImageCollection,
-                GroupName = "project-type",
-                IsChecked = false
-            });
+            if (choices.Count == 0) continue;
+            AddChoice(panel, choices, BookTypeProfileService.ImageCollection);
+            choices = panel.Children.OfType<RadioButton>().Where(r => string.Equals(r.GroupName, "project-type", StringComparison.Ordinal)).ToList();
+            AddChoice(panel, choices, BookTypeProfileService.Crossword);
         }
+    }
+
+    private static void AddChoice(StackPanel panel, IReadOnlyList<RadioButton> choices, string value)
+    {
+        if (choices.Any(r => string.Equals(r.Content?.ToString(), value, StringComparison.Ordinal))) return;
+        panel.Children.Add(new RadioButton
+        {
+            Content = value,
+            GroupName = "project-type",
+            IsChecked = false
+        });
     }
 
     private static void SetGuideProjectType(MainWindow window, string? value)
