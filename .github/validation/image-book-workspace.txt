@@ -1,0 +1,1 @@
+Validation marker for shared book-type tabs, Coloring/Image Collection workspace, stable book-type profile, collection consistency checks, surgical image replacement, image descriptions, and editable-document export terminology.
