@@ -29,10 +29,10 @@ public sealed class App : Application
                 failures.Add(aiError);
             if (!StartupDiagnostics.TryAttach("Serie immagini AI", () => AiImageBatchUi.Attach(mainWindow), out var batchError) && batchError is not null)
                 failures.Add(batchError);
-            if (!StartupDiagnostics.TryAttach("Gestore Word Search", () => WordSearchUi.Attach(mainWindow), out var wordSearchError) && wordSearchError is not null)
-                failures.Add(wordSearchError);
             if (!StartupDiagnostics.TryAttach("Layout e aiuto contestuale", () => FriendlyLayoutUi.Attach(mainWindow), out var layoutError) && layoutError is not null)
                 failures.Add(layoutError);
+            if (!StartupDiagnostics.TryAttach("Ambiente del libro", () => BookWorkspaceTabsUi.Attach(mainWindow), out var workspaceError) && workspaceError is not null)
+                failures.Add(workspaceError);
             if (!StartupDiagnostics.TryAttach("Guida passo passo", () => GuidedModeUi.Attach(mainWindow), out var guideError) && guideError is not null)
                 failures.Add(guideError);
             if (!StartupDiagnostics.TryAttach("Linguaggio semplice", () => PlainLanguageUi.Attach(mainWindow), out var languageError) && languageError is not null)
