@@ -55,6 +55,8 @@ public sealed class App : Application
                 failures.Add(wordSearchGoogleError);
             if (!StartupDiagnostics.TryAttach("Guida passo passo", () => GuidedModeUi.Attach(mainWindow), out var guideError) && guideError is not null)
                 failures.Add(guideError);
+            if (!StartupDiagnostics.TryAttach("Coloring Book: numero immagini e prompt", () => ColoringAiCreationUi.Attach(mainWindow), out var coloringAiError) && coloringAiError is not null)
+                failures.Add(coloringAiError);
             if (!StartupDiagnostics.TryAttach("Tipo libro persistente", () => BookTypeProfileUi.Attach(mainWindow), out var bookTypeError) && bookTypeError is not null)
                 failures.Add(bookTypeError);
             if (!StartupDiagnostics.TryAttach("Linguaggio semplice", () => PlainLanguageUi.Attach(mainWindow), out var languageError) && languageError is not null)
