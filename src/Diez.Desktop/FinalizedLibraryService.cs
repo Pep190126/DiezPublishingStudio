@@ -9,6 +9,8 @@ internal static class FinalizedOutputRecipes
     public const string EditableDocx = "editable-docx";
     public const string MasterCsv = "master-csv";
     public const string MasterXlsx = "master-xlsx";
+    public const string OriginalImagesZip = "original-images-zip";
+    public const string ProductionPackageZip = "production-package-zip";
     public const string WordSearchDatabaseXlsx = "wordsearch-database-xlsx";
     public const string WordSearchColumnsXlsx = "wordsearch-columns-xlsx";
     public const string WordSearchColumnsCsv = "wordsearch-columns-csv";
@@ -80,19 +82,21 @@ internal static class FinalizedLibraryService
         string label)
     {
         if (project is null) throw new ArgumentNullException(nameof(project));
+        if (!PublicationCandidateService.IsLatestCandidateCurrent(project))
+            throw new InvalidOperationException("Questa versione non è ancora finalizzata e approvata per l'esportazione.");
         if (string.IsNullOrWhiteSpace(projectPath) || !File.Exists(projectPath))
             throw new InvalidOperationException("Per archiviare la finalizzazione serve il progetto .diez salvato.");
         if (string.IsNullOrWhiteSpace(outputPath) || !File.Exists(outputPath))
             throw new InvalidOperationException("L'output finalizzato da archiviare non esiste.");
 
         Directory.CreateDirectory(RootPath);
-        var candidate = PublicationCandidateService.GetLatest(project);
-        var candidateId = candidate?.CandidateId ?? Guid.Empty;
-        var sequence = candidate is null || !int.TryParse(candidate.ProposedValue, out var parsed) ? 0 : parsed;
+        var candidate = PublicationCandidateService.GetLatest(project)
+            ?? throw new InvalidOperationException("Manca la versione finalizzata.");
+        var candidateId = candidate.CandidateId;
+        var sequence = int.TryParse(candidate.ProposedValue, out var parsed) ? parsed : 0;
 
-        var existing = candidateId == Guid.Empty
-            ? null
-            : LoadAll().FirstOrDefault(r => r.ProjectId == project.ProjectId && r.PublicationCandidateId == candidateId);
+        var existing = LoadAll().FirstOrDefault(r =>
+            r.ProjectId == project.ProjectId && r.PublicationCandidateId == candidateId);
         var record = existing ?? new FinalizedBookRecord
         {
             FinalizationId = Guid.NewGuid(),
@@ -148,6 +152,16 @@ internal static class FinalizedLibraryService
         return output;
     }
 
+    public static async Task RememberGoogleUrlAsync(Guid finalizationId, Guid outputId, string? googleUrl)
+    {
+        if (string.IsNullOrWhiteSpace(googleUrl)) return;
+        var found = Find(finalizationId, outputId);
+        if (found.Record is null || found.Output is null) return;
+        found.Output.GoogleUrl = googleUrl.Trim();
+        found.Output.LastGoogleAttemptAtLocal = DateTimeOffset.Now.ToString("O");
+        await SaveManifestAsync(found.Record);
+    }
+
     public static async Task<FinalizedLibraryActionResult> CopyIdenticalAsync(Guid finalizationId, Guid outputId, string destinationPath)
     {
         var found = Find(finalizationId, outputId);
@@ -159,7 +173,8 @@ internal static class FinalizedLibraryService
             return new(false, "La copia archiviata non supera il controllo di integrità.");
 
         var target = EnsureExtension(destinationPath, Path.GetExtension(found.Output.FileName));
-        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(target))!);
+        var directory = Path.GetDirectoryName(Path.GetFullPath(target));
+        if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory);
         if (!string.Equals(Path.GetFullPath(source), Path.GetFullPath(target), StringComparison.OrdinalIgnoreCase))
             await CopyFileAsync(source, target, overwrite: true);
         if (!string.Equals(await Sha256Async(target), found.Output.Sha256, StringComparison.OrdinalIgnoreCase))
@@ -194,20 +209,30 @@ internal static class FinalizedLibraryService
                 var result = await HandoffExportService.ExportMasterXlsxAsync(project, target);
                 return new(result.Exported, result.Message, result.OutputPath);
             }
+            case FinalizedOutputRecipes.OriginalImagesZip:
+            {
+                var result = await HandoffExportService.ExportOriginalImagesZipAsync(project, snapshotPath, target);
+                return new(result.Exported, result.Message, result.OutputPath);
+            }
+            case FinalizedOutputRecipes.ProductionPackageZip:
+            {
+                var result = await ProductionPackageService.ExportAsync(project, snapshotPath, target);
+                return new(result.Exported, result.Message, result.OutputPath);
+            }
             case FinalizedOutputRecipes.WordSearchDatabaseXlsx:
             {
                 var result = await WordSearchFullDatabaseExportService.ExportAsync(project, target);
-                return new(result.Success, result.Message, result.OutputPath);
+                return new(result.Success, result.Message, result.Success ? target : null);
             }
             case FinalizedOutputRecipes.WordSearchColumnsXlsx:
             {
                 var result = await WordSearchColumnExportService.ExportXlsxAsync(project, target);
-                return new(result.Success, result.Message, result.OutputPath);
+                return new(result.Success, result.Message, result.Success ? target : null);
             }
             case FinalizedOutputRecipes.WordSearchColumnsCsv:
             {
                 var result = await WordSearchColumnExportService.ExportCsvAsync(project, target);
-                return new(result.Success, result.Message, result.OutputPath);
+                return new(result.Success, result.Message, result.Success ? target : null);
             }
             default:
                 return new(false, "Questa vecchia uscita può essere copiata identica, ma non ha ancora una ricetta di rigenerazione supportata.");
@@ -219,6 +244,17 @@ internal static class FinalizedLibraryService
         var found = Find(finalizationId, outputId);
         if (found.Record is null || found.Output is null)
             return new(false, "Non trovo più questa copia finalizzata.");
+
+        if (!string.IsNullOrWhiteSpace(found.Output.GoogleUrl))
+        {
+            try
+            {
+                Process.Start(new ProcessStartInfo { FileName = found.Output.GoogleUrl, UseShellExecute = true });
+                return new(true, "Riapertura del collegamento Google già creato.", found.Output.GoogleUrl);
+            }
+            catch { }
+        }
+
         var source = ArchivedOutputPath(found.Record, found.Output);
         if (!File.Exists(source)) return new(false, "La copia archiviata da inviare a Google non è più disponibile.");
         if (!string.Equals(await Sha256Async(source), found.Output.Sha256, StringComparison.OrdinalIgnoreCase))
