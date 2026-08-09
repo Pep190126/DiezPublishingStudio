@@ -104,7 +104,7 @@ internal static class UnifiedBookWorkspaceUi
     {
         if (project is null) return "none";
         if (profile is not ("novel" or "illustrated" or "generic")) return profile;
-        return string.Join('|',
+        return string.Join("|",
             project.ProjectId,
             project.Materials.Count,
             project.ContentNodes.Count,
