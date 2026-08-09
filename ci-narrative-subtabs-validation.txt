@@ -1,0 +1,1 @@
+Validation marker for narrative subtabs inside unified MainWindow.
