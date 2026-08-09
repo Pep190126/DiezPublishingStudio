@@ -1,1 +1,2 @@
 Validation marker for shared book-type tabs, Coloring/Image Collection workspace, stable book-type profile, collection consistency checks, surgical image replacement, image descriptions, and editable-document export terminology.
+Round 2 after removing the inaccessible Avalonia VisualRoot check and separating the reusable image profile UI.
