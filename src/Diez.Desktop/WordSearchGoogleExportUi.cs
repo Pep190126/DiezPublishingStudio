@@ -48,7 +48,7 @@ internal static class WordSearchGoogleExportUi
 
     private static async Task ExportDatabaseAsync(MainWindow window)
     {
-        if (!TrySession(window, out var project)) return;
+        if (!TrySession(window, out var project, out var projectPath)) return;
         var destination = await OutputDestinationUi.ChooseAsync(window, "Fogli Google", "Database Word Search completo e reimportabile (XLSX)");
         if (destination is null) return;
         var suggested = WordSearchFullDatabaseExportService.SuggestedName(project);
@@ -56,6 +56,7 @@ internal static class WordSearchGoogleExportUi
             ? OutputDestinationUi.TempPath(suggested)
             : await PickPathAsync(window, "Esporta database Word Search", suggested, "xlsx", "Database Word Search XLSX", "*.xlsx");
         if (string.IsNullOrWhiteSpace(path)) return;
+        var actualPath = EnsureExtension(path, ".xlsx");
 
         var deleteAfter = destination == OutputDestination.Google;
         try
@@ -63,21 +64,23 @@ internal static class WordSearchGoogleExportUi
             var result = await WordSearchFullDatabaseExportService.ExportAsync(project, path);
             if (!result.Success) { SetStatus(window, result.Message); return; }
             var messages = new List<string>();
+            var archived = await ArchiveIfFinalizedAsync(project, projectPath, actualPath, FinalizedOutputRecipes.WordSearchDatabaseXlsx, "Database Word Search XLSX");
+            if (!string.IsNullOrWhiteSpace(archived)) messages.Add(archived);
             if (destination != OutputDestination.Google) messages.Add(result.Message);
             if (destination is OutputDestination.Google or OutputDestination.Both)
             {
-                var google = await GoogleDocsExportService.ExportXlsxAsync(path, Path.GetFileName(path));
+                var google = await GoogleDocsExportService.ExportXlsxAsync(actualPath, Path.GetFileName(actualPath));
                 messages.Add(google.Message);
             }
             SetStatus(window, string.Join("  ", messages));
         }
         catch (Exception ex) { SetStatus(window, "Errore esportazione database: " + ex.Message); }
-        finally { if (deleteAfter) TryDelete(path); }
+        finally { if (deleteAfter) TryDelete(actualPath); }
     }
 
     private static async Task ExportXlsxAsync(MainWindow window)
     {
-        if (!TrySession(window, out var project)) return;
+        if (!TrySession(window, out var project, out var projectPath)) return;
         var destination = await OutputDestinationUi.ChooseAsync(window, "Fogli Google", "Word Search a colonne Puzzle 1...Puzzle N (XLSX)");
         if (destination is null) return;
         var suggested = WordSearchColumnExportService.SuggestedXlsxName(project);
@@ -85,6 +88,7 @@ internal static class WordSearchGoogleExportUi
             ? OutputDestinationUi.TempPath(suggested)
             : await PickPathAsync(window, "Esporta Word Search in XLSX", suggested, "xlsx", "Foglio XLSX", "*.xlsx");
         if (string.IsNullOrWhiteSpace(path)) return;
+        var actualPath = EnsureExtension(path, ".xlsx");
 
         var deleteAfter = destination == OutputDestination.Google;
         try
@@ -92,21 +96,23 @@ internal static class WordSearchGoogleExportUi
             var result = await WordSearchColumnExportService.ExportXlsxAsync(project, path);
             if (!result.Success) { SetStatus(window, result.Message); return; }
             var messages = new List<string>();
+            var archived = await ArchiveIfFinalizedAsync(project, projectPath, actualPath, FinalizedOutputRecipes.WordSearchColumnsXlsx, "Word Search XLSX");
+            if (!string.IsNullOrWhiteSpace(archived)) messages.Add(archived);
             if (destination != OutputDestination.Google) messages.Add(result.Message);
             if (destination is OutputDestination.Google or OutputDestination.Both)
             {
-                var google = await GoogleDocsExportService.ExportXlsxAsync(path, Path.GetFileName(path));
+                var google = await GoogleDocsExportService.ExportXlsxAsync(actualPath, Path.GetFileName(actualPath));
                 messages.Add(google.Message);
             }
             SetStatus(window, string.Join("  ", messages));
         }
         catch (Exception ex) { SetStatus(window, "Errore esportazione XLSX: " + ex.Message); }
-        finally { if (deleteAfter) TryDelete(path); }
+        finally { if (deleteAfter) TryDelete(actualPath); }
     }
 
     private static async Task ExportCsvAsync(MainWindow window)
     {
-        if (!TrySession(window, out var project)) return;
+        if (!TrySession(window, out var project, out var projectPath)) return;
         var destination = await OutputDestinationUi.ChooseAsync(window, "Fogli Google", "Word Search a colonne Puzzle 1...Puzzle N (CSV)");
         if (destination is null) return;
         var suggested = WordSearchColumnExportService.SuggestedCsvName(project);
@@ -114,6 +120,7 @@ internal static class WordSearchGoogleExportUi
             ? OutputDestinationUi.TempPath(suggested)
             : await PickPathAsync(window, "Esporta Word Search in CSV", suggested, "csv", "CSV", "*.csv");
         if (string.IsNullOrWhiteSpace(path)) return;
+        var actualPath = EnsureExtension(path, ".csv");
 
         var deleteAfter = destination == OutputDestination.Google;
         try
@@ -121,16 +128,32 @@ internal static class WordSearchGoogleExportUi
             var result = await WordSearchColumnExportService.ExportCsvAsync(project, path);
             if (!result.Success) { SetStatus(window, result.Message); return; }
             var messages = new List<string>();
+            var archived = await ArchiveIfFinalizedAsync(project, projectPath, actualPath, FinalizedOutputRecipes.WordSearchColumnsCsv, "Word Search CSV");
+            if (!string.IsNullOrWhiteSpace(archived)) messages.Add(archived);
             if (destination != OutputDestination.Google) messages.Add(result.Message);
             if (destination is OutputDestination.Google or OutputDestination.Both)
             {
-                var google = await GoogleDocsExportService.ExportCsvAsSheetAsync(path, Path.GetFileNameWithoutExtension(path));
+                var google = await GoogleDocsExportService.ExportCsvAsSheetAsync(actualPath, Path.GetFileNameWithoutExtension(actualPath));
                 messages.Add(google.Message);
             }
             SetStatus(window, string.Join("  ", messages));
         }
         catch (Exception ex) { SetStatus(window, "Errore esportazione CSV: " + ex.Message); }
-        finally { if (deleteAfter) TryDelete(path); }
+        finally { if (deleteAfter) TryDelete(actualPath); }
+    }
+
+    private static async Task<string> ArchiveIfFinalizedAsync(PreviewProject project, string projectPath, string outputPath, string recipe, string label)
+    {
+        if (!PublicationCandidateService.IsLatestCandidateCurrent(project)) return string.Empty;
+        try
+        {
+            await FinalizedLibraryService.RecordOutputAsync(project, projectPath, outputPath, recipe, label);
+            return "Copia conservata in Libri finalizzati.";
+        }
+        catch (Exception ex)
+        {
+            return "Output creato, ma non riesco ad archiviarlo in Libri finalizzati: " + ex.Message;
+        }
     }
 
     private static async Task<string?> PickPathAsync(MainWindow window, string title, string suggested, string extension, string typeName, string pattern)
@@ -145,6 +168,12 @@ internal static class WordSearchGoogleExportUi
         return file?.Path.LocalPath;
     }
 
+    private static string EnsureExtension(string path, string extension)
+    {
+        var full = Path.GetFullPath(path);
+        return string.Equals(Path.GetExtension(full), extension, StringComparison.OrdinalIgnoreCase) ? full : full + extension;
+    }
+
     private static TabItem? FindExportTab(Control root)
     {
         foreach (var control in Descendants(root))
@@ -156,10 +185,11 @@ internal static class WordSearchGoogleExportUi
         return null;
     }
 
-    private static bool TrySession(MainWindow window, out PreviewProject project)
+    private static bool TrySession(MainWindow window, out PreviewProject project, out string projectPath)
     {
         project = typeof(MainWindow).GetField("_project", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(window) as PreviewProject ?? null!;
-        return project is not null;
+        projectPath = typeof(MainWindow).GetField("_currentProjectPath", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(window) as string ?? string.Empty;
+        return project is not null && !string.IsNullOrWhiteSpace(projectPath);
     }
 
     private static void SetStatus(MainWindow window, string message)
