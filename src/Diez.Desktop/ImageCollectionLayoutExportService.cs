@@ -174,44 +174,71 @@ internal static class ImageCollectionLayoutExportService
         XNamespace a = "http://schemas.openxmlformats.org/drawingml/2006/main";
         XNamespace pic = "http://schemas.openxmlformats.org/drawingml/2006/picture";
         var body = new XElement(w + "body");
+
         for (var i = 0; i < images.Count; i++)
         {
             var image = images[i];
             var (cx, cy) = Fit(image.Width, image.Height);
+
+            var picture = new XElement(pic + "pic",
+                new XElement(pic + "nvPicPr",
+                    new XElement(pic + "cNvPr",
+                        new XAttribute("id", "0"),
+                        new XAttribute("name", image.BaseName + image.Extension)),
+                    new XElement(pic + "cNvPicPr")),
+                new XElement(pic + "blipFill",
+                    new XElement(a + "blip", new XAttribute(r + "embed", $"rId{i + 1}")),
+                    new XElement(a + "stretch", new XElement(a + "fillRect"))),
+                new XElement(pic + "spPr",
+                    new XElement(a + "xfrm",
+                        new XElement(a + "off", new XAttribute("x", "0"), new XAttribute("y", "0")),
+                        new XElement(a + "ext", new XAttribute("cx", cx), new XAttribute("cy", cy))),
+                    new XElement(a + "prstGeom",
+                        new XAttribute("prst", "rect"),
+                        new XElement(a + "avLst"))));
+
+            var graphic = new XElement(a + "graphic",
+                new XElement(a + "graphicData",
+                    new XAttribute("uri", "http://schemas.openxmlformats.org/drawingml/2006/picture"),
+                    picture));
+
+            var inline = new XElement(wp + "inline",
+                new XAttribute("distT", "0"),
+                new XAttribute("distB", "0"),
+                new XAttribute("distL", "0"),
+                new XAttribute("distR", "0"),
+                new XElement(wp + "extent", new XAttribute("cx", cx), new XAttribute("cy", cy)),
+                new XElement(wp + "docPr", new XAttribute("id", i + 1), new XAttribute("name", image.BaseName)),
+                graphic);
+
             body.Add(new XElement(w + "p",
                 new XElement(w + "pPr", new XElement(w + "jc", new XAttribute(w + "val", "center"))),
-                new XElement(w + "r",
-                    new XElement(w + "drawing",
-                        new XElement(wp + "inline",
-                            new XAttribute("distT", "0"), new XAttribute("distB", "0"), new XAttribute("distL", "0"), new XAttribute("distR", "0"),
-                            new XElement(wp + "extent", new XAttribute("cx", cx), new XAttribute("cy", cy)),
-                            new XElement(wp + "docPr", new XAttribute("id", i + 1), new XAttribute("name", image.BaseName)),
-                            new XElement(a + "graphic",
-                                new XElement(a + "graphicData", new XAttribute("uri", "http://schemas.openxmlformats.org/drawingml/2006/picture"),
-                                    new XElement(pic + "pic",
-                                        new XElement(pic + "nvPicPr",
-                                            new XElement(pic + "cNvPr", new XAttribute("id", "0"), new XAttribute("name", image.BaseName + image.Extension)),
-                                            new XElement(pic + "cNvPicPr")),
-                                        new XElement(pic + "blipFill",
-                                            new XElement(a + "blip", new XAttribute(r + "embed", $"rId{i + 1}")),
-                                            new XElement(a + "stretch", new XElement(a + "fillRect"))),
-                                        new XElement(pic + "spPr",
-                                            new XElement(a + "xfrm",
-                                                new XElement(a + "off", new XAttribute("x", "0"), new XAttribute("y", "0")),
-                                                new XElement(a + "ext", new XAttribute("cx", cx), new XAttribute("cy", cy))),
-                                            new XElement(a + "prstGeom", new XAttribute("prst", "rect"), new XElement(a + "avLst"))))))))))));
+                new XElement(w + "r", new XElement(w + "drawing", inline))));
+
             if (i < images.Count - 1)
-                body.Add(new XElement(w + "p", new XElement(w + "r", new XElement(w + "br", new XAttribute(w + "type", "page")))));
+                body.Add(new XElement(w + "p",
+                    new XElement(w + "r",
+                        new XElement(w + "br", new XAttribute(w + "type", "page")))));
         }
+
         body.Add(new XElement(w + "sectPr",
             new XElement(w + "pgSz", new XAttribute(w + "w", "12240"), new XAttribute(w + "h", "15840")),
-            new XElement(w + "pgMar", new XAttribute(w + "top", "360"), new XAttribute(w + "right", "360"), new XAttribute(w + "bottom", "360"), new XAttribute(w + "left", "360"), new XAttribute(w + "header", "0"), new XAttribute(w + "footer", "0"), new XAttribute(w + "gutter", "0"))));
+            new XElement(w + "pgMar",
+                new XAttribute(w + "top", "360"),
+                new XAttribute(w + "right", "360"),
+                new XAttribute(w + "bottom", "360"),
+                new XAttribute(w + "left", "360"),
+                new XAttribute(w + "header", "0"),
+                new XAttribute(w + "footer", "0"),
+                new XAttribute(w + "gutter", "0"))));
+
         var root = new XElement(w + "document",
             new XAttribute(XNamespace.Xmlns + "w", w),
             new XAttribute(XNamespace.Xmlns + "r", r),
             new XAttribute(XNamespace.Xmlns + "wp", wp),
             new XAttribute(XNamespace.Xmlns + "a", a),
-            new XAttribute(XNamespace.Xmlns + "pic", pic), body);
+            new XAttribute(XNamespace.Xmlns + "pic", pic),
+            body);
         return Xml(new XDocument(new XDeclaration("1.0", "UTF-8", "yes"), root));
     }
 
@@ -230,8 +257,12 @@ internal static class ImageCollectionLayoutExportService
     private static string RootRelationships()
     {
         XNamespace x = "http://schemas.openxmlformats.org/package/2006/relationships";
-        return Xml(new XDocument(new XDeclaration("1.0", "UTF-8", "yes"), new XElement(x + "Relationships",
-            new XElement(x + "Relationship", new XAttribute("Id", "rId1"), new XAttribute("Type", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument"), new XAttribute("Target", "word/document.xml")))));
+        return Xml(new XDocument(new XDeclaration("1.0", "UTF-8", "yes"),
+            new XElement(x + "Relationships",
+                new XElement(x + "Relationship",
+                    new XAttribute("Id", "rId1"),
+                    new XAttribute("Type", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument"),
+                    new XAttribute("Target", "word/document.xml")))));
     }
 
     private static string DocumentRelationships(IReadOnlyList<DocxImage> images)
@@ -239,14 +270,17 @@ internal static class ImageCollectionLayoutExportService
         XNamespace x = "http://schemas.openxmlformats.org/package/2006/relationships";
         var root = new XElement(x + "Relationships");
         for (var i = 0; i < images.Count; i++)
-            root.Add(new XElement(x + "Relationship", new XAttribute("Id", $"rId{i + 1}"), new XAttribute("Type", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"), new XAttribute("Target", $"media/{images[i].BaseName}{images[i].Extension}")));
+            root.Add(new XElement(x + "Relationship",
+                new XAttribute("Id", $"rId{i + 1}"),
+                new XAttribute("Type", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"),
+                new XAttribute("Target", $"media/{images[i].BaseName}{images[i].Extension}")));
         return Xml(new XDocument(new XDeclaration("1.0", "UTF-8", "yes"), root));
     }
 
     private static (long Cx, long Cy) Fit(int width, int height)
     {
-        const long maxCx = 7315200; // 8 inches
-        const long maxCy = 9601200; // 10.5 inches
+        const long maxCx = 7315200;
+        const long maxCy = 9601200;
         if (width <= 0 || height <= 0) return (maxCx, maxCy);
         var scale = Math.Min((double)maxCx / width, (double)maxCy / height);
         return ((long)Math.Round(width * scale), (long)Math.Round(height * scale));
