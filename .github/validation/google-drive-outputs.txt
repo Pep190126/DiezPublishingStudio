@@ -1,0 +1,1 @@
+Validation marker for local / Google / both destinations for DOCX, XLSX, CSV and Word Search database exports.
