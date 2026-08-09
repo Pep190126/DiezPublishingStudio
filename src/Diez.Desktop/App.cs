@@ -27,6 +27,8 @@ public sealed class App : Application
                 failures.Add(handoffError);
             if (!StartupDiagnostics.TryAttach("Contenuti con AI", () => AiProductionUi.Attach(mainWindow), out var aiError) && aiError is not null)
                 failures.Add(aiError);
+            if (!StartupDiagnostics.TryAttach("Prompt Pack AI universale", () => AiExchangeUi.Attach(mainWindow), out var exchangeError) && exchangeError is not null)
+                failures.Add(exchangeError);
             if (!StartupDiagnostics.TryAttach("Istruzioni AI: deve fare / non deve fare", () => HumanAiPromptUi.Attach(mainWindow), out var humanPromptError) && humanPromptError is not null)
                 failures.Add(humanPromptError);
             if (!StartupDiagnostics.TryAttach("Scelte AI per Tipo libro", () => BookTypeAiOptionsUi.Attach(mainWindow), out var bookAiOptionsError) && bookAiOptionsError is not null)
