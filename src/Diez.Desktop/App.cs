@@ -31,9 +31,9 @@ public sealed class App : Application
                 failures.Add(exchangeError);
             if (!StartupDiagnostics.TryAttach("Correzione AI mirata", () => AiExchangeCorrectionUi.Attach(mainWindow), out var correctionError) && correctionError is not null)
                 failures.Add(correctionError);
-            if (!StartupDiagnostics.TryAttach("Istruzioni AI: deve fare / non deve fare", () => HumanAiPromptUi.Attach(mainWindow), out var humanPromptError) && humanPromptError is not null)
+            if (!StartupDiagnostics.TryAttach("Editor AI deve fare / non deve fare / prompt", () => HumanAiPromptEditingUi.Attach(mainWindow), out var humanPromptError) && humanPromptError is not null)
                 failures.Add(humanPromptError);
-            if (!StartupDiagnostics.TryAttach("Box AI editabili", () => HumanAiPromptInputGuard.Attach(mainWindow), out var humanPromptInputError) && humanPromptInputError is not null)
+            if (!StartupDiagnostics.TryAttach("Box AI editabili e undo", () => HumanAiPromptInputGuard.Attach(mainWindow), out var humanPromptInputError) && humanPromptInputError is not null)
                 failures.Add(humanPromptInputError);
             if (!StartupDiagnostics.TryAttach("Scelte AI per Tipo libro", () => BookTypeAiOptionsUi.Attach(mainWindow), out var bookAiOptionsError) && bookAiOptionsError is not null)
                 failures.Add(bookAiOptionsError);
