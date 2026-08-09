@@ -91,7 +91,7 @@ internal sealed class AiImageBatchWindow : Window
         _titlePrefix = new TextBox { Text = "Immagine", Width = 250 };
         _provider = new ComboBox
         {
-            ItemsSource = new[] { AiImageBatchService.ProviderOpenAi, AiImageBatchService.ProviderGemini, AiImageBatchService.ProviderOther },
+            ItemsSource = AiProviderCatalog.DisplayNamesFor(AiProductionService.TypeImage),
             SelectedIndex = 0,
             Width = 230
         };
@@ -129,7 +129,7 @@ internal sealed class AiImageBatchWindow : Window
         Help(copyPhrase, "Copia una frase breve da usare quando alleghi l'XLSX a una chat AI.");
         Help(importZip, "Puoi importare anche ZIP parziali. Se oggi arrivano 97 immagini e domani 3, Diez riempie i buchi usando gli ID.");
         Help(exportApproved, "Esporta solo le immagini approvate, ordinate con nomi IMG-001, IMG-002 e così via. Lo ZIP contiene solo immagini.");
-        Help(_bestModel, "Nel file Diez scrive il nome del modello più avanzato noto per il servizio scelto e aggiunge una alternativa se quel modello non è disponibile.");
+        Help(_bestModel, "Nel file Diez indica di usare il modello immagini più avanzato disponibile per il servizio scelto, senza bloccare il progetto su un nome di modello che può cambiare.");
         Help(_onlyMissing, "Utile per rettifiche: dopo un primo ZIP, il nuovo XLSX contiene soltanto ciò che manca o hai segnato da rifare.");
 
         Content = new Border
@@ -217,7 +217,7 @@ internal sealed class AiImageBatchWindow : Window
             FileTypeChoices = [new FilePickerFileType("Excel XLSX") { Patterns = ["*.xlsx"] }]
         });
         if (file is null) return;
-        var provider = _provider.SelectedItem?.ToString() ?? AiImageBatchService.ProviderOther;
+        var provider = _provider.SelectedItem?.ToString() ?? AiProviderCatalog.FindById(AiProviderCatalog.OtherId).DisplayName;
         var result = await AiImageBatchService.ExportPackXlsxAsync(_project, file.Path.LocalPath, provider, _bestModel.IsChecked == true, onlyMissing);
         Report(result.Message);
     }
