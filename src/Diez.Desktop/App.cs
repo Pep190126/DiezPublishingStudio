@@ -60,11 +60,10 @@ public sealed class App : Application
             if (!StartupDiagnostics.TryAttach("Word Search su Fogli Google", () => WordSearchGoogleExportUi.Attach(mainWindow), out var wordSearchGoogleError) && wordSearchGoogleError is not null)
                 failures.Add(wordSearchGoogleError);
 
-            // Legacy polling modules (UnifiedBookWorkspaceUi, BookTypeProfileUi and
-            // PlainLanguageUi) intentionally do not run in the single-window path.
-            // They repeatedly traverse/rewrite the old visual tree and are replaced
-            // by explicit logical pages/state in SingleWindowBookFlowHost.
-            if (!StartupDiagnostics.TryAttach("Percorso libro a finestra unica", () => SingleWindowSafeAttachUi.Attach(mainWindow), out var singleWindowError) && singleWindowError is not null)
+            // The new book workflow is an overlay inside the already-initialized
+            // MainWindow Grid. It only switches IsVisible and never reparents the
+            // existing controls. Legacy recursive polling UI layers remain disabled.
+            if (!StartupDiagnostics.TryAttach("Percorso libro a finestra unica", () => SingleWindowOverlayFlowUi.Attach(mainWindow), out var singleWindowError) && singleWindowError is not null)
                 failures.Add(singleWindowError);
 
             StartupDiagnostics.ShowWarning(mainWindow, failures);
