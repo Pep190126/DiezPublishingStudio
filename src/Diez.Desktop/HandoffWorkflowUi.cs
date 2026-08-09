@@ -244,7 +244,7 @@ internal sealed class HandoffWindow : Window
         try
         {
             var result = await DocxExportService.ExportAsync(_project, _projectPath, path);
-            if (!result.Success) { Report(result.Message); return; }
+            if (!result.Exported) { Report(result.Message); return; }
 
             var messages = new List<string>();
             if (destination != OutputDestination.Google) messages.Add(result.Message);
@@ -273,7 +273,7 @@ internal sealed class HandoffWindow : Window
         try
         {
             var result = await HandoffExportService.ExportMasterCsvAsync(_project, path);
-            if (!result.Success) { Report(result.Message); return; }
+            if (!result.Exported) { Report(result.Message); return; }
 
             var messages = new List<string>();
             if (destination != OutputDestination.Google) messages.Add(result.Message);
@@ -302,7 +302,7 @@ internal sealed class HandoffWindow : Window
         try
         {
             var result = await HandoffExportService.ExportMasterXlsxAsync(_project, path);
-            if (!result.Success) { Report(result.Message); return; }
+            if (!result.Exported) { Report(result.Message); return; }
 
             var messages = new List<string>();
             if (destination != OutputDestination.Google) messages.Add(result.Message);
