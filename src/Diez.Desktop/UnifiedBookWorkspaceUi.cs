@@ -40,7 +40,7 @@ internal static class UnifiedBookWorkspaceUi
             var profile = ResolveProfile(project);
             var signature = ContentSignature(project, profile);
             var shouldRebuild = !string.Equals(profile, activeProfile, StringComparison.Ordinal) ||
-                                ((profile is "novel" or "illustrated" or "generic" or "none") &&
+                                ((profile is "novel" or "illustrated" or "crossword" or "generic" or "none") &&
                                  !string.Equals(signature, activeSignature, StringComparison.Ordinal));
 
             if (shouldRebuild)
@@ -63,6 +63,11 @@ internal static class UnifiedBookWorkspaceUi
                     case "illustrated":
                         if (project is not null)
                             SetContents(tabs, NarrativeWorkspaceSubtabs.Build(window, project, profile == "illustrated"));
+                        break;
+
+                    case "crossword":
+                        if (project is not null)
+                            SetContents(tabs, CrosswordWorkspaceUi.Build(window, project));
                         break;
 
                     default:
@@ -94,6 +99,7 @@ internal static class UnifiedBookWorkspaceUi
         if (BookTypeProfileService.IsImageCollection(project) ||
             string.Equals(type, BookTypeProfileService.ColoringBook, StringComparison.OrdinalIgnoreCase))
             return "images";
+        if (string.Equals(type, BookTypeProfileService.Crossword, StringComparison.OrdinalIgnoreCase)) return "crossword";
         if (string.Equals(type, BookTypeProfileService.Novel, StringComparison.OrdinalIgnoreCase)) return "novel";
         if (string.Equals(type, BookTypeProfileService.IllustratedBook, StringComparison.OrdinalIgnoreCase)) return "illustrated";
         if (BookTypeRecognition.IsWordSearch(project)) return "word-search";
@@ -103,12 +109,13 @@ internal static class UnifiedBookWorkspaceUi
     private static string ContentSignature(PreviewProject? project, string profile)
     {
         if (project is null) return "none";
-        if (profile is not ("novel" or "illustrated" or "generic")) return profile;
+        if (profile is not ("novel" or "illustrated" or "crossword" or "generic")) return profile;
         return string.Join("|",
             project.ProjectId,
             project.Materials.Count,
             project.ContentNodes.Count,
             project.Entities.Count,
+            project.BibleEntries.Count,
             project.Relations.Count,
             project.ConsistencyFacts.Count,
             project.ConsistencyIssues.Count,
