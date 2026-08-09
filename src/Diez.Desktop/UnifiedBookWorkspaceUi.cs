@@ -40,7 +40,7 @@ internal static class UnifiedBookWorkspaceUi
             var profile = ResolveProfile(project);
             var signature = ContentSignature(project, profile);
             var shouldRebuild = !string.Equals(profile, activeProfile, StringComparison.Ordinal) ||
-                                ((profile is "novel" or "illustrated" or "crossword" or "generic" or "none") &&
+                                ((profile is "novel" or "illustrated" or "generic" or "none") &&
                                  !string.Equals(signature, activeSignature, StringComparison.Ordinal));
 
             if (shouldRebuild)
@@ -109,7 +109,7 @@ internal static class UnifiedBookWorkspaceUi
     private static string ContentSignature(PreviewProject? project, string profile)
     {
         if (project is null) return "none";
-        if (profile is not ("novel" or "illustrated" or "crossword" or "generic")) return profile;
+        if (profile is not ("novel" or "illustrated" or "generic")) return profile;
         return string.Join("|",
             project.ProjectId,
             project.Materials.Count,
