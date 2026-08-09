@@ -37,6 +37,8 @@ public sealed class App : Application
                 failures.Add(imageDescriptionError);
             if (!StartupDiagnostics.TryAttach("Layout e aiuto contestuale", () => FriendlyLayoutUi.Attach(mainWindow), out var layoutError) && layoutError is not null)
                 failures.Add(layoutError);
+            if (!StartupDiagnostics.TryAttach("Libreria libri finalizzati", () => FinalizedLibraryUi.Attach(mainWindow), out var finalizedLibraryError) && finalizedLibraryError is not null)
+                failures.Add(finalizedLibraryError);
             if (!StartupDiagnostics.TryAttach("Ambiente del libro", () => BookWorkspaceTabsUi.Attach(mainWindow), out var workspaceError) && workspaceError is not null)
                 failures.Add(workspaceError);
             if (!StartupDiagnostics.TryAttach("Nome Tipo libro", () => BookWorkspaceTerminologyUi.Attach(mainWindow), out var terminologyError) && terminologyError is not null)
