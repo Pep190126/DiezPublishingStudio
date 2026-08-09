@@ -27,6 +27,8 @@ public sealed class App : Application
                 failures.Add(handoffError);
             if (!StartupDiagnostics.TryAttach("Contenuti con AI", () => AiProductionUi.Attach(mainWindow), out var aiError) && aiError is not null)
                 failures.Add(aiError);
+            if (!StartupDiagnostics.TryAttach("Istruzioni AI: deve fare / non deve fare", () => HumanAiPromptUi.Attach(mainWindow), out var humanPromptError) && humanPromptError is not null)
+                failures.Add(humanPromptError);
             if (!StartupDiagnostics.TryAttach("Serie immagini AI", () => AiImageBatchUi.Attach(mainWindow), out var batchError) && batchError is not null)
                 failures.Add(batchError);
             if (!StartupDiagnostics.TryAttach("Descrizioni e impaginazione immagini", () => ImageCollectionDescriptionUi.Attach(mainWindow), out var imageDescriptionError) && imageDescriptionError is not null)
