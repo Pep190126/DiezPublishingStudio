@@ -12,8 +12,8 @@ internal static class BookWorkspaceTerminologyUi
 
     private static void Rename(Control control)
     {
-        if (control is TabItem tab && string.Equals(tab.Header?.ToString(), "Puzzle", StringComparison.Ordinal))
-            tab.Header = "Tipo libro";
+        if (control is TabItem currentTab && string.Equals(currentTab.Header?.ToString(), "Puzzle", StringComparison.Ordinal))
+            currentTab.Header = "Tipo libro";
 
         if (control is Panel panel)
         {
@@ -31,6 +31,6 @@ internal static class BookWorkspaceTerminologyUi
             Rename(contentChild);
 
         if (control is ItemsControl itemsControl && itemsControl.ItemsSource is IEnumerable<TabItem> tabs)
-            foreach (var tab in tabs) Rename(tab);
+            foreach (var item in tabs) Rename(item);
     }
 }
