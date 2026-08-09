@@ -75,8 +75,8 @@ internal sealed class FinalizedLibraryWindow : Window
         open.Click += (_, _) => OpenArchived();
         refresh.Click += (_, _) => Refresh();
 
-        ToolTip.SetTip(identical, "Copia il file finalizzato conservato da Diez e verifica che sia identico byte per byte.");
-        ToolTip.SetTip(regenerate, "Rifà l'output dalla versione .diez congelata e dalla stessa ricetta. Il contenuto resta quello della finalizzazione, ma i byte possono differire.");
+        ToolTip.SetTip(identical, "Copia il file finalizzato conservato da Diez e verifica che sia identico byte per byte. Dopo scegli se aprirlo localmente o con Google.");
+        ToolTip.SetTip(regenerate, "Rifà l'output dalla versione .diez congelata e dalla stessa ricetta. Dopo scegli se aprirlo localmente o con Google.");
         ToolTip.SetTip(google, "Invia di nuovo la copia identica archiviata a Google Drive e prova ad aprirla nel browser. Non rigenera il libro.");
 
         var left = new Grid
@@ -125,45 +125,40 @@ internal sealed class FinalizedLibraryWindow : Window
         };
         Grid.SetColumn(right, 1);
 
-        Content = new Border
+        var close = new Button
         {
-            Padding = new Thickness(16),
-            Child = new Grid
+            Content = "Chiudi",
+            Width = 110,
+            HorizontalContentAlignment = HorizontalAlignment.Center
+        };
+        close.Click += (_, _) => Close();
+        var bottom = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 10,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Children = { refresh, close }
+        };
+
+        var root = new Grid
+        {
+            RowDefinitions = new RowDefinitions("Auto,*,Auto"),
+            RowSpacing = 10,
+            Children =
             {
-                RowDefinitions = new RowDefinitions("Auto,*,Auto"),
-                RowSpacing = 10,
-                Children =
+                new TextBlock
                 {
-                    new TextBlock
-                    {
-                        Text = "Libreria dei libri finalizzati",
-                        FontSize = 25,
-                        HorizontalAlignment = HorizontalAlignment.Center
-                    },
-                    contentGrid,
-                    new StackPanel
-                    {
-                        Orientation = Orientation.Horizontal,
-                        Spacing = 10,
-                        HorizontalAlignment = HorizontalAlignment.Center,
-                        Children =
-                        {
-                            refresh,
-                            new Button
-                            {
-                                Content = "Chiudi",
-                                Width = 110,
-                                HorizontalContentAlignment = HorizontalAlignment.Center
-                            }
-                        }
-                    }
-                }
+                    Text = "Libreria dei libri finalizzati",
+                    FontSize = 25,
+                    HorizontalAlignment = HorizontalAlignment.Center
+                },
+                contentGrid,
+                bottom
             }
         };
         Grid.SetRow(contentGrid, 1);
-        if (((Grid)((Border)Content).Child!).Children[2] is StackPanel bottom && bottom.Children[1] is Button close)
-            close.Click += (_, _) => Close();
-        Grid.SetRow(((Grid)((Border)Content).Child!).Children[2], 2);
+        Grid.SetRow(bottom, 2);
+        Content = new Border { Padding = new Thickness(16), Child = root };
 
         Opened += (_, _) => Refresh();
     }
@@ -223,6 +218,11 @@ internal sealed class FinalizedLibraryWindow : Window
         if (string.IsNullOrWhiteSpace(path)) return;
         var result = await FinalizedLibraryService.CopyIdenticalAsync(selected.Book.FinalizationId, selected.Output.OutputId, path);
         _status.Text = result.Message;
+        if (result.Success && !string.IsNullOrWhiteSpace(result.OutputPath))
+        {
+            var opened = await OutputOpenChoiceUi.AskAndOpenAsync(this, result.OutputPath);
+            _status.Text = result.Message + "  " + opened.Message;
+        }
     }
 
     private async Task RegenerateAsync()
@@ -234,6 +234,11 @@ internal sealed class FinalizedLibraryWindow : Window
         _status.Text = "Rigenerazione dalla versione congelata in corso…";
         var result = await FinalizedLibraryService.RegenerateAsync(selected.Book.FinalizationId, selected.Output.OutputId, path);
         _status.Text = result.Message;
+        if (result.Success && !string.IsNullOrWhiteSpace(result.OutputPath))
+        {
+            var opened = await OutputOpenChoiceUi.AskAndOpenAsync(this, result.OutputPath);
+            _status.Text = result.Message + "  " + opened.Message;
+        }
     }
 
     private async Task RetryGoogleAsync()
