@@ -64,15 +64,43 @@ internal static class OutputOpenChoiceUi
         var extension = Path.GetExtension(filePath).ToLowerInvariant();
         GoogleDocsExportResult google;
         if (extension == ".docx")
-            google = await GoogleDocsExportService.ExportDocxAsync(filePath, Path.GetFileName(filePath));
+            google = await GoogleDocsExportService.ExportDocxAsync(filePath, Path.GetFileName(filePath), openInBrowser: false);
         else if (extension == ".xlsx")
-            google = await GoogleDocsExportService.ExportXlsxAsync(filePath, Path.GetFileName(filePath));
+            google = await GoogleDocsExportService.ExportXlsxAsync(filePath, Path.GetFileName(filePath), openInBrowser: false);
         else if (extension == ".csv")
-            google = await GoogleDocsExportService.ExportCsvAsSheetAsync(filePath, Path.GetFileNameWithoutExtension(filePath));
+            google = await GoogleDocsExportService.ExportCsvAsSheetAsync(filePath, Path.GetFileNameWithoutExtension(filePath), openInBrowser: false);
         else
             return new(false, "Questo formato non può essere aperto direttamente con Google Documenti o Fogli Google.");
 
-        return new(google.Success, google.Message, google.DocumentUrl);
+        if (!google.Success || string.IsNullOrWhiteSpace(google.DocumentUrl))
+            return new(google.Success, google.Message, google.DocumentUrl);
+
+        var browser = TryOpenUrl(google.DocumentUrl);
+        if (browser.Success)
+            return new(true, google.Message, google.DocumentUrl);
+
+        return new(true,
+            $"Il file è stato caricato nel tuo Drive. Il browser non si è aperto: puoi riprovare da Libri finalizzati. {browser.Message}",
+            google.DocumentUrl);
+    }
+
+    internal static OutputOpenResult TryOpenUrl(string url)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo { FileName = url, UseShellExecute = true });
+            return new(true, "Apertura del browser avviata.", url);
+        }
+        catch (Exception ex)
+        {
+            return new(false, "Non riesco ad aprire il browser: " + ex.Message, url);
+        }
+    }
+
+    internal static bool SupportsGoogle(string filePath)
+    {
+        var extension = Path.GetExtension(filePath).ToLowerInvariant();
+        return extension is ".docx" or ".xlsx" or ".csv";
     }
 }
 
@@ -81,6 +109,7 @@ internal sealed class OutputOpenChoiceWindow : Window
     public OutputOpenChoiceWindow(string filePath, bool fallbackOnly)
     {
         var extension = Path.GetExtension(filePath).ToLowerInvariant();
+        var supportsGoogle = OutputOpenChoiceUi.SupportsGoogle(filePath);
         var googleName = extension == ".docx" ? "Google Documenti" : "Fogli Google";
 
         Title = fallbackOnly ? "Nessun programma associato" : "Come vuoi aprire l'output?";
@@ -113,9 +142,14 @@ internal sealed class OutputOpenChoiceWindow : Window
             stack.Children.Add(local);
         }
 
-        var google = Choice($"Apri con {googleName}", $"Se serve, accedi al tuo account Google; poi Diez carica il file nel Drive e lo apre in {googleName} nel browser.", OutputOpenChoice.Google);
-        var keep = Choice("Lascia il file salvato", "Non apre nulla: conserva il file esattamente nella posizione che hai scelto.", OutputOpenChoice.KeepSaved);
-        stack.Children.Add(google);
+        if (supportsGoogle)
+        {
+            var google = Choice($"Apri con {googleName}", $"Se serve, accedi al tuo account Google; poi Diez carica il file nel Drive e lo apre in {googleName} nel browser.", OutputOpenChoice.Google);
+            stack.Children.Add(google);
+        }
+
+        var keepText = fallbackOnly && supportsGoogle ? "Lascia il file salvato" : "Non aprire, lascia il file salvato";
+        var keep = Choice(keepText, "Non apre nulla: conserva il file esattamente nella posizione che hai scelto.", OutputOpenChoice.KeepSaved);
         stack.Children.Add(keep);
 
         Content = new Border { Padding = new Thickness(20), Child = stack };
