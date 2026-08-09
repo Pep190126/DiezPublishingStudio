@@ -23,6 +23,16 @@ internal static class WordSearchWorkspaceSelfTest
             var issue = WordSearchWorkspaceChecks.Analyze(project, second);
             if (!issue.TooFewWords || !issue.Messages.Any(m => m.Contains("18/20", StringComparison.Ordinal)))
                 throw new InvalidOperationException("Un puzzle incompleto non viene mostrato come 18/20.");
+            if (!issue.Messages.Any(m => m.Contains("PUZ-002", StringComparison.Ordinal) && m.Contains("Parole 19", StringComparison.Ordinal)))
+                throw new InvalidOperationException("Il controllo non indica le posizioni reali delle parole mancanti.");
+
+            second.Words[0] = first.Words[4];
+            WordSearchWorkspaceService.SaveRecord(project, second);
+            var repeated = WordSearchWorkspaceChecks.Analyze(project, second);
+            if (!repeated.Messages.Any(m =>
+                    m.Contains("PUZ-002 → Parola 01", StringComparison.Ordinal) &&
+                    m.Contains("PUZ-001 → Parola 05", StringComparison.Ordinal)))
+                throw new InvalidOperationException("Il controllo non indica le posizioni reali della parola ripetuta tra puzzle.");
 
             var xlsx = Path.Combine(root, "titans.xlsx");
             var xlsxResult = await WordSearchColumnExportService.ExportXlsxAsync(project, xlsx);
