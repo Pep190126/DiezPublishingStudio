@@ -65,7 +65,7 @@ public sealed class App : Application
                 failures.Add(bookTypeError);
             if (!StartupDiagnostics.TryAttach("Linguaggio semplice", () => PlainLanguageUi.Attach(mainWindow), out var languageError) && languageError is not null)
                 failures.Add(languageError);
-            if (!StartupDiagnostics.TryAttach("Percorso libro a finestra unica", () => SingleWindowBookFlowUi.Attach(mainWindow), out var singleWindowError) && singleWindowError is not null)
+            if (!StartupDiagnostics.TryAttach("Percorso libro a finestra unica", () => SingleWindowSafeAttachUi.Attach(mainWindow), out var singleWindowError) && singleWindowError is not null)
                 failures.Add(singleWindowError);
 
             StartupDiagnostics.ShowWarning(mainWindow, failures);
