@@ -77,7 +77,7 @@ internal sealed class FinalizedLibraryWindow : Window
 
         ToolTip.SetTip(identical, "Copia il file finalizzato conservato da Diez e verifica che sia identico byte per byte. Dopo scegli se aprirlo localmente o con Google.");
         ToolTip.SetTip(regenerate, "Rifà l'output dalla versione .diez congelata e dalla stessa ricetta. Dopo scegli se aprirlo localmente o con Google.");
-        ToolTip.SetTip(google, "Invia di nuovo la copia identica archiviata a Google Drive e prova ad aprirla nel browser. Non rigenera il libro.");
+        ToolTip.SetTip(google, "Riapre il collegamento Google già creato oppure reinvia la copia identica archiviata se serve.");
 
         var left = new Grid
         {
@@ -219,10 +219,7 @@ internal sealed class FinalizedLibraryWindow : Window
         var result = await FinalizedLibraryService.CopyIdenticalAsync(selected.Book.FinalizationId, selected.Output.OutputId, path);
         _status.Text = result.Message;
         if (result.Success && !string.IsNullOrWhiteSpace(result.OutputPath))
-        {
-            var opened = await OutputOpenChoiceUi.AskAndOpenAsync(this, result.OutputPath);
-            _status.Text = result.Message + "  " + opened.Message;
-        }
+            await AskHowToOpenAsync(selected.Book, selected.Output, result);
     }
 
     private async Task RegenerateAsync()
@@ -235,17 +232,23 @@ internal sealed class FinalizedLibraryWindow : Window
         var result = await FinalizedLibraryService.RegenerateAsync(selected.Book.FinalizationId, selected.Output.OutputId, path);
         _status.Text = result.Message;
         if (result.Success && !string.IsNullOrWhiteSpace(result.OutputPath))
-        {
-            var opened = await OutputOpenChoiceUi.AskAndOpenAsync(this, result.OutputPath);
-            _status.Text = result.Message + "  " + opened.Message;
-        }
+            await AskHowToOpenAsync(selected.Book, selected.Output, result);
+    }
+
+    private async Task AskHowToOpenAsync(FinalizedBookRecord book, FinalizedOutputRecord output, FinalizedLibraryActionResult created)
+    {
+        var opened = await OutputOpenChoiceUi.AskAndOpenAsync(this, created.OutputPath!);
+        if (!string.IsNullOrWhiteSpace(opened.GoogleUrl))
+            await FinalizedLibraryService.RememberGoogleUrlAsync(book.FinalizationId, output.OutputId, opened.GoogleUrl);
+        _status.Text = created.Message + "  " + opened.Message;
+        Refresh();
     }
 
     private async Task RetryGoogleAsync()
     {
         var selected = SelectedOutput();
         if (selected.Book is null || selected.Output is null) { _status.Text = "Seleziona prima un output."; return; }
-        _status.Text = "Invio della copia archiviata a Google Drive…";
+        _status.Text = "Apertura della copia finalizzata con Google…";
         var result = await FinalizedLibraryService.RetryGoogleAsync(selected.Book.FinalizationId, selected.Output.OutputId);
         _status.Text = result.Message;
         Refresh();
