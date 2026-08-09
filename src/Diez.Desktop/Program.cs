@@ -31,6 +31,7 @@ internal static class Program
                 ProductionPackageSelfTest.RunAsync().GetAwaiter().GetResult();
                 AiProductionSelfTest.RunAsync().GetAwaiter().GetResult();
                 AiImageBatchSelfTest.RunAsync().GetAwaiter().GetResult();
+                HumanAiPromptEditingSelfTest.Run();
                 AiExchangeSelfTest.RunAsync().GetAwaiter().GetResult();
                 AiExchangeApiSelfTest.RunAsync().GetAwaiter().GetResult();
                 ImageCollectionLayoutSelfTest.RunAsync().GetAwaiter().GetResult();
