@@ -23,6 +23,9 @@ internal sealed record BookTypeAiOptionDefinition(
 internal static class BookTypeAiOptionsService
 {
     private const string EntityKind = "DiezAiOption";
+    private const string StructureDecisionKey = "StructureDecision";
+    private const string StructureKnown = "Known";
+    private const string StructureFromProject = "FromProject";
 
     public static IReadOnlyList<BookTypeAiOptionDefinition> Definitions(PreviewProject project)
     {
@@ -63,6 +66,7 @@ internal static class BookTypeAiOptionsService
             [
                 X("Genre", "Genere", ""),
                 N("TargetWords", "Lunghezza indicativa totale (parole)", "70000"),
+                N("PageCount", "Numero indicativo di pagine", "300"),
                 N("ChapterCount", "Numero indicativo di capitoli", "20"),
                 C("Structure", "Struttura", "Capitoli + scene", "Capitoli", "Parti + capitoli", "Capitoli + scene", "Parti + capitoli + scene"),
                 C("PointOfView", "Punto di vista", "Terza persona limitata", "Prima persona", "Terza persona limitata", "Terza persona onnisciente", "Multiplo", "Decidi nel box"),
@@ -119,28 +123,19 @@ internal static class BookTypeAiOptionsService
         var type = BookTypeProfileService.Get(project);
         var key = StorageKey(type, definition.Key);
         var normalized = NormalizeValue(definition, value);
-        var matches = project.Entities.Where(e =>
-            string.Equals(e.Kind, EntityKind, StringComparison.OrdinalIgnoreCase) &&
-            string.Equals(e.Name, key, StringComparison.OrdinalIgnoreCase)).ToList();
-        var entity = matches.FirstOrDefault();
-        if (entity is null)
-        {
-            entity = new GraphEntity
-            {
-                Kind = EntityKind,
-                Name = key,
-                Notes = normalized,
-                IsCandidate = false
-            };
-            project.Entities.Add(entity);
-        }
-        else entity.Notes = normalized;
-        foreach (var duplicate in matches.Skip(1)) project.Entities.Remove(duplicate);
+        SetRaw(project, key, normalized);
     }
 
     public static IReadOnlyList<string> PromptLines(PreviewProject project)
     {
         var lines = new List<string>();
+        var type = BookTypeProfileService.Get(project);
+        if (UsesStructureQuestion(type) && !StructureIsKnown(project))
+        {
+            lines.Add("Struttura e numero di pagine: da definire in base al progetto e ai materiali disponibili");
+            return lines;
+        }
+
         foreach (var definition in Definitions(project))
         {
             var value = Get(project, definition);
@@ -159,8 +154,78 @@ internal static class BookTypeAiOptionsService
 
     public static Control BuildEditor(PreviewProject project, Action? changed = null)
     {
-        var panel = new StackPanel { Spacing = 7 };
+        var outer = new StackPanel { Spacing = 8 };
         var type = BookTypeProfileService.Get(project);
+
+        if (UsesStructureQuestion(type))
+        {
+            outer.Children.Add(new TextBlock
+            {
+                Text = "Conosci già la struttura e il numero di pagine?",
+                FontSize = 17,
+                TextWrapping = Avalonia.Media.TextWrapping.Wrap
+            });
+
+            var yes = new RadioButton
+            {
+                Content = "Sì",
+                GroupName = "diez-structure-choice",
+                IsChecked = StructureIsKnown(project)
+            };
+            var no = new RadioButton
+            {
+                Content = "No, definiscili in base al progetto",
+                GroupName = "diez-structure-choice",
+                IsChecked = !StructureIsKnown(project)
+            };
+            var choices = new StackPanel { Spacing = 6 };
+
+            void RefreshChoice()
+            {
+                choices.IsVisible = StructureIsKnown(project);
+                changed?.Invoke();
+            }
+
+            yes.IsCheckedChanged += (_, _) =>
+            {
+                if (yes.IsChecked != true) return;
+                SetStructureDecision(project, true);
+                RefreshChoice();
+            };
+            no.IsCheckedChanged += (_, _) =>
+            {
+                if (no.IsChecked != true) return;
+                SetStructureDecision(project, false);
+                RefreshChoice();
+            };
+
+            outer.Children.Add(yes);
+            outer.Children.Add(no);
+            outer.Children.Add(new TextBlock
+            {
+                Text = "Se scegli No, Diez parte dai materiali del progetto, propone la struttura e ti mostra i numeri risultanti prima che tu li approvi.",
+                TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+                FontSize = 12
+            });
+
+            BuildOptionsPanel(project, choices, type, changed);
+            choices.IsVisible = StructureIsKnown(project);
+            outer.Children.Add(choices);
+        }
+        else
+        {
+            BuildOptionsPanel(project, outer, type, changed);
+        }
+
+        return new Border
+        {
+            Padding = new Thickness(10),
+            Child = outer
+        };
+    }
+
+    private static void BuildOptionsPanel(PreviewProject project, StackPanel panel, string type, Action? changed)
+    {
         panel.Children.Add(new TextBlock
         {
             Text = string.IsNullOrWhiteSpace(type) ? "Scelte del contenuto" : $"Scelte per {type}",
@@ -230,12 +295,49 @@ internal static class BookTypeAiOptionsService
             if (!string.IsNullOrWhiteSpace(definition.Help)) ToolTip.SetTip(input, definition.Help);
             panel.Children.Add(input);
         }
+    }
 
-        return new Border
+    private static bool UsesStructureQuestion(string type) =>
+        string.Equals(type, BookTypeProfileService.Novel, StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(type, BookTypeProfileService.IllustratedBook, StringComparison.OrdinalIgnoreCase);
+
+    private static bool StructureIsKnown(PreviewProject project)
+    {
+        var type = BookTypeProfileService.Get(project);
+        var value = GetRaw(project, StorageKey(type, StructureDecisionKey));
+        return string.Equals(value, StructureKnown, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void SetStructureDecision(PreviewProject project, bool known)
+    {
+        var type = BookTypeProfileService.Get(project);
+        SetRaw(project, StorageKey(type, StructureDecisionKey), known ? StructureKnown : StructureFromProject);
+    }
+
+    private static string? GetRaw(PreviewProject project, string key) =>
+        project.Entities.FirstOrDefault(e =>
+            string.Equals(e.Kind, EntityKind, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(e.Name, key, StringComparison.OrdinalIgnoreCase))?.Notes;
+
+    private static void SetRaw(PreviewProject project, string key, string value)
+    {
+        var matches = project.Entities.Where(e =>
+            string.Equals(e.Kind, EntityKind, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(e.Name, key, StringComparison.OrdinalIgnoreCase)).ToList();
+        var entity = matches.FirstOrDefault();
+        if (entity is null)
         {
-            Padding = new Thickness(10),
-            Child = panel
-        };
+            entity = new GraphEntity
+            {
+                Kind = EntityKind,
+                Name = key,
+                Notes = value,
+                IsCandidate = false
+            };
+            project.Entities.Add(entity);
+        }
+        else entity.Notes = value;
+        foreach (var duplicate in matches.Skip(1)) project.Entities.Remove(duplicate);
     }
 
     private static string NormalizeValue(BookTypeAiOptionDefinition definition, string? value)
@@ -308,7 +410,6 @@ internal static class BookTypeAiOptionsUi
             return true;
         }
 
-        // AiJobEditor: i due box sono dentro il campo della richiesta; inseriamo il pannello subito dopo quel campo.
         var request = window.GetType().GetField("_request", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)?.GetValue(window) as TextBox;
         if (request is null) return false;
         var requestField = Descendants(window).OfType<StackPanel>().FirstOrDefault(p => p.Children.Contains(request));
