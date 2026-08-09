@@ -1,1 +1,2 @@
 Validation marker for local / Google / both destinations for DOCX, XLSX, CSV and Word Search database exports.
+Round 2 after aligning legacy export result flags.
