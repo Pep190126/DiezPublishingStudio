@@ -17,7 +17,7 @@ internal static class WordSearchExportService
         if (records.Count == 0) return new(false, "Non ci sono puzzle da salvare nel database.");
         var fullPath = EnsureExtension(path, ".xlsx");
         await WriteWorkbookAsync(fullPath,
-            ("DATABASE", DatabaseRows(records)),
+            ("DATABASE", DatabaseRows(project, records)),
             ("INFO", InfoRows(project, records.Count)));
         return new(true, $"Database Word Search salvato: {Path.GetFileName(fullPath)} · {records.Count} puzzle in colonne. Può essere reimportato in Diez.");
     }
@@ -27,7 +27,7 @@ internal static class WordSearchExportService
         var records = WordSearchWorkspaceService.GetRecords(project);
         if (records.Count == 0) return new(false, "Non ci sono puzzle da esportare.");
         var fullPath = EnsureExtension(path, ".xlsx");
-        await WriteWorkbookAsync(fullPath, ("PUZZLE", FlatRows(records)));
+        await WriteWorkbookAsync(fullPath, ("PUZZLE", FlatRows(project, records)));
         return new(true, $"Tabella XLSX esportata: {Path.GetFileName(fullPath)} · un puzzle per riga e parole in colonne.");
     }
 
@@ -36,7 +36,7 @@ internal static class WordSearchExportService
         var records = WordSearchWorkspaceService.GetRecords(project);
         if (records.Count == 0) return new(false, "Non ci sono puzzle da esportare.");
         var fullPath = EnsureExtension(path, ".csv");
-        var rows = FlatRows(records);
+        var rows = FlatRows(project, records);
         var builder = new StringBuilder();
         foreach (var row in rows)
         {
@@ -52,11 +52,11 @@ internal static class WordSearchExportService
         return new(true, $"Tabella CSV esportata: {Path.GetFileName(fullPath)} · un puzzle per riga e parole in colonne.");
     }
 
-    private static IReadOnlyList<IReadOnlyList<string>> DatabaseRows(IReadOnlyList<WordSearchRecord> records)
+    private static IReadOnlyList<IReadOnlyList<string>> DatabaseRows(PreviewProject project, IReadOnlyList<WordSearchRecord> records)
     {
-        var maxWords = Math.Max(1, records.Max(r => r.Words.Count));
+        var expected = records.ToDictionary(r => r.ContentId, r => WordSearchDatabaseService.ExpectedWordCount(project, r));
+        var maxWords = Math.Max(1, expected.Values.DefaultIfEmpty(20).Max());
         var rows = new List<IReadOnlyList<string>>();
-
         var header = new List<string> { "Campo" };
         header.AddRange(Enumerable.Range(1, records.Count).Select(i => $"Puzzle {i}"));
         rows.Add(header);
@@ -65,9 +65,10 @@ internal static class WordSearchExportService
         AddDatabaseRow(rows, "ID", records.Select(r => r.Id));
         AddDatabaseRow(rows, "Titolo", records.Select(r => r.Title));
         AddDatabaseRow(rows, "Tema", records.Select(r => r.Theme));
+        AddDatabaseRow(rows, "Numero parole previste", records.Select(r => expected[r.ContentId].ToString(CultureInfo.InvariantCulture)));
         for (var wordIndex = 0; wordIndex < maxWords; wordIndex++)
-            AddDatabaseRow(rows, $"Parola {wordIndex + 1:D2}", records.Select(r => wordIndex < r.Words.Count ? r.Words[wordIndex] : string.Empty));
-        AddDatabaseRow(rows, "Numero parole", records.Select(r => r.Words.Count.ToString(CultureInfo.InvariantCulture)));
+            AddDatabaseRow(rows, $"Parola {wordIndex + 1:D2}", records.Select(r => wordIndex < expected[r.ContentId] && wordIndex < r.Words.Count ? r.Words[wordIndex] : string.Empty));
+        AddDatabaseRow(rows, "Numero parole presenti", records.Select(r => r.Words.Count.ToString(CultureInfo.InvariantCulture)));
         AddDatabaseRow(rows, "Stato", records.Select(r => r.Status));
         AddDatabaseRow(rows, "Origine", records.Select(r => r.Origin));
         AddDatabaseRow(rows, "Note", records.Select(r => r.Notes));
@@ -82,21 +83,23 @@ internal static class WordSearchExportService
         rows.Add(row);
     }
 
-    private static IReadOnlyList<IReadOnlyList<string>> FlatRows(IReadOnlyList<WordSearchRecord> records)
+    private static IReadOnlyList<IReadOnlyList<string>> FlatRows(PreviewProject project, IReadOnlyList<WordSearchRecord> records)
     {
-        var maxWords = Math.Max(1, records.Max(r => r.Words.Count));
-        var headers = new List<string> { "Ordine", "ID", "Titolo", "Tema" };
+        var expected = records.ToDictionary(r => r.ContentId, r => WordSearchDatabaseService.ExpectedWordCount(project, r));
+        var maxWords = Math.Max(1, expected.Values.DefaultIfEmpty(20).Max());
+        var headers = new List<string> { "Ordine", "ID", "Titolo", "Tema", "Parole previste" };
         headers.AddRange(Enumerable.Range(1, maxWords).Select(i => $"Parola {i:D2}"));
-        headers.AddRange(["Stato", "Origine", "Note"]);
+        headers.AddRange(["Parole presenti", "Stato", "Origine", "Note"]);
         var rows = new List<IReadOnlyList<string>> { headers };
         foreach (var record in records)
         {
             var row = new List<string>
             {
-                record.Order.ToString(CultureInfo.InvariantCulture), record.Id, record.Title, record.Theme
+                record.Order.ToString(CultureInfo.InvariantCulture), record.Id, record.Title, record.Theme,
+                expected[record.ContentId].ToString(CultureInfo.InvariantCulture)
             };
-            for (var i = 0; i < maxWords; i++) row.Add(i < record.Words.Count ? record.Words[i] : string.Empty);
-            row.AddRange([record.Status, record.Origin, record.Notes]);
+            for (var i = 0; i < maxWords; i++) row.Add(i < expected[record.ContentId] && i < record.Words.Count ? record.Words[i] : string.Empty);
+            row.AddRange([record.Words.Count.ToString(CultureInfo.InvariantCulture), record.Status, record.Origin, record.Notes]);
             rows.Add(row);
         }
         return rows;
@@ -111,6 +114,7 @@ internal static class WordSearchExportService
             new[] { "Titolo", project.EditionMetadata?.Title ?? project.Name },
             new[] { "Puzzle presenti", count.ToString(CultureInfo.InvariantCulture) },
             new[] { "Struttura", "Ogni colonna è un puzzle: Puzzle 1, Puzzle 2, ... Puzzle N" },
+            new[] { "Parole", "Se un puzzle prevede 20 parole, conserva sempre Parola 01 ... Parola 20; le mancanti restano celle vuote" },
             new[] { "Regola ID", "PUZ-### identifica stabilmente il puzzle anche dopo correzioni o reimportazioni" }
         };
 
