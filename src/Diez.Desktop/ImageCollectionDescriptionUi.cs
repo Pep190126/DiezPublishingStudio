@@ -63,6 +63,17 @@ internal static class ImageCollectionDescriptionUi
             Content = "Allega anche le descrizioni alla raccolta",
             IsChecked = false
         };
+        var descriptionFormat = new ComboBox
+        {
+            ItemsSource = new[]
+            {
+                ImageCollectionDescriptionService.DescriptionTxt,
+                ImageCollectionDescriptionService.DescriptionDocx
+            },
+            SelectedIndex = 0,
+            Width = 130
+        };
+        var descriptionFormatField = Field("Formato descrizione", descriptionFormat);
         var exportExplanation = new TextBlock { TextWrapping = Avalonia.Media.TextWrapping.Wrap };
         var status = new TextBlock { TextWrapping = Avalonia.Media.TextWrapping.Wrap };
         var save = Button("Salva descrizione", 155);
@@ -76,14 +87,19 @@ internal static class ImageCollectionDescriptionUi
             var mode = layoutMode.SelectedItem?.ToString() ?? ImageCollectionLayoutExportService.External;
             var hasExternalPart = !string.Equals(mode, ImageCollectionLayoutExportService.Internal, StringComparison.Ordinal);
             includeDescriptions.IsVisible = hasExternalPart;
+            descriptionFormatField.IsVisible = hasExternalPart && includeDescriptions.IsChecked == true;
+            var format = descriptionFormat.SelectedItem?.ToString() ?? ImageCollectionDescriptionService.DescriptionTxt;
+            var descriptionExample = string.Equals(format, ImageCollectionDescriptionService.DescriptionDocx, StringComparison.Ordinal)
+                ? "IMG-023.png + IMG-023.docx"
+                : "IMG-023.png + IMG-023.txt";
             exportExplanation.Text = mode switch
             {
                 ImageCollectionLayoutExportService.Internal =>
                     "Crea un DOCX di lavoro con le immagini approvate già inserite, una per pagina e senza trasformare gli originali conservati nel progetto.",
                 ImageCollectionLayoutExportService.Both =>
-                    "Crea un unico ZIP con il DOCX per impaginazione interna e gli originali separati. Se vuoi, puoi allegare anche i file di descrizione gemelli.",
+                    $"Crea un unico ZIP con il DOCX per impaginazione interna e gli originali separati. Se alleghi le descrizioni, usa coppie come {descriptionExample}.",
                 _ =>
-                    "Crea uno ZIP con le immagini originali separate. Le descrizioni sono facoltative: se le alleghi, ogni IMG-### avrà un .txt con lo stesso nome base."
+                    $"Crea uno ZIP con le immagini originali separate. Le descrizioni sono facoltative; se le alleghi, usa coppie come {descriptionExample}."
             };
         }
 
@@ -126,6 +142,8 @@ internal static class ImageCollectionDescriptionUi
 
         selector.SelectionChanged += (_, _) => LoadSelected();
         layoutMode.SelectionChanged += (_, _) => UpdateExportChoice();
+        includeDescriptions.IsCheckedChanged += (_, _) => UpdateExportChoice();
+        descriptionFormat.SelectionChanged += (_, _) => UpdateExportChoice();
         save.Click += async (_, _) => await SaveSelectedAsync(true);
         copy.Click += async (_, _) =>
         {
@@ -154,19 +172,21 @@ internal static class ImageCollectionDescriptionUi
                     : [new FilePickerFileType("Archivio ZIP") { Patterns = ["*.zip"] }]
             });
             if (file is null) return;
-            var result = await ImageCollectionLayoutExportService.ExportAsync(
+            var result = await ImageCollectionLayoutChoiceService.ExportAsync(
                 project,
                 projectPath,
                 file.Path.LocalPath,
                 mode,
-                includeDescriptions.IsChecked == true && includeDescriptions.IsVisible);
+                includeDescriptions.IsChecked == true && includeDescriptions.IsVisible,
+                descriptionFormat.SelectedItem?.ToString() ?? ImageCollectionDescriptionService.DescriptionTxt);
             Report(window, status, result.Message);
         };
 
         ToolTip.SetTip(description, "Testo completo legato all'immagine selezionata. Puoi modificarlo, salvarlo e copiarlo senza limiti pratici di lunghezza imposti da Diez.");
         ToolTip.SetTip(copy, "Copia negli appunti tutta la descrizione dell'immagine selezionata.");
         ToolTip.SetTip(layoutMode, "Esterna mantiene gli originali separati; interna crea un DOCX di lavoro; entrambi prepara tutte e due le consegne.");
-        ToolTip.SetTip(includeDescriptions, "Facoltativo per Coloring e raccolte immagini. Se selezionato, ogni immagine avrà un file .txt con lo stesso numero e nome base: IMG-023.png + IMG-023.txt.");
+        ToolTip.SetTip(includeDescriptions, "Facoltativo per Coloring e raccolte immagini. Se lo attivi scegli sotto se creare TXT o DOCX con lo stesso nome base dell'immagine.");
+        ToolTip.SetTip(descriptionFormat, "TXT crea IMG-023.txt; DOCX crea IMG-023.docx. Entrambi restano collegati all'originale IMG-023.* tramite lo stesso nome base.");
         ToolTip.SetTip(export, "Esporta secondo la modalità scelta senza usare il DOCX come unica copia delle immagini originali.");
 
         root.Children.Add(new Separator());
@@ -190,6 +210,7 @@ internal static class ImageCollectionDescriptionUi
         root.Children.Add(layoutMode);
         root.Children.Add(exportExplanation);
         root.Children.Add(includeDescriptions);
+        root.Children.Add(descriptionFormatField);
         root.Children.Add(export);
         root.Children.Add(status);
 
