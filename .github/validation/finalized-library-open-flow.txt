@@ -1,0 +1,1 @@
+Validation marker: finalized books library, identical copy, regeneration from frozen .diez, local/Google opening choice, and no-file-association fallback.
