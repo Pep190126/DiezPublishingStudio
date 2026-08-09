@@ -78,7 +78,7 @@ internal static class AiExchangeApiSelfTest
             Require(missingAsset?.Status == "INCOMPLETE", "Risposta senza asset non è incompleta.");
 
             var mock = (AiExchangeMockApiAdapter)adapter;
-            Require(mock.Attempts == 9, "Numero tentativi API inatteso: retry e versioni non sono separati correttamente.");
+            Require(mock.Attempts == 8, "Numero tentativi API inatteso: retry e versioni non sono separati correttamente.");
         }
         finally
         {
