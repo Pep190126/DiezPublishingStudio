@@ -32,6 +32,7 @@ internal static class Program
                 AiProductionSelfTest.RunAsync().GetAwaiter().GetResult();
                 AiImageBatchSelfTest.RunAsync().GetAwaiter().GetResult();
                 AiExchangeSelfTest.RunAsync().GetAwaiter().GetResult();
+                AiExchangeApiSelfTest.RunAsync().GetAwaiter().GetResult();
                 ImageCollectionLayoutSelfTest.RunAsync().GetAwaiter().GetResult();
                 WordSearchWorkspaceSelfTest.RunAsync().GetAwaiter().GetResult();
                 WordSearchReplacementSelfTest.Run();
