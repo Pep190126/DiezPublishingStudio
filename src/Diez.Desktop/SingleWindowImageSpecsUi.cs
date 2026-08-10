@@ -2,17 +2,18 @@ using System.Globalization;
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Avalonia.Controls;
 using Avalonia.Layout;
 
 namespace DiezPublishingStudio;
 
 /// <summary>
-/// Production controls shared by Coloring, Image Collection and Illustrated Book.
-/// Physical size/DPI, aspect ratio and a screen-resolution quality class are deliberately
-/// separate: HD/FHD/2K/4K/8K preserve the selected book aspect ratio instead of forcing 16:9.
-/// Page presets use Amazon KDP trim sizes. Bleed is intentionally not part of the AI-generation
-/// instructions: it belongs to the later layout/print preparation stage.
+/// Image-generation specifications shared by Coloring, Image Collection and Illustrated Book.
+/// Page trim and image aspect ratio are separate concepts: trim describes the book page, while
+/// aspect ratio describes the generated image. Orientation is derived from the ratio and is not
+/// an independent user setting. Bleed and safety margins belong to layout/print preparation and
+/// are deliberately excluded from AI generation.
 /// </summary>
 internal static class SingleWindowImageSpecsUi
 {
@@ -33,12 +34,43 @@ internal static class SingleWindowImageSpecsUi
         new("kdp_7_44x9_69", "KDP — 7.44 × 9.69 in", "7.44", "9.69", "in", "7.44:9.69", "2232", "2907"),
         new("kdp_7_5x9_25", "KDP — 7.5 × 9.25 in", "7.5", "9.25", "in", "7.5:9.25", "2250", "2775"),
         new("kdp_8x10", "KDP — 8 × 10 in", "8", "10", "in", "4:5", "2400", "3000"),
-        new("kdp_8_25x6", "KDP — 8.25 × 6 in (orizzontale)", "8.25", "6", "in", "11:8", "2475", "1800"),
+        new("kdp_8_25x6", "KDP — 8.25 × 6 in (orizzontale)", "8.25", "6", "in", "8.25:6", "2475", "1800"),
         new("kdp_8_25_square", "KDP — 8.25 × 8.25 in", "8.25", "8.25", "in", "1:1", "2475", "2475"),
         new("kdp_8_5_square", "KDP — 8.5 × 8.5 in", "8.5", "8.5", "in", "1:1", "2550", "2550"),
         new("kdp_letter", "KDP — 8.5 × 11 in", "8.5", "11", "in", "17:22", "2550", "3300"),
         new("kdp_a4", "KDP — 8.27 × 11.69 in / A4", "8.27", "11.69", "in", "8.27:11.69", "2481", "3507"),
         new("custom", "Personalizzato", "8.5", "11", "in", "17:22", "2550", "3300")
+    ];
+
+    // A mathematical continuum cannot be represented by a finite ComboBox. This catalogue
+    // covers the practical editorial, print, photographic, display, social and cinematic ratios.
+    // The exact ratio of a custom page is also added dynamically as a guided choice.
+    private static readonly AspectRatioChoice[] StandardAspectRatios =
+    [
+        new("1:1", "1:1 — quadrato"),
+        new("4:5", "4:5 — verticale"), new("5:4", "5:4 — orizzontale"),
+        new("3:4", "3:4 — verticale"), new("4:3", "4:3 — orizzontale"),
+        new("2:3", "2:3 — verticale"), new("3:2", "3:2 — orizzontale"),
+        new("5:7", "5:7 — verticale"), new("7:5", "7:5 — orizzontale"),
+        new("5:8", "5:8 — verticale"), new("8:5", "8:5 — orizzontale"),
+        new("7:10", "7:10 — verticale"), new("10:7", "10:7 — orizzontale"),
+        new("11:14", "11:14 — verticale"), new("14:11", "14:11 — orizzontale"),
+        new("17:22", "17:22 — verticale · Letter/KDP"), new("22:17", "22:17 — orizzontale · Letter"),
+        new("1:1.414", "1:√2 (~1:1.414) — verticale · serie A"), new("1.414:1", "√2:1 (~1.414:1) — orizzontale · serie A"),
+        new("9:16", "9:16 — verticale · display/social"), new("16:9", "16:9 — orizzontale · widescreen"),
+        new("10:16", "10:16 — verticale"), new("16:10", "16:10 — orizzontale"),
+        new("9:21", "9:21 — verticale · ultra-wide"), new("21:9", "21:9 — orizzontale · ultra-wide"),
+        new("1:2", "1:2 — verticale panoramico"), new("2:1", "2:1 — orizzontale panoramico"),
+        new("1:2.39", "1:2.39 — verticale cinematografico"), new("2.39:1", "2.39:1 — orizzontale cinematografico"),
+        new("5.06:7.81", "5.06:7.81 — verticale · KDP"), new("7.81:5.06", "7.81:5.06 — orizzontale · KDP"),
+        new("5.25:8", "5.25:8 — verticale · KDP"), new("8:5.25", "8:5.25 — orizzontale · KDP"),
+        new("5.5:8.5", "5.5:8.5 — verticale · KDP"), new("8.5:5.5", "8.5:5.5 — orizzontale · KDP"),
+        new("6.14:9.21", "6.14:9.21 — verticale · KDP"), new("9.21:6.14", "9.21:6.14 — orizzontale · KDP"),
+        new("6.69:9.61", "6.69:9.61 — verticale · KDP"), new("9.61:6.69", "9.61:6.69 — orizzontale · KDP"),
+        new("7.44:9.69", "7.44:9.69 — verticale · KDP"), new("9.69:7.44", "9.69:7.44 — orizzontale · KDP"),
+        new("7.5:9.25", "7.5:9.25 — verticale · KDP"), new("9.25:7.5", "9.25:7.5 — orizzontale · KDP"),
+        new("8.25:6", "8.25:6 — orizzontale · KDP"), new("6:8.25", "6:8.25 — verticale · KDP"),
+        new("8.27:11.69", "8.27:11.69 — verticale · A4/KDP"), new("11.69:8.27", "11.69:8.27 — orizzontale · A4/KDP")
     ];
 
     private static readonly ResolutionClass[] ResolutionClasses =
@@ -48,7 +80,7 @@ internal static class SingleWindowImageSpecsUi
         new("2k", "2K — lato lungo 2560 px", 2560),
         new("4k", "4K UHD — lato lungo 3840 px", 3840),
         new("8k", "8K UHD — lato lungo 7680 px", 7680),
-        new("print300", "Stampa — dimensioni fisiche × DPI", 0),
+        new("print300", "Stampa — dimensione pagina × DPI, mantenendo aspect ratio", 0),
         new("custom", "Personalizzata — usa i pixel indicati", -1)
     ];
 
@@ -81,23 +113,25 @@ internal static class SingleWindowImageSpecsUi
     internal static string BuildPromptBlock(PreviewProject project)
     {
         var s = Load(project);
+        NormalizeAspectRatio(s);
         var type = BookTypeProfileService.Get(project);
         var coloring = string.Equals(type, BookTypeProfileService.ColoringBook, StringComparison.OrdinalIgnoreCase);
         var resolutionLabel = ResolutionClasses.FirstOrDefault(x => x.Id == s.ResolutionClassId)?.Label ?? "Personalizzata";
+        var coherence = EvaluateAspectCoherence(s.Width, s.Height, s.AspectRatio);
 
         var sb = new StringBuilder();
         sb.AppendLine("SPECIFICHE TECNICHE:");
         sb.AppendLine($"- Tipo libro / uso immagini: {type}.");
         sb.AppendLine($"- Formato pagina / trim finale: {PresetLabel(s.PresetId)}.");
-        sb.AppendLine($"- Dimensioni finali: {s.Width} × {s.Height} {s.Unit}.");
-        sb.AppendLine($"- Orientamento: {s.Orientation}.");
-        sb.AppendLine($"- Aspect ratio: {s.AspectRatio}.");
+        sb.AppendLine($"- Dimensioni pagina: {s.Width} × {s.Height} {s.Unit}.");
+        sb.AppendLine($"- Aspect ratio immagine: {s.AspectRatio} ({DerivedGeometry(s.AspectRatio)}).");
+        sb.AppendLine($"- Coerenza trim/aspect ratio: {coherence.PromptText}");
+        sb.AppendLine("- Non deformare mai l'immagine per adattarla alla pagina. Se trim e aspect ratio differiscono, preserva l'aspect ratio scelto e lascia ritaglio/posizionamento all'impaginazione.");
         sb.AppendLine($"- Classe risoluzione / qualità immagine: {resolutionLabel}.");
-        sb.AppendLine($"- Risoluzione target effettiva: {s.PixelWidth} × {s.PixelHeight} px; preserva questo aspect ratio e non deformare il soggetto.");
+        sb.AppendLine($"- Risoluzione target effettiva: {s.PixelWidth} × {s.PixelHeight} px; preserva l'aspect ratio selezionato.");
         sb.AppendLine($"- DPI di destinazione per stampa: {s.Dpi} DPI. I DPI sono separati dalla classe HD/FHD/2K/4K/8K.");
         sb.AppendLine($"- Qualità rendering: {s.Quality}.");
         sb.AppendLine($"- Livello tecnico di dettaglio: {s.LineDetail}.");
-        sb.AppendLine($"- Margine di sicurezza creativo: {s.SafeMargin} {s.Unit}.");
 
         if (coloring)
         {
@@ -110,7 +144,7 @@ internal static class SingleWindowImageSpecsUi
         }
 
         sb.AppendLine("- Evita testo tecnico, watermark, ID e nomi file dentro l'immagine salvo richiesta editoriale esplicita.");
-        sb.AppendLine("- Mantieni gli elementi importanti entro il margine di sicurezza; risoluzione e DPI sono requisiti di output, non testo da disegnare nell'immagine.");
+        sb.AppendLine("- Bleed e margini di sicurezza non appartengono alla generazione AI: saranno gestiti dall'impaginazione.");
         return sb.ToString().Trim();
     }
 
@@ -125,20 +159,32 @@ internal static class SingleWindowImageSpecsUi
         var s = Load(project);
         NormalizeResolutionClass(s);
         NormalizeLegacyPreset(s);
+        NormalizeAspectRatio(s);
 
         var preset = new ComboBox { Name = "ImageSpecPreset", ItemsSource = Presets, Width = 360, HorizontalAlignment = HorizontalAlignment.Left };
         preset.SelectedItem = Presets.FirstOrDefault(p => p.Id == s.PresetId) ?? Presets.First(p => p.Id == "kdp_letter");
         var width = SmallEditor(s.Width, 90); width.Name = "ImageSpecWidth";
         var height = SmallEditor(s.Height, 90); height.Name = "ImageSpecHeight";
         var unit = new ComboBox { Name = "ImageSpecUnit", ItemsSource = new[] { "in", "mm" }, SelectedItem = s.Unit, Width = 80 };
-        var orientation = new ComboBox { Name = "ImageSpecOrientation", ItemsSource = new[] { "Verticale", "Orizzontale", "Quadrata" }, SelectedItem = s.Orientation, Width = 160 };
-        var ratio = SmallEditor(s.AspectRatio, 110); ratio.Name = "ImageSpecAspectRatio";
+
+        var ratio = new ComboBox
+        {
+            Name = "ImageSpecAspectRatio",
+            Width = 410,
+            HorizontalAlignment = HorizontalAlignment.Left
+        };
+        var ratioCoherence = new TextBlock
+        {
+            Name = "ImageSpecAspectCoherence",
+            TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+            MaxWidth = 720
+        };
 
         var resolutionClass = new ComboBox
         {
             Name = "ImageSpecResolutionClass",
             ItemsSource = ResolutionClasses,
-            Width = 330,
+            Width = 360,
             HorizontalAlignment = HorizontalAlignment.Left
         };
         resolutionClass.SelectedItem = ResolutionClasses.FirstOrDefault(x => x.Id == s.ResolutionClassId) ?? ResolutionClasses[5];
@@ -152,8 +198,33 @@ internal static class SingleWindowImageSpecsUi
             : new[] { "Molto schematico", "Dettaglio basso", "Dettaglio medio", "Dettaglio alto", "Dettaglio massimo" };
         if (!detailChoices.Contains(s.LineDetail, StringComparer.Ordinal)) s.LineDetail = "Dettaglio medio";
         var line = new ComboBox { Name = "ImageSpecLineDetail", ItemsSource = detailChoices, SelectedItem = s.LineDetail, Width = 260 };
-        var safe = SmallEditor(s.SafeMargin, 90); safe.Name = "ImageSpecSafeMargin";
         var applyingResolution = false;
+        var updatingRatioChoices = false;
+
+        void RefreshRatioChoices(bool followPageIfPreviouslyFollowing = false)
+        {
+            if (updatingRatioChoices) return;
+            updatingRatioChoices = true;
+            try
+            {
+                var previous = ratio.SelectedItem as AspectRatioChoice;
+                var choices = AspectRatioChoicesFor(width.Text, height.Text);
+                ratio.ItemsSource = choices;
+                AspectRatioChoice selected;
+                if (followPageIfPreviouslyFollowing && previous?.IsPageRatio == true)
+                    selected = choices.First(x => x.IsPageRatio);
+                else
+                    selected = FindEquivalentChoice(choices, previous?.Value ?? s.AspectRatio) ?? choices.First(x => x.IsPageRatio);
+                ratio.SelectedItem = selected;
+            }
+            finally { updatingRatioChoices = false; }
+        }
+
+        void UpdateCoherence()
+        {
+            var value = (ratio.SelectedItem as AspectRatioChoice)?.Value ?? s.AspectRatio;
+            ratioCoherence.Text = EvaluateAspectCoherence(width.Text, height.Text, value).UiText;
+        }
 
         void FromControls()
         {
@@ -161,18 +232,16 @@ internal static class SingleWindowImageSpecsUi
             s.Width = width.Text?.Trim() ?? s.Width;
             s.Height = height.Text?.Trim() ?? s.Height;
             s.Unit = unit.SelectedItem?.ToString() ?? s.Unit;
-            s.Orientation = orientation.SelectedItem?.ToString() ?? s.Orientation;
-            s.AspectRatio = ratio.Text?.Trim() ?? s.AspectRatio;
+            s.AspectRatio = (ratio.SelectedItem as AspectRatioChoice)?.Value ?? s.AspectRatio;
+            s.Orientation = DerivedOrientationLegacy(s.AspectRatio); // compatibility only
             s.ResolutionClassId = (resolutionClass.SelectedItem as ResolutionClass)?.Id ?? "custom";
             s.PixelWidth = pxW.Text?.Trim() ?? s.PixelWidth;
             s.PixelHeight = pxH.Text?.Trim() ?? s.PixelHeight;
             s.Dpi = dpi.Text?.Trim() ?? s.Dpi;
             s.Quality = quality.SelectedItem?.ToString() ?? s.Quality;
             s.LineDetail = line.SelectedItem?.ToString() ?? s.LineDetail;
-            s.SafeMargin = safe.Text?.Trim() ?? s.SafeMargin;
-            // Bleed remains readable from old project JSON for compatibility, but it is no longer
-            // edited here and never enters AI-generation prompts.
             Save(project, s);
+            UpdateCoherence();
         }
 
         void ApplyResolutionClass()
@@ -181,9 +250,10 @@ internal static class SingleWindowImageSpecsUi
             applyingResolution = true;
             try
             {
+                var ratioValue = (ratio.SelectedItem as AspectRatioChoice)?.Value ?? s.AspectRatio;
                 var (pixelWidth, pixelHeight) = selected.LongSidePixels == 0
-                    ? PixelsFromPhysicalSize(width.Text, height.Text, unit.SelectedItem?.ToString(), dpi.Text)
-                    : PixelsFromLongSide(width.Text, height.Text, ratio.Text, selected.LongSidePixels);
+                    ? PixelsForPrintAspect(width.Text, height.Text, unit.SelectedItem?.ToString(), dpi.Text, ratioValue)
+                    : PixelsFromLongSide(ratioValue, selected.LongSidePixels);
                 pxW.Text = pixelWidth.ToString(CultureInfo.InvariantCulture);
                 pxH.Text = pixelHeight.ToString(CultureInfo.InvariantCulture);
                 FromControls();
@@ -193,12 +263,18 @@ internal static class SingleWindowImageSpecsUi
 
         void ApplyPreset(PagePreset p)
         {
-            if (p.Id == "custom") return;
+            if (p.Id == "custom")
+            {
+                RefreshRatioChoices();
+                UpdateCoherence();
+                return;
+            }
             width.Text = p.Width;
             height.Text = p.Height;
             unit.SelectedItem = p.Unit;
-            ratio.Text = p.Ratio;
-            orientation.SelectedItem = p.Width == p.Height ? "Quadrata" : ParsePositive(p.Width, 0) > ParsePositive(p.Height, 0) ? "Orizzontale" : "Verticale";
+            RefreshRatioChoices();
+            var choices = ratio.ItemsSource?.Cast<AspectRatioChoice>().ToList() ?? [];
+            ratio.SelectedItem = FindEquivalentChoice(choices, p.Ratio) ?? choices.First(x => x.IsPageRatio);
             if (resolutionClass.SelectedItem is ResolutionClass selected && selected.LongSidePixels >= 0)
                 ApplyResolutionClass();
             else
@@ -207,15 +283,37 @@ internal static class SingleWindowImageSpecsUi
                 pxH.Text = p.PixelHeight;
                 FromControls();
             }
+            UpdateCoherence();
         }
+
+        RefreshRatioChoices();
+        var initialChoices = ratio.ItemsSource?.Cast<AspectRatioChoice>().ToList() ?? [];
+        ratio.SelectedItem = FindEquivalentChoice(initialChoices, s.AspectRatio) ?? initialChoices.First(x => x.IsPageRatio);
+        UpdateCoherence();
 
         preset.SelectionChanged += (_, _) => { if (preset.SelectedItem is PagePreset p) ApplyPreset(p); };
         resolutionClass.SelectionChanged += (_, _) => ApplyResolutionClass();
-        width.TextChanged += (_, _) => { if (!applyingResolution) { FromControls(); ApplyResolutionClass(); } };
-        height.TextChanged += (_, _) => { if (!applyingResolution) { FromControls(); ApplyResolutionClass(); } };
-        unit.SelectionChanged += (_, _) => { FromControls(); ApplyResolutionClass(); };
-        orientation.SelectionChanged += (_, _) => FromControls();
-        ratio.TextChanged += (_, _) => { if (!applyingResolution) { FromControls(); ApplyResolutionClass(); } };
+        width.TextChanged += (_, _) =>
+        {
+            if (applyingResolution) return;
+            RefreshRatioChoices(followPageIfPreviouslyFollowing: true);
+            FromControls();
+            if ((resolutionClass.SelectedItem as ResolutionClass)?.LongSidePixels == 0) ApplyResolutionClass();
+        };
+        height.TextChanged += (_, _) =>
+        {
+            if (applyingResolution) return;
+            RefreshRatioChoices(followPageIfPreviouslyFollowing: true);
+            FromControls();
+            if ((resolutionClass.SelectedItem as ResolutionClass)?.LongSidePixels == 0) ApplyResolutionClass();
+        };
+        unit.SelectionChanged += (_, _) => { FromControls(); if ((resolutionClass.SelectedItem as ResolutionClass)?.LongSidePixels == 0) ApplyResolutionClass(); };
+        ratio.SelectionChanged += (_, _) =>
+        {
+            if (updatingRatioChoices || applyingResolution) return;
+            FromControls();
+            ApplyResolutionClass();
+        };
         pxW.TextChanged += (_, _) =>
         {
             if (applyingResolution) return;
@@ -228,10 +326,9 @@ internal static class SingleWindowImageSpecsUi
             if ((resolutionClass.SelectedItem as ResolutionClass)?.Id != "custom") resolutionClass.SelectedItem = ResolutionClasses[^1];
             FromControls();
         };
-        dpi.TextChanged += (_, _) => { FromControls(); if ((resolutionClass.SelectedItem as ResolutionClass)?.Id == "print300") ApplyResolutionClass(); };
+        dpi.TextChanged += (_, _) => { FromControls(); if ((resolutionClass.SelectedItem as ResolutionClass)?.LongSidePixels == 0) ApplyResolutionClass(); };
         quality.SelectionChanged += (_, _) => FromControls();
         line.SelectionChanged += (_, _) => FromControls();
-        safe.TextChanged += (_, _) => FromControls();
 
         var panel = new StackPanel
         {
@@ -243,16 +340,16 @@ internal static class SingleWindowImageSpecsUi
                 new TextBlock { Text = "Specifiche immagine / stampa", FontSize = 19 },
                 new TextBlock
                 {
-                    Text = "I preset pagina seguono i trim Amazon KDP. Formato, aspect ratio, classe HD/FHD/2K/4K/8K, pixel, DPI, qualità e margine di sicurezza entrano automaticamente nel prompt. Il bleed verrà gestito più avanti nella preparazione di stampa, non dall’AI che crea l’immagine.",
+                    Text = "Il formato pagina segue i trim Amazon KDP. L'aspect ratio dell'immagine è separato e si sceglie da rapporti standard/editoriali: verticale, orizzontale o quadrato sono già espressi dal rapporto, quindi non esiste più un controllo Orientamento. Diez controlla la coerenza fra trim e aspect ratio senza bloccare scelte intenzionali. Bleed e margine di sicurezza sono compiti dell'impaginazione.",
                     TextWrapping = Avalonia.Media.TextWrapping.Wrap
                 },
                 Labeled("Formato pagina / trim KDP", preset),
                 new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { Labeled("Larghezza", width), Labeled("Altezza", height), Labeled("Unità", unit) } },
-                new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { Labeled("Orientamento", orientation), Labeled("Aspect ratio", ratio) } },
+                Labeled("Aspect ratio immagine", ratio),
+                ratioCoherence,
                 Labeled("Qualità / classe risoluzione", resolutionClass),
                 new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { Labeled("Larghezza px", pxW), Labeled("Altezza px", pxH), Labeled("DPI", dpi) } },
-                new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { Labeled("Qualità rendering", quality), Labeled("Dettaglio tecnico", line) } },
-                Labeled("Margine di sicurezza", safe)
+                new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { Labeled("Qualità rendering", quality), Labeled("Dettaglio tecnico", line) } }
             }
         };
 
@@ -268,31 +365,25 @@ internal static class SingleWindowImageSpecsUi
         }
     }
 
-    private static (int Width, int Height) PixelsFromLongSide(string? widthText, string? heightText, string? ratioText, int longSide)
+    private static (int Width, int Height) PixelsFromLongSide(string? ratioText, int longSide)
     {
-        var (w, h) = EffectiveRatio(widthText, heightText, ratioText);
-        if (w >= h)
-            return (longSide, Math.Max(1, (int)Math.Round(longSide * h / w)));
+        var (w, h) = EffectiveRatio(ratioText);
+        if (w >= h) return (longSide, Math.Max(1, (int)Math.Round(longSide * h / w)));
         return (Math.Max(1, (int)Math.Round(longSide * w / h)), longSide);
     }
 
-    private static (int Width, int Height) PixelsFromPhysicalSize(string? widthText, string? heightText, string? unit, string? dpiText)
+    private static (int Width, int Height) PixelsForPrintAspect(string? widthText, string? heightText, string? unit, string? dpiText, string? ratioText)
     {
         var width = ParsePositive(widthText, 8.5);
         var height = ParsePositive(heightText, 11);
         var dpi = ParsePositive(dpiText, 300);
         var inchesFactor = string.Equals(unit, "mm", StringComparison.OrdinalIgnoreCase) ? 1.0 / 25.4 : 1.0;
-        return (
-            Math.Max(1, (int)Math.Round(width * inchesFactor * dpi)),
-            Math.Max(1, (int)Math.Round(height * inchesFactor * dpi)));
+        var longSide = Math.Max(1, (int)Math.Round(Math.Max(width, height) * inchesFactor * dpi));
+        return PixelsFromLongSide(ratioText, longSide);
     }
 
-    private static (double Width, double Height) EffectiveRatio(string? widthText, string? heightText, string? ratioText)
+    private static (double Width, double Height) EffectiveRatio(string? ratioText)
     {
-        var width = ParsePositive(widthText, 0);
-        var height = ParsePositive(heightText, 0);
-        if (width > 0 && height > 0) return (width, height);
-
         var parts = (ratioText ?? string.Empty).Split(':', StringSplitOptions.TrimEntries);
         if (parts.Length == 2)
         {
@@ -301,6 +392,44 @@ internal static class SingleWindowImageSpecsUi
             if (rw > 0 && rh > 0) return (rw, rh);
         }
         return (17, 22);
+    }
+
+    private static string DerivedGeometry(string? ratioText)
+    {
+        var (w, h) = EffectiveRatio(ratioText);
+        if (Math.Abs(w - h) < 0.0001) return "quadrato";
+        return w > h ? "orizzontale" : "verticale";
+    }
+
+    private static string DerivedOrientationLegacy(string? ratioText) => DerivedGeometry(ratioText) switch
+    {
+        "orizzontale" => "Orizzontale",
+        "quadrato" => "Quadrata",
+        _ => "Verticale"
+    };
+
+    private static AspectCoherence EvaluateAspectCoherence(string? widthText, string? heightText, string? ratioText)
+    {
+        var pageW = ParsePositive(widthText, 8.5);
+        var pageH = ParsePositive(heightText, 11);
+        var (imageW, imageH) = EffectiveRatio(ratioText);
+        var pageRatio = pageW / pageH;
+        var imageRatio = imageW / imageH;
+        var retained = Math.Min(pageRatio / imageRatio, imageRatio / pageRatio);
+        retained = Math.Clamp(retained, 0, 1);
+        var difference = (1 - retained) * 100;
+
+        if (difference <= 2.0)
+            return new AspectCoherence(
+                $"✓ Coerente con il formato pagina ({difference:0.#}% di differenza).",
+                $"coerente con il trim ({difference:0.#}% di differenza)." );
+        if (difference <= 15.0)
+            return new AspectCoherence(
+                $"ℹ Compatibile con adattamento ({difference:0.#}% di differenza): può servire un piccolo ritaglio o spazio nell'impaginazione.",
+                $"compatibile con adattamento ({difference:0.#}% di differenza); può richiedere piccolo ritaglio/spazio in impaginazione." );
+        return new AspectCoherence(
+            $"⚠ Molto diverso dal formato pagina ({difference:0.#}% di differenza): se deve riempire la pagina servirà un ritaglio importante o spazio aggiuntivo. La scelta resta consentita.",
+            $"molto diverso dal trim ({difference:0.#}% di differenza); non deformare, lascia l'adattamento all'impaginazione." );
     }
 
     private static double ParsePositive(string? text, double fallback)
@@ -326,6 +455,48 @@ internal static class SingleWindowImageSpecsUi
         };
         if (!Presets.Any(p => p.Id == s.PresetId)) s.PresetId = "custom";
     }
+
+    private static void NormalizeAspectRatio(ImageSpecs s)
+    {
+        var choices = AspectRatioChoicesFor(s.Width, s.Height);
+        var selected = FindEquivalentChoice(choices, s.AspectRatio) ?? choices.First(x => x.IsPageRatio);
+        s.AspectRatio = selected.Value;
+        s.Orientation = DerivedOrientationLegacy(s.AspectRatio);
+    }
+
+    private static List<AspectRatioChoice> AspectRatioChoicesFor(string? widthText, string? heightText)
+    {
+        var choices = StandardAspectRatios.ToList();
+        var pageW = ParsePositive(widthText, 8.5);
+        var pageH = ParsePositive(heightText, 11);
+        var pageRatioValue = $"{FormatNumber(pageW)}:{FormatNumber(pageH)}";
+        var equivalent = FindEquivalentChoice(choices, pageRatioValue);
+        if (equivalent is not null)
+        {
+            var idx = choices.IndexOf(equivalent);
+            choices[idx] = equivalent with { Label = equivalent.Label + " · come formato pagina", IsPageRatio = true };
+        }
+        else
+        {
+            choices.Insert(0, new AspectRatioChoice(pageRatioValue,
+                $"{pageRatioValue} — come formato pagina ({DerivedGeometry(pageRatioValue)})", true));
+        }
+        return choices;
+    }
+
+    private static AspectRatioChoice? FindEquivalentChoice(IEnumerable<AspectRatioChoice> choices, string? value)
+    {
+        var (w, h) = EffectiveRatio(value);
+        var target = w / h;
+        return choices
+            .Select(x => new { Choice = x, Delta = Math.Abs(x.NumericRatio - target) / Math.Max(target, 0.000001) })
+            .Where(x => x.Delta <= 0.002)
+            .OrderBy(x => x.Delta)
+            .Select(x => x.Choice)
+            .FirstOrDefault();
+    }
+
+    private static string FormatNumber(double value) => value.ToString("0.###", CultureInfo.InvariantCulture);
 
     private static void EnsurePromptInjection(Control page, PreviewProject project)
     {
@@ -354,7 +525,7 @@ internal static class SingleWindowImageSpecsUi
         var marker = new TextBlock
         {
             Name = "DiezImageSpecsPromptMarker",
-            Text = "Formato/trim KDP, aspect ratio, HD/FHD/2K/4K/8K, pixel, DPI, qualità e margine di sicurezza vengono inclusi automaticamente nel prompt. Il bleed resta fuori dal flusso creativo AI.",
+            Text = "Trim KDP, aspect ratio selezionato, controllo di coerenza trim/rapporto, HD/FHD/2K/4K/8K, pixel, DPI, qualità e dettaglio vengono inclusi automaticamente. Orientamento, bleed e margine di sicurezza non sono parametri della generazione AI.",
             TextWrapping = Avalonia.Media.TextWrapping.Wrap
         };
         if (root is not null)
@@ -374,6 +545,7 @@ internal static class SingleWindowImageSpecsUi
                 var result = JsonSerializer.Deserialize<ImageSpecs>(entity.Notes, JsonOptions) ?? Default();
                 NormalizeResolutionClass(result);
                 NormalizeLegacyPreset(result);
+                NormalizeAspectRatio(result);
                 return result;
             }
             catch { }
@@ -385,6 +557,7 @@ internal static class SingleWindowImageSpecsUi
     {
         NormalizeResolutionClass(settings);
         NormalizeLegacyPreset(settings);
+        NormalizeAspectRatio(settings);
         var entity = project.Entities.FirstOrDefault(e => string.Equals(e.Kind, EntityKind, StringComparison.OrdinalIgnoreCase));
         if (entity is null)
         {
@@ -392,7 +565,15 @@ internal static class SingleWindowImageSpecsUi
             project.Entities.Add(entity);
         }
         entity.IsCandidate = false;
-        entity.Notes = JsonSerializer.Serialize(settings, JsonOptions);
+
+        // Deserialize legacy fields, but never persist them again: orientation is derived from
+        // AspectRatio; safety margin and bleed are layout-stage settings, not AI presets.
+        var json = JsonSerializer.SerializeToNode(settings, JsonOptions)?.AsObject() ?? new JsonObject();
+        json.Remove(nameof(ImageSpecs.Orientation));
+        json.Remove(nameof(ImageSpecs.SafeMargin));
+        json.Remove(nameof(ImageSpecs.Bleed));
+        json.Remove(nameof(ImageSpecs.BleedAmount));
+        entity.Notes = json.ToJsonString();
     }
 
     private static ImageSpecs Default() => new();
@@ -451,7 +632,6 @@ internal static class SingleWindowImageSpecsUi
         public string Width { get; set; } = "8.5";
         public string Height { get; set; } = "11";
         public string Unit { get; set; } = "in";
-        public string Orientation { get; set; } = "Verticale";
         public string AspectRatio { get; set; } = "17:22";
         public string ResolutionClassId { get; set; } = "print300";
         public string PixelWidth { get; set; } = "2550";
@@ -459,8 +639,10 @@ internal static class SingleWindowImageSpecsUi
         public string Dpi { get; set; } = "300";
         public string Quality { get; set; } = "Alta";
         public string LineDetail { get; set; } = "Dettaglio medio";
+
+        // Legacy-only fields: accepted when loading old .diez files, not persisted or exposed.
+        public string Orientation { get; set; } = "Verticale";
         public string SafeMargin { get; set; } = "0.25";
-        // Retained only to deserialize older .diez projects. Not exposed to AI creation UI.
         public bool Bleed { get; set; }
         public string BleedAmount { get; set; } = "0.125";
     }
@@ -474,4 +656,19 @@ internal static class SingleWindowImageSpecsUi
     {
         public override string ToString() => Label;
     }
+
+    private sealed record AspectRatioChoice(string Value, string Label, bool IsPageRatio = false)
+    {
+        public double NumericRatio
+        {
+            get
+            {
+                var (w, h) = EffectiveRatio(Value);
+                return w / h;
+            }
+        }
+        public override string ToString() => Label;
+    }
+
+    private readonly record struct AspectCoherence(string UiText, string PromptText);
 }
