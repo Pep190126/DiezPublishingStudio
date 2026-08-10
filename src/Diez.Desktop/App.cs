@@ -55,6 +55,29 @@ public sealed class App : Application
             mainWindow.Title = ProductInfo.WindowTitle;
             StartupDiagnostics.ShowWarning(mainWindow, failures);
 
+            if (args.Any(a => string.Equals(a, "--ui-raster-probe", StringComparison.OrdinalIgnoreCase)))
+            {
+                Dispatcher.UIThread.Post(async () =>
+                {
+                    try
+                    {
+                        foreach (var file in new[] { "ui-quantity.png", "ui-prompt.png", "ui-raster-error.txt" })
+                        {
+                            var path = Path.Combine(AppContext.BaseDirectory, file);
+                            if (File.Exists(path)) File.Delete(path);
+                        }
+                        await Task.Delay(200);
+                        await SingleWindowPhysicalScreenshotProbe.RunAsync(mainWindow);
+                        Environment.Exit(0);
+                    }
+                    catch (Exception ex)
+                    {
+                        try { File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "ui-raster-error.txt"), ex.ToString()); } catch { }
+                        Environment.Exit(3);
+                    }
+                }, DispatcherPriority.Loaded);
+            }
+
             if (args.Any(a => string.Equals(a, "--ui-flow-contract", StringComparison.OrdinalIgnoreCase)))
             {
                 Dispatcher.UIThread.Post(async () =>
