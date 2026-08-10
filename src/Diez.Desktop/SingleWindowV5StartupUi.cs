@@ -7,13 +7,13 @@ using Avalonia.Layout;
 namespace DiezPublishingStudio;
 
 /// <summary>
-/// SW-FLOW-7 makes the logical book workflow the first visible Diez screen.
+/// SW-FLOW-8 makes the logical book workflow the first visible Diez screen.
 /// The legacy MainWindow remains alive as the physical window and project host,
 /// but the user no longer needs to discover a hidden entry button.
 /// </summary>
 internal static class SingleWindowV5StartupUi
 {
-    public const string Marker = "SW-FLOW-7";
+    public const string Marker = "SW-FLOW-8";
 
     public static void Attach(MainWindow window)
     {
@@ -21,11 +21,8 @@ internal static class SingleWindowV5StartupUi
         window.Closed += (_, _) => window.KeyDown -= HandleEditorShortcuts;
         window.Opened += async (_, _) =>
         {
-            // MainWindow may already be opening a .diez supplied on the command line.
-            // Give that handler a short chance to complete before selecting the first page.
             for (var i = 0; i < 8 && !TrySession(window, out _, out _); i++)
                 await Task.Delay(40);
-
             ShowStart(window);
         };
     }
@@ -34,16 +31,12 @@ internal static class SingleWindowV5StartupUi
     {
         var host = SingleWindowEntryPointUi.GetHost(window);
         ReplaceMarker(window);
-
         if (TrySession(window, out _, out _))
         {
-            // Always show the explicit book-type page first. The user can confirm
-            // or change it instead of relying on inference from an old project.
             SingleWindowEntryPointUi.Invoke(host, "OpenBookTypeChoice");
             ReplaceMarker(window);
             return;
         }
-
         ShowWelcome(window, host);
     }
 
@@ -61,7 +54,6 @@ internal static class SingleWindowV5StartupUi
                 ReplaceMarker(window);
             }
         };
-
         open.Click += async (_, _) =>
         {
             await InvokeMainTaskAsync(window, "OpenProjectAsync");
@@ -110,7 +102,7 @@ internal static class SingleWindowV5StartupUi
             }
         };
 
-        SingleWindowEntryPointUi.Invoke(host, "Push", "Inizia · SW-FLOW-7", content, preview,
+        SingleWindowEntryPointUi.Invoke(host, "Push", "Inizia · SW-FLOW-8", content, preview,
             "Crea o apri un progetto; il passo successivo sarà la scelta del Tipo libro.");
         ReplaceMarker(window);
     }
@@ -119,7 +111,6 @@ internal static class SingleWindowV5StartupUi
     {
         if ((e.KeyModifiers & KeyModifiers.Control) == 0) return;
         if (e.Source is not TextBox editor || editor.IsReadOnly || !editor.IsEnabled || !editor.IsUndoEnabled) return;
-
         if (e.Key == Key.Z)
         {
             editor.Undo();
