@@ -42,6 +42,8 @@ public sealed class App : Application
                 failures.Add(promptTargetError);
             if (!StartupDiagnostics.TryAttach("Contesto immagini AI V2", () => SingleWindowAiImageContextUi.Attach(mainWindow), out var imageContextError) && imageContextError is not null)
                 failures.Add(imageContextError);
+            if (!StartupDiagnostics.TryAttach("Export immagini AI sicuro", () => SingleWindowSafeImageContextExportUi.Attach(mainWindow), out var safeExportError) && safeExportError is not null)
+                failures.Add(safeExportError);
             if (!StartupDiagnostics.TryAttach("Avvio guidato SW-FLOW-10", () => SingleWindowV5StartupUi.Attach(mainWindow), out var startupError) && startupError is not null)
                 failures.Add(startupError);
 
@@ -59,7 +61,7 @@ public sealed class App : Application
                         await Task.Delay(120);
                         await SingleWindowInstallerUiProbe.RunAsync(mainWindow);
                         File.WriteAllText(resultFile,
-                            "OK\nSW-FLOW-10\nstartup=guided\nbook-type=visible\nquantity-field=visible\ncoloring-style=visible\ncoloring-profile=rich\ncoloring-binary-bw=fixed\nline-thickness=dropdown\nsubject-environment=visible\nimage-specs=visible\nimage-resolution-classes=HD,FHD,2K,4K,8K,PRINT,CUSTOM\nimage-resolution-preserves-aspect=yes\nimage-specs-in-prompt=yes\nimage-collection-color-modes=visible\nillustrated-book-shares-illustration-profile=yes\nillustrated-book-not-coloring=yes\nresolution-classes-all-visual-book-types=yes\nimage-intake-real-files=yes\nimage-intake-json=yes\ncorrection-base-image-real=yes\ncorrection-base-description=yes\ncorrection-full-image-presets=yes\nrequest-context-json=yes\nconsistent-off=criteria-hidden\nconsistent-on=criteria-visible\nconsistency-levels=3\nprompt-target-ai=visible\nprompt-target-catalog=central\nprompt-editors=3\nundo=ctrl-z\nredo=ctrl-y");
+                            "OK\nSW-FLOW-10\nstartup=guided\nbook-type=visible\nquantity-field=visible\ncoloring-style=visible\ncoloring-profile=rich\ncoloring-binary-bw=fixed\nline-thickness=dropdown\nsubject-environment=visible\nimage-specs=visible\nimage-resolution-classes=HD,FHD,2K,4K,8K,PRINT,CUSTOM\nimage-resolution-preserves-aspect=yes\nimage-specs-in-prompt=yes\nimage-collection-color-modes=visible\nillustrated-book-shares-illustration-profile=yes\nillustrated-book-not-coloring=yes\nresolution-classes-all-visual-book-types=yes\nimage-intake-real-files=yes\nimage-intake-json=yes\ncorrection-base-image-real=yes\ncorrection-base-description=yes\ncorrection-full-image-presets=yes\nrequest-context-json=yes\nsafe-image-context-export=yes\nconsistent-off=criteria-hidden\nconsistent-on=criteria-visible\nconsistency-levels=3\nprompt-target-ai=visible\nprompt-target-catalog=central\nprompt-editors=3\nundo=ctrl-z\nredo=ctrl-y");
                         Environment.Exit(0);
                     }
                     catch (Exception ex)
