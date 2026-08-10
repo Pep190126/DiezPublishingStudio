@@ -5,8 +5,8 @@ namespace DiezPublishingStudio;
 
 /// <summary>
 /// Safe wrapper around the V2 enhancer. It preserves core instructions, enriches the
-/// package with real visual assets/context, adds normalized effective presets, then
-/// recomposes instructions without deleting an open ZIP entry.
+/// package with real visual assets/context, adds normalized effective presets, strips
+/// layout-only fields, then recomposes instructions without deleting an open ZIP entry.
 /// </summary>
 internal static class AiExchangeImageRequestContextSafeEnhancer
 {
@@ -31,7 +31,10 @@ internal static class AiExchangeImageRequestContextSafeEnhancer
             result = await AiExchangeImageRequestContextService.EnhancePromptPackAsync(
                 project, projectPath, exchangeState, workUnitIds, promptPackPath);
             if (result.Success)
+            {
                 AiExchangeExplicitVisualPresetContext.Ensure(promptPackPath, project);
+                AiExchangeVisualLayoutSanitizer.Sanitize(promptPackPath);
+            }
         }
         catch
         {
