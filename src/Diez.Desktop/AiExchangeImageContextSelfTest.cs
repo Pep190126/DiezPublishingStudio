@@ -1,5 +1,4 @@
 using System.IO.Compression;
-using System.Text.Json;
 
 namespace DiezPublishingStudio;
 
@@ -25,6 +24,7 @@ internal static class AiExchangeImageContextSelfTest
             coloring.LineWeight = "Sottile — Fine";
             BookTypePromptProfileService.SaveColoring(project, coloring);
 
+            // Include legacy layout-only fields on purpose. The safe export must strip them.
             project.Entities.Add(new GraphEntity
             {
                 Kind = "DiezImageGenerationSpecs",
@@ -122,14 +122,18 @@ internal static class AiExchangeImageContextSelfTest
             {
                 "Foto utente: usa la postura delle gambe", "Riferimento per tratto e stile",
                 "Line Art dettagliata", "Sottile — Fine", "4K UHD", "2967", "3840", "17:22", "300",
-                "Massima / stampa", "0.25", "0.125", "Consistent", "#000000", "#FFFFFF"
+                "Massima / stampa", "Consistent", "#000000", "#FFFFFF"
             })
                 Require(requestContext.Contains(required, StringComparison.OrdinalIgnoreCase), "Preset/contesto mancante: " + required);
+
+            foreach (var forbidden in new[] { "safe_margin", "SafeMargin", "bleed_amount", "BleedAmount", "\"bleed\"", "\"Bleed\"", "\"orientation\"", "\"Orientation\"" })
+                Require(!requestContext.Contains(forbidden, StringComparison.Ordinal), "Parametro di impaginazione ancora nel request-context: " + forbidden);
 
             var instructions = await ReadEntryAsync(zip, "instructions.md");
             Require(instructions.Contains("Diez Publishing Studio — Prompt Pack v1", StringComparison.Ordinal), "Le istruzioni core sono state perse durante l'enrichment.");
             Require(instructions.Contains("base_version.file", StringComparison.Ordinal), "Le istruzioni non impongono l'uso della base reale.");
             Require(instructions.Contains("non sostituiscono il file immagine", StringComparison.OrdinalIgnoreCase), "Le descrizioni possono ancora sostituire impropriamente l'immagine.");
+            Require(!instructions.Contains("margini, bleed", StringComparison.OrdinalIgnoreCase), "Le istruzioni AI contengono ancora margini/bleed.");
         }
         finally
         {
