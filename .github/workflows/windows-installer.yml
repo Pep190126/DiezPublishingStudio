@@ -63,14 +63,37 @@ jobs:
         run: |
           $exe = (Resolve-Path "artifacts\publish\DiezPublishingStudio.exe").Path
           $result = Join-Path (Split-Path $exe) "ui-flow-contract.txt"
+          $logRoot = Join-Path $env:LOCALAPPDATA "Diez Publishing Studio\logs"
+          $started = Get-Date
           if (Test-Path $result) { Remove-Item $result -Force }
+          foreach ($name in @("navigation.log", "navigation-errors.log", "fatal-errors.log")) {
+            $p = Join-Path $logRoot $name
+            if (Test-Path $p) { Remove-Item $p -Force }
+          }
           $probe = Start-Process -FilePath $exe -ArgumentList "--ui-flow-contract" -PassThru
           if (-not $probe.WaitForExit(30000)) {
             Stop-Process -Id $probe.Id -Force -ErrorAction SilentlyContinue
+            Write-Host "--- Diez navigation diagnostics ---"
+            foreach ($name in @("navigation.log", "navigation-errors.log", "fatal-errors.log")) {
+              $p = Join-Path $logRoot $name
+              if (Test-Path $p) { Write-Host "--- $name ---"; Get-Content $p }
+            }
             throw "UI flow contract timed out"
           }
           if (Test-Path $result) { Get-Content $result }
-          if ($probe.ExitCode -ne 0) { throw "UI flow contract failed with exit code $($probe.ExitCode)" }
+          if ($probe.ExitCode -ne 0) {
+            Write-Host "--- Diez navigation diagnostics ---"
+            foreach ($name in @("navigation.log", "navigation-errors.log", "fatal-errors.log")) {
+              $p = Join-Path $logRoot $name
+              if (Test-Path $p) { Write-Host "--- $name ---"; Get-Content $p }
+            }
+            Write-Host "--- .NET Runtime / Application Error events ---"
+            Get-WinEvent -FilterHashtable @{LogName='Application'; StartTime=$started.AddSeconds(-2)} -ErrorAction SilentlyContinue |
+              Where-Object { $_.ProviderName -in @('.NET Runtime','Application Error','Windows Error Reporting') } |
+              Select-Object -First 20 TimeCreated, ProviderName, Id, LevelDisplayName, Message |
+              Format-List | Out-String -Width 260 | Write-Host
+            throw "UI flow contract failed with exit code $($probe.ExitCode)"
+          }
           if (!(Test-Path $result)) { throw "UI flow contract did not produce a result file" }
           $text = Get-Content $result -Raw
           foreach ($required in @(
