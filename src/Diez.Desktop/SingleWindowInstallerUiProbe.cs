@@ -47,7 +47,6 @@ internal static class SingleWindowInstallerUiProbe
                 if (!types.Contains(expected, StringComparer.Ordinal))
                     throw new InvalidOperationException($"Tipo libro mancante: {expected}");
 
-            // Coloring: real quantity page and all required controls.
             BookTypeProfileService.Set(project, BookTypeProfileService.ColoringBook);
             OpenQuantity(window, host);
             var coloring = pageHost.Content as Control ?? throw new InvalidOperationException("Pagina Coloring assente.");
@@ -59,19 +58,18 @@ internal static class SingleWindowInstallerUiProbe
             AssertText(coloring, "Soggetto/i — scelta e descrizione");
             AssertText(coloring, "Ambiente / scenario — descrizione");
             AssertText(coloring, "SOLO 2 COLORI");
-            RequireEditableTextBox(coloring, "ColoringSubjectDescription", multiline: true);
-            RequireEditableTextBox(coloring, "ColoringEnvironmentDescription", multiline: true);
+            RequireEditableTextBox(coloring, "ColoringSubjectDescription", true);
+            RequireEditableTextBox(coloring, "ColoringEnvironmentDescription", true);
             RequireCombo(coloring, "ColoringStyle");
             RequireCombo(coloring, "ColoringLineWeight");
             AssertImageSpecs(coloring);
             AssertConsistentVisibility(coloring);
 
-            // Prompt page: exactly the real editors the user will operate.
             SingleWindowEntryPointUi.Invoke(host, "OpenPrompt", 12);
             SingleWindowColoringProfileUi.EnsureCurrentPage(window);
             SingleWindowImageSpecsUi.EnsureCurrentPage(window);
             SingleWindowPromptTargetAiUi.EnsureCurrentPage(window);
-            SingleWindowImageRequestUi.EnsureCurrentPage(window);
+            SingleWindowAiImageContextUi.EnsureCurrentPage(window);
             var prompt = pageHost.Content as Control ?? throw new InvalidOperationException("Pagina prompt assente.");
             AssertText(prompt, "DEVE FARE");
             AssertText(prompt, "NON DEVE FARE");
@@ -86,7 +84,6 @@ internal static class SingleWindowInstallerUiProbe
                     throw new InvalidOperationException($"Provider prompt mancante: {expected}");
             AssertButton(prompt, "Prepara prompt per AI scelta");
 
-            // Image collection shares technical quality but not Coloring binary-color policy.
             BookTypeProfileService.Set(project, BookTypeProfileService.ImageCollection);
             OpenQuantity(window, host);
             var collection = pageHost.Content as Control ?? throw new InvalidOperationException("Pagina Raccolta immagini assente.");
@@ -98,7 +95,6 @@ internal static class SingleWindowInstallerUiProbe
             AssertImageSpecs(collection);
             AssertNoText(collection, "Vincolo fisso Coloring: SOLO 2 COLORI");
 
-            // Illustrated book reuses the illustration profile, while retaining its own identity.
             BookTypeProfileService.Set(project, BookTypeProfileService.IllustratedBook);
             OpenQuantity(window, host);
             var illustrated = pageHost.Content as Control ?? throw new InvalidOperationException("Pagina Libro illustrato assente.");
@@ -121,7 +117,7 @@ internal static class SingleWindowInstallerUiProbe
         SingleWindowImageCollectionProfileUi.EnsureCurrentPage(window);
         SingleWindowImageSpecsUi.EnsureCurrentPage(window);
         SingleWindowConsistencyCriteriaUi.EnsureCurrentPage(window);
-        SingleWindowImageRequestUi.EnsureCurrentPage(window);
+        SingleWindowAiImageContextUi.EnsureCurrentPage(window);
     }
 
     private static void AssertImageSpecs(Control page)
@@ -133,7 +129,7 @@ internal static class SingleWindowInstallerUiProbe
             if (!values.Contains(expected, StringComparer.Ordinal))
                 throw new InvalidOperationException($"Classe risoluzione mancante: {expected}");
         foreach (var name in new[] { "ImageSpecAspectRatio", "ImageSpecPixelWidth", "ImageSpecPixelHeight", "ImageSpecDpi", "ImageSpecSafeMargin" })
-            RequireEditableTextBox(page, name, multiline: false);
+            RequireEditableTextBox(page, name, false);
         RequireCombo(page, "ImageSpecQuality");
         RequireCombo(page, "ImageSpecLineDetail");
     }
