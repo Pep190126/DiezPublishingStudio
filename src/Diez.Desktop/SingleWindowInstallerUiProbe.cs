@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Reflection;
 using Avalonia.Controls;
+using Avalonia.Threading;
 
 namespace DiezPublishingStudio;
 
@@ -17,19 +18,23 @@ internal static class SingleWindowInstallerUiProbe
         "Personalizzata — usa i pixel indicati"
     ];
 
-    public static Task RunAsync(MainWindow window)
+    public static async Task RunAsync(MainWindow window)
     {
         SetSession(window, null, null);
         SingleWindowV5StartupUi.ShowStart(window);
         var host = SingleWindowEntryPointUi.GetHost(window);
         var pageHost = PageHost(host);
+        await WaitForLayoutAsync();
         AssertText(pageHost.Content as Control, "Diez Publishing Studio");
         AssertButton(pageHost.Content as Control, "Nuovo progetto");
         AssertButton(pageHost.Content as Control, "Apri progetto .diez");
 
+        var tempPath = Path.Combine(Path.GetTempPath(), "diez-installer-ui-contract-" + Guid.NewGuid().ToString("N") + ".diez");
         var project = ProjectFileStore.Create("Installer UI Contract");
-        SetSession(window, project, Path.Combine(Path.GetTempPath(), "diez-installer-ui-contract.diez"));
+        await ProjectFileStore.SaveAsync(tempPath, project);
+        SetSession(window, project, tempPath);
         SingleWindowV5StartupUi.ShowStart(window);
+        await WaitForLayoutAsync();
         AssertText(pageHost.Content as Control, "Quale libro stai preparando?");
         var typeChoice = Descendants(pageHost.Content as Control).OfType<ComboBox>().FirstOrDefault()
             ?? throw new InvalidOperationException("La scelta del Tipo libro non è visibile.");
@@ -40,20 +45,24 @@ internal static class SingleWindowInstallerUiProbe
 
         BookTypeProfileService.Set(project, BookTypeProfileService.ColoringBook);
         OpenQuantity(window, host);
+        await WaitForLayoutAsync();
         var coloring = pageHost.Content as Control ?? throw new InvalidOperationException("Pagina Coloring assente.");
         AssertText(coloring, "Quante immagini vuoi creare?");
         if (Descendants(coloring).OfType<RadioButton>().Any())
             throw new InvalidOperationException("La pagina Coloring contiene radio legacy.");
-        if (!Descendants(coloring).OfType<TextBox>().Any(t => t.IsVisible && t.IsEnabled && !t.IsReadOnly && !t.AcceptsReturn))
-            throw new InvalidOperationException("Il campo numero immagini non è digitabile.");
+        var quantity = Descendants(coloring).OfType<TextBox>().FirstOrDefault(t => t.IsVisible && t.IsEnabled && !t.IsReadOnly && !t.AcceptsReturn)
+            ?? throw new InvalidOperationException("Il campo numero immagini non è digitabile.");
+        RequireRendered(quantity, 80, 32, "Numero immagini");
         AssertText(coloring, "Soggetto/i — scelta e descrizione");
         AssertText(coloring, "Ambiente / scenario — descrizione");
         AssertText(coloring, "SOLO 2 COLORI");
-        RequireEditableTextBox(coloring, "ColoringSubjectDescription", true);
-        RequireEditableTextBox(coloring, "ColoringEnvironmentDescription", true);
+        var subject = RequireEditableTextBox(coloring, "ColoringSubjectDescription", true);
+        var environment = RequireEditableTextBox(coloring, "ColoringEnvironmentDescription", true);
+        RequireRendered(subject, 220, 60, "Soggetto/i");
+        RequireRendered(environment, 220, 60, "Ambiente");
         RequireCombo(coloring, "ColoringStyle");
         RequireCombo(coloring, "ColoringLineWeight");
-        AssertImageSpecs(coloring);
+        await AssertImageSpecsAsync(window, coloring, true);
         AssertConsistentVisibility(coloring);
 
         SingleWindowEntryPointUi.Invoke(host, "OpenPrompt", 12);
@@ -61,6 +70,8 @@ internal static class SingleWindowInstallerUiProbe
         SingleWindowImageSpecsUi.EnsureCurrentPage(window);
         SingleWindowPromptTargetAiUi.EnsureCurrentPage(window);
         SingleWindowAiImageContextUi.EnsureCurrentPage(window);
+        SingleWindowVisibleInputsUi.Apply(window);
+        await WaitForLayoutAsync();
         var prompt = pageHost.Content as Control ?? throw new InvalidOperationException("Pagina prompt assente.");
         AssertText(prompt, "DEVE FARE");
         AssertText(prompt, "NON DEVE FARE");
@@ -68,6 +79,12 @@ internal static class SingleWindowInstallerUiProbe
         var editors = Descendants(prompt).OfType<TextBox>().Where(t => t.IsVisible && t.IsEnabled && !t.IsReadOnly).ToList();
         if (editors.Count < 3) throw new InvalidOperationException("I tre box editabili non sono visibili.");
         if (editors.Take(3).Any(t => !t.IsUndoEnabled)) throw new InvalidOperationException("Undo/Redo non è abilitato sui tre box.");
+        foreach (var pair in editors.Take(3).Zip(new[] { "DEVE FARE", "NON DEVE FARE", "PROMPT" }))
+        {
+            RequireRendered(pair.First, 220, 60, pair.Second);
+            if (pair.First.BorderThickness.Left < 1 || pair.First.Background is null)
+                throw new InvalidOperationException($"Il box {pair.Second} non ha un bordo/sfondo visibile.");
+        }
         AssertText(prompt, "AI per cui preparare il prompt specifico");
         var provider = RequireCombo(prompt, "PromptTargetAi");
         foreach (var expected in new[] { "Generico / nessuna AI specifica", "ChatGPT / OpenAI", "Gemini", "Altra / nuova AI" })
@@ -77,23 +94,26 @@ internal static class SingleWindowInstallerUiProbe
 
         BookTypeProfileService.Set(project, BookTypeProfileService.ImageCollection);
         OpenQuantity(window, host);
+        await WaitForLayoutAsync();
         var collection = pageHost.Content as Control ?? throw new InvalidOperationException("Pagina Raccolta immagini assente.");
         AssertText(collection, "Profilo della Raccolta immagini");
         var collectionColor = RequireCombo(collection, "ImageCollectionColorMode");
         foreach (var expected in new[] { "Colore pieno", "Scala di grigi — con sfumature", "Bianco e nero puro — 2 colori" })
             if (!Values(collectionColor).Contains(expected, StringComparer.Ordinal))
                 throw new InvalidOperationException($"Resa cromatica Raccolta immagini mancante: {expected}");
-        AssertImageSpecs(collection);
+        await AssertImageSpecsAsync(window, collection, false);
         AssertNoText(collection, "Vincolo fisso Coloring: SOLO 2 COLORI");
 
         BookTypeProfileService.Set(project, BookTypeProfileService.IllustratedBook);
         OpenQuantity(window, host);
+        await WaitForLayoutAsync();
         var illustrated = pageHost.Content as Control ?? throw new InvalidOperationException("Pagina Libro illustrato assente.");
         AssertText(illustrated, "Profilo delle illustrazioni del Libro illustrato");
         RequireCombo(illustrated, "ImageCollectionColorMode");
-        AssertImageSpecs(illustrated);
+        await AssertImageSpecsAsync(window, illustrated, false);
         AssertNoText(illustrated, "Vincolo fisso Coloring: SOLO 2 COLORI");
-        return Task.CompletedTask;
+
+        try { if (File.Exists(tempPath)) File.Delete(tempPath); } catch { }
     }
 
     private static void OpenQuantity(MainWindow window, object host)
@@ -103,22 +123,51 @@ internal static class SingleWindowInstallerUiProbe
         SingleWindowColoringProfileUi.EnsureCurrentPage(window);
         SingleWindowImageCollectionProfileUi.EnsureCurrentPage(window);
         SingleWindowImageSpecsUi.EnsureCurrentPage(window);
+        SingleWindowCustomDimensionsUi.EnsureCurrentPage(window);
         SingleWindowConsistencyCriteriaUi.EnsureCurrentPage(window);
         SingleWindowAiImageContextUi.EnsureCurrentPage(window);
+        SingleWindowVisibleInputsUi.Apply(window);
     }
 
-    private static void AssertImageSpecs(Control page)
+    private static async Task AssertImageSpecsAsync(MainWindow window, Control page, bool testCustom)
     {
         AssertText(page, "Specifiche immagine / stampa");
+        var preset = RequireCombo(page, "ImageSpecPreset");
         var resolution = RequireCombo(page, "ImageSpecResolutionClass");
         var values = Values(resolution);
         foreach (var expected in ResolutionClasses)
             if (!values.Contains(expected, StringComparer.Ordinal))
                 throw new InvalidOperationException($"Classe risoluzione mancante: {expected}");
-        foreach (var name in new[] { "ImageSpecAspectRatio", "ImageSpecPixelWidth", "ImageSpecPixelHeight", "ImageSpecDpi", "ImageSpecSafeMargin" })
+        foreach (var name in new[] { "ImageSpecAspectRatio", "ImageSpecSafeMargin" })
             RequireEditableTextBox(page, name, false);
         RequireCombo(page, "ImageSpecQuality");
         RequireCombo(page, "ImageSpecLineDetail");
+
+        if (!testCustom) return;
+
+        SelectByText(preset, "Personalizzato");
+        await WaitForLayoutAsync();
+        SingleWindowCustomDimensionsUi.EnsureCurrentPage(window);
+        SingleWindowVisibleInputsUi.Apply(window);
+        var physical = Descendants(page).FirstOrDefault(c => string.Equals(c.Name, "CustomImageSpecPhysicalInputs", StringComparison.Ordinal))
+            ?? throw new InvalidOperationException("Pannello dimensioni fisiche personalizzate mancante.");
+        if (!physical.IsVisible) throw new InvalidOperationException("Le dimensioni fisiche personalizzate non compaiono scegliendo Personalizzato.");
+        var customWidth = RequireNumeric(page, "CustomImageSpecWidth");
+        var customHeight = RequireNumeric(page, "CustomImageSpecHeight");
+        RequireRendered(customWidth, 100, 32, "Larghezza personalizzata");
+        RequireRendered(customHeight, 100, 32, "Altezza personalizzata");
+
+        SelectByText(resolution, "Personalizzata — usa i pixel indicati");
+        await WaitForLayoutAsync();
+        var pixels = Descendants(page).FirstOrDefault(c => string.Equals(c.Name, "CustomImageSpecPixelInputs", StringComparison.Ordinal))
+            ?? throw new InvalidOperationException("Pannello pixel personalizzati mancante.");
+        if (!pixels.IsVisible) throw new InvalidOperationException("I pixel personalizzati non compaiono scegliendo risoluzione Personalizzata.");
+        var customPixelWidth = RequireNumeric(page, "CustomImageSpecPixelWidth");
+        var customPixelHeight = RequireNumeric(page, "CustomImageSpecPixelHeight");
+        var customDpi = RequireNumeric(page, "CustomImageSpecDpi");
+        RequireRendered(customPixelWidth, 110, 32, "Larghezza px personalizzata");
+        RequireRendered(customPixelHeight, 110, 32, "Altezza px personalizzata");
+        RequireRendered(customDpi, 100, 32, "DPI");
     }
 
     private static void AssertConsistentVisibility(Control page)
@@ -143,12 +192,44 @@ internal static class SingleWindowInstallerUiProbe
         return box;
     }
 
+    private static NumericUpDown RequireNumeric(Control root, string name)
+    {
+        var number = Descendants(root).OfType<NumericUpDown>().FirstOrDefault(x => x.Name == name)
+            ?? throw new InvalidOperationException($"Campo numerico mancante: {name}");
+        if (!number.IsEnabled) throw new InvalidOperationException($"Campo numerico disabilitato: {name}");
+        return number;
+    }
+
     private static ComboBox RequireCombo(Control root, string name) =>
         Descendants(root).OfType<ComboBox>().FirstOrDefault(x => x.Name == name)
         ?? throw new InvalidOperationException($"ComboBox mancante: {name}");
 
+    private static void SelectByText(ComboBox combo, string text)
+    {
+        if (combo.ItemsSource is not IEnumerable source)
+            throw new InvalidOperationException($"Combo senza ItemsSource: {combo.Name}");
+        var item = source.Cast<object>().FirstOrDefault(x => string.Equals(x.ToString(), text, StringComparison.Ordinal))
+            ?? throw new InvalidOperationException($"Voce combo mancante '{text}' in {combo.Name}");
+        combo.SelectedItem = item;
+    }
+
     private static List<string> Values(ComboBox combo) =>
         combo.ItemsSource is IEnumerable source ? source.Cast<object>().Select(x => x.ToString() ?? string.Empty).ToList() : [];
+
+    private static void RequireRendered(Control control, double minWidth, double minHeight, string label)
+    {
+        if (!control.IsVisible || control.Opacity < 0.5)
+            throw new InvalidOperationException($"Il controllo '{label}' non è visibile a video.");
+        if (control.Bounds.Width < minWidth || control.Bounds.Height < minHeight)
+            throw new InvalidOperationException($"Il controllo '{label}' ha dimensioni renderizzate insufficienti: {control.Bounds.Width:0.#} × {control.Bounds.Height:0.#}.");
+    }
+
+    private static async Task WaitForLayoutAsync()
+    {
+        await Task.Yield();
+        await Task.Delay(80);
+        await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+    }
 
     private static void SetSession(MainWindow window, PreviewProject? project, string? path)
     {
