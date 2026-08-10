@@ -10,6 +10,9 @@ internal static class SingleWindowConsistencyCriteriaUi
 {
     private const string PanelName = "DiezConsistencyCriteriaPanel";
     private const string PaletteKey = "palette";
+    private const string StrategyUser = "USER";
+    private const string StrategyAi = "AI";
+    private const string StrategyMixed = "MIXED";
     private static readonly Dictionary<MainWindow, CriteriaState> States = [];
 
     private static readonly LevelChoice[] Levels =
@@ -17,6 +20,13 @@ internal static class SingleWindowConsistencyCriteriaUi
         new("LOCKED", "Da mantenere"),
         new("PREFERRED", "Preferibilmente coerente"),
         new("FREE", "Può variare")
+    ];
+
+    private static readonly StrategyChoice[] Strategies =
+    [
+        new(StrategyUser, "La definisco io"),
+        new(StrategyAi, "La decide l’AI"),
+        new(StrategyMixed, "Mista: do indicazioni e l’AI completa")
     ];
 
     public static void Attach(MainWindow window)
@@ -99,19 +109,21 @@ internal static class SingleWindowConsistencyCriteriaUi
         panel.Children.Add(new TextBlock
         {
             Text = coloring
-                ? "Per ogni criterio scegli quanto deve essere vincolante. Nel Coloring la resa cromatica resta sempre nero/bianco puro. Se scegli “Può variare”, descrivi obbligatoriamente cosa può cambiare e come."
-                : "Per ogni criterio scegli quanto deve essere vincolante. Se scegli “Può variare”, descrivi obbligatoriamente cosa può cambiare e come: questa diventa una libertà controllata per l'AI.",
+                ? "Per ogni criterio scegli quanto deve essere vincolante. Nel Coloring la resa cromatica resta sempre nero/bianco puro. Con “Può variare” puoi decidere tu, lasciare decidere l’AI oppure dare indicazioni che l’AI completerà."
+                : "Per ogni criterio scegli quanto deve essere vincolante. Con “Può variare” puoi definire tu la variazione, affidarla all’AI oppure usare una modalità mista.",
             TextWrapping = TextWrapping.Wrap
         });
 
         var allLocked = new CheckBox
         {
-            Content = "Tutto coerente — mantieni tutti i criteri variabili",
+            Content = "Tutto coerente — mantieni tutti i criteri",
             IsChecked = criteria.Where(c => !c.Fixed).All(c => state.Levels.TryGetValue(c.Key, out var v) && v == "LOCKED")
         };
         panel.Children.Add(allLocked);
 
         var combos = new Dictionary<string, ComboBox>(StringComparer.Ordinal);
+        var strategyCombos = new Dictionary<string, ComboBox>(StringComparer.Ordinal);
+        var strategyLabels = new Dictionary<string, TextBlock>(StringComparer.Ordinal);
         var variationBoxes = new Dictionary<string, TextBox>(StringComparer.Ordinal);
         var changing = false;
 
@@ -129,6 +141,29 @@ internal static class SingleWindowConsistencyCriteriaUi
             combo.SelectedItem = criterion.Fixed ? Levels[0] : Levels.First(x => x.Level == level);
             combos[criterion.Key] = combo;
 
+            var strategyLabel = new TextBlock
+            {
+                Text = "Chi decide come può variare?",
+                FontSize = 14,
+                IsVisible = !criterion.Fixed && string.Equals(level, "FREE", StringComparison.Ordinal)
+            };
+            strategyLabels[criterion.Key] = strategyLabel;
+
+            var strategy = new ComboBox
+            {
+                Name = "ConsistencyVariationStrategy_" + criterion.Key,
+                ItemsSource = Strategies,
+                Width = 360,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                IsVisible = !criterion.Fixed && string.Equals(level, "FREE", StringComparison.Ordinal)
+            };
+            var selectedStrategy = state.Strategies.TryGetValue(criterion.Key, out var strategyValue)
+                ? NormalizeStrategy(strategyValue)
+                : StrategyUser;
+            state.Strategies[criterion.Key] = selectedStrategy;
+            strategy.SelectedItem = Strategies.First(x => x.Strategy == selectedStrategy);
+            strategyCombos[criterion.Key] = strategy;
+
             var variation = new TextBox
             {
                 Name = "ConsistencyVariation_" + criterion.Key,
@@ -136,7 +171,6 @@ internal static class SingleWindowConsistencyCriteriaUi
                 AcceptsReturn = true,
                 MinHeight = 74,
                 TextWrapping = TextWrapping.Wrap,
-                Watermark = $"Cosa può variare e come per “{criterion.Label}”? Esempio: lo sfondo cambia per ogni tavola, ma personaggio, tratto e proporzioni restano invariati.",
                 IsReadOnly = false,
                 IsEnabled = true,
                 IsHitTestVisible = true,
@@ -149,6 +183,7 @@ internal static class SingleWindowConsistencyCriteriaUi
                 Padding = new Thickness(8, 6),
                 IsVisible = !criterion.Fixed && string.Equals(level, "FREE", StringComparison.Ordinal)
             };
+            ApplyVariationWatermark(variation, selectedStrategy, criterion.Label);
             variationBoxes[criterion.Key] = variation;
 
             if (!criterion.Fixed)
@@ -157,13 +192,25 @@ internal static class SingleWindowConsistencyCriteriaUi
                 {
                     if (combo.SelectedItem is not LevelChoice choice) return;
                     state.Levels[criterion.Key] = choice.Level;
-                    variation.IsVisible = choice.Level == "FREE";
+                    var free = choice.Level == "FREE";
+                    strategyLabel.IsVisible = free;
+                    strategy.IsVisible = free;
+                    variation.IsVisible = free;
                     if (!changing)
                     {
                         changing = true;
                         allLocked.IsChecked = criteria.Where(c => !c.Fixed).All(c => state.Levels.TryGetValue(c.Key, out var v) && v == "LOCKED");
                         changing = false;
                     }
+                    WriteRules(host, state, criteria, coloring);
+                    UpdateNextValidity(next, state, criteria);
+                };
+
+                strategy.SelectionChanged += (_, _) =>
+                {
+                    if (strategy.SelectedItem is not StrategyChoice choice) return;
+                    state.Strategies[criterion.Key] = choice.Strategy;
+                    ApplyVariationWatermark(variation, choice.Strategy, criterion.Label);
                     WriteRules(host, state, criteria, coloring);
                     UpdateNextValidity(next, state, criteria);
                 };
@@ -191,6 +238,8 @@ internal static class SingleWindowConsistencyCriteriaUi
                             combo.WithGridColumn(1)
                         }
                     },
+                    strategyLabel,
+                    strategy,
                     variation
                 }
             });
@@ -229,6 +278,8 @@ internal static class SingleWindowConsistencyCriteriaUi
             {
                 state.Levels[criterion.Key] = "LOCKED";
                 combos[criterion.Key].SelectedItem = Levels[0];
+                strategyLabels[criterion.Key].IsVisible = false;
+                strategyCombos[criterion.Key].IsVisible = false;
                 variationBoxes[criterion.Key].IsVisible = false;
             }
             if (coloring) state.Levels[PaletteKey] = "LOCKED";
@@ -237,6 +288,16 @@ internal static class SingleWindowConsistencyCriteriaUi
             UpdateNextValidity(next, state, criteria);
         };
         return panel;
+    }
+
+    private static void ApplyVariationWatermark(TextBox box, string strategy, string criterionLabel)
+    {
+        box.Watermark = NormalizeStrategy(strategy) switch
+        {
+            StrategyAi => $"Facoltativo: dai all’AI preferenze o limiti per “{criterionLabel}”. Se lasci vuoto, l’AI decide liberamente entro le altre regole Consistent.",
+            StrategyMixed => $"Obbligatorio: indica cosa vuoi guidare per “{criterionLabel}”; l’AI completerà ciò che non specifichi.",
+            _ => $"Obbligatorio: descrivi tu cosa può variare e come per “{criterionLabel}”."
+        };
     }
 
     private static void UpdateNextValidity(Button? next, CriteriaState state, Criterion[] criteria)
@@ -250,13 +311,14 @@ internal static class SingleWindowConsistencyCriteriaUi
         }
         var missing = criteria
             .Where(c => !c.Fixed && state.Levels.TryGetValue(c.Key, out var level) && level == "FREE")
+            .Where(c => !string.Equals(GetStrategy(state, c.Key), StrategyAi, StringComparison.Ordinal))
             .Where(c => !state.Variations.TryGetValue(c.Key, out var text) || string.IsNullOrWhiteSpace(text))
             .Select(c => c.Label)
             .ToList();
         next.IsEnabled = missing.Count == 0;
         ToolTip.SetTip(next, missing.Count == 0
             ? null
-            : "Descrivi cosa può variare e come per: " + string.Join(", ", missing));
+            : "Descrivi cosa può variare e come per i criteri definiti da te o in modalità mista: " + string.Join(", ", missing));
     }
 
     private static void LoadFromHostIfNeeded(object host, CriteriaState state, Criterion[] criteria, bool coloring)
@@ -265,7 +327,12 @@ internal static class SingleWindowConsistencyCriteriaUi
         state.LoadedFor = coloring ? "coloring" : "images";
         state.Levels.Clear();
         state.Variations.Clear();
-        foreach (var criterion in criteria) state.Levels[criterion.Key] = criterion.Fixed ? "LOCKED" : criterion.DefaultLevel;
+        state.Strategies.Clear();
+        foreach (var criterion in criteria)
+        {
+            state.Levels[criterion.Key] = criterion.Fixed ? "LOCKED" : criterion.DefaultLevel;
+            state.Strategies[criterion.Key] = StrategyUser;
+        }
 
         var rules = ReadHostRules(host);
         if (!string.IsNullOrWhiteSpace(rules))
@@ -281,12 +348,7 @@ internal static class SingleWindowConsistencyCriteriaUi
                     if (choice is not null)
                     {
                         state.Levels[criterion.Key] = choice.Level;
-                        if (choice.Level == "FREE")
-                        {
-                            var separator = value.IndexOf('—');
-                            if (separator >= 0 && separator + 1 < value.Length)
-                                state.Variations[criterion.Key] = value[(separator + 1)..].Trim();
-                        }
+                        if (choice.Level == "FREE") ParseFreeRule(value, state, criterion.Key);
                     }
                 }
                 else if (line.StartsWith("Note:", StringComparison.OrdinalIgnoreCase))
@@ -294,6 +356,30 @@ internal static class SingleWindowConsistencyCriteriaUi
             }
         }
         if (coloring) state.Levels[PaletteKey] = "LOCKED";
+    }
+
+    private static void ParseFreeRule(string value, CriteriaState state, string key)
+    {
+        if (value.Contains("chi decide: AI", StringComparison.OrdinalIgnoreCase)) state.Strategies[key] = StrategyAi;
+        else if (value.Contains("chi decide: MISTA", StringComparison.OrdinalIgnoreCase)) state.Strategies[key] = StrategyMixed;
+        else if (value.Contains("chi decide: UTENTE", StringComparison.OrdinalIgnoreCase)) state.Strategies[key] = StrategyUser;
+        else state.Strategies[key] = StrategyUser;
+
+        var markers = new[] { "— variazione:", "— indicazioni:", "— indicazioni facoltative:" };
+        foreach (var marker in markers)
+        {
+            var index = value.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            if (index >= 0)
+            {
+                state.Variations[key] = value[(index + marker.Length)..].Trim();
+                return;
+            }
+        }
+
+        // Retrocompatibilità: il vecchio formato era “Può variare — descrizione”.
+        var separator = value.IndexOf('—');
+        if (separator >= 0 && separator + 1 < value.Length && !value[(separator + 1)..].Contains("chi decide:", StringComparison.OrdinalIgnoreCase))
+            state.Variations[key] = value[(separator + 1)..].Trim();
     }
 
     private static void WriteRules(object host, CriteriaState state, Criterion[] criteria, bool coloring)
@@ -310,13 +396,34 @@ internal static class SingleWindowConsistencyCriteriaUi
                 return "Palette / colori: Da mantenere — fisso nero puro #000000 e bianco puro #FFFFFF";
             var level = state.Levels.TryGetValue(c.Key, out var selected) ? selected : c.DefaultLevel;
             var label = Levels.First(x => x.Level == level).Label;
-            if (level == "FREE" && state.Variations.TryGetValue(c.Key, out var variation) && !string.IsNullOrWhiteSpace(variation))
-                return $"{c.Label}: {label} — {variation.Trim()}";
-            return $"{c.Label}: {label}";
+            if (level != "FREE") return $"{c.Label}: {label}";
+
+            var strategy = GetStrategy(state, c.Key);
+            var decision = strategy switch
+            {
+                StrategyAi => "AI",
+                StrategyMixed => "MISTA",
+                _ => "UTENTE"
+            };
+            var variation = state.Variations.TryGetValue(c.Key, out var text) ? text.Trim() : string.Empty;
+            if (string.IsNullOrWhiteSpace(variation))
+                return $"{c.Label}: {label} — chi decide: {decision}";
+            var detailLabel = strategy == StrategyUser ? "variazione" : strategy == StrategyAi ? "indicazioni facoltative" : "indicazioni";
+            return $"{c.Label}: {label} — chi decide: {decision} — {detailLabel}: {variation}";
         }).ToList();
         if (!string.IsNullOrWhiteSpace(state.Notes)) lines.Add("Note: " + state.Notes.Trim());
         SetHostRules(host, string.Join(Environment.NewLine, lines));
     }
+
+    private static string GetStrategy(CriteriaState state, string key) =>
+        state.Strategies.TryGetValue(key, out var value) ? NormalizeStrategy(value) : StrategyUser;
+
+    private static string NormalizeStrategy(string? value) => value?.Trim().ToUpperInvariant() switch
+    {
+        StrategyAi => StrategyAi,
+        StrategyMixed => StrategyMixed,
+        _ => StrategyUser
+    };
 
     private static string ReadHostRules(object host)
     {
@@ -365,10 +472,15 @@ internal static class SingleWindowConsistencyCriteriaUi
         public string Notes { get; set; } = string.Empty;
         public Dictionary<string, string> Levels { get; } = new(StringComparer.Ordinal);
         public Dictionary<string, string> Variations { get; } = new(StringComparer.Ordinal);
+        public Dictionary<string, string> Strategies { get; } = new(StringComparer.Ordinal);
     }
 
     private sealed record Criterion(string Key, string Label, string DefaultLevel, bool Fixed);
     private sealed record LevelChoice(string Level, string Label)
+    {
+        public override string ToString() => Label;
+    }
+    private sealed record StrategyChoice(string Strategy, string Label)
     {
         public override string ToString() => Label;
     }
