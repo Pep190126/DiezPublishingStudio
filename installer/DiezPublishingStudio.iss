@@ -55,8 +55,7 @@ const
   DiezSettingsKey = 'Software\Diez Publishing Studio';
 
 var
-  CleanInstallPage: TInputOptionWizardPage;
-  UserDataPage: TInputOptionWizardPage;
+  InstallModePage: TInputOptionWizardPage;
   PreviousInstallDetected: Boolean;
 
 function HasPreviousInstall(): Boolean;
@@ -103,7 +102,7 @@ begin
   if Result and (ResultCode <> 0) then Result := False;
 end;
 
-function ResetDiezUserData(): Boolean;
+function ResetDiezManagedWorkData(): Boolean;
 var
   LocalDataDir: String;
   RoamingDataDir: String;
@@ -112,6 +111,9 @@ begin
   LocalDataDir := ExpandConstant('{localappdata}\Diez Publishing Studio');
   RoamingDataDir := ExpandConstant('{userappdata}\Diez Publishing Studio');
 
+  { Solo dati gestiti internamente da Diez. Non cercare né cancellare mai
+    progetti .diez, immagini, documenti o sorgenti salvati dall'utente
+    in altre cartelle del computer. }
   if DirExists(LocalDataDir) then
     if not DelTree(LocalDataDir, True, True, True) then Result := False;
 
@@ -122,52 +124,35 @@ begin
 end;
 
 procedure InitializeWizard;
-var
-  UserDataAfterPage: Integer;
 begin
   PreviousInstallDetected := HasPreviousInstall();
-  UserDataAfterPage := wpWelcome;
 
-  if PreviousInstallDetected then
-  begin
-    CleanInstallPage := CreateInputOptionPage(
-      wpWelcome,
-      'Aggiornamento di Diez',
-      'È già presente una versione di Diez Publishing Studio.',
-      'Scegli se aggiornare normalmente oppure rimuovere prima i soli file del programma. La scelta sui dati utente viene fatta nella schermata successiva.',
-      True,
-      True);
-    CleanInstallPage.Add('Aggiornamento normale (consigliato)');
-    CleanInstallPage.Add('Installazione pulita del programma: rimuovi prima la versione precedente');
-    CleanInstallPage.Values[0] := True;
-    UserDataAfterPage := CleanInstallPage.ID;
-  end;
-
-  UserDataPage := CreateInputOptionPage(
-    UserDataAfterPage,
-    'Dati utente di Diez',
-    'Vuoi mantenere i dati locali creati da Diez?',
-    'Questa scelta riguarda impostazioni, cache, log e stato locale dell’app. I progetti .diez salvati nelle cartelle scelte da te non vengono cercati né eliminati.',
+  InstallModePage := CreateInputOptionPage(
+    wpWelcome,
+    'Come vuoi installare Diez?',
+    'Scegli se mantenere il lavoro oppure ripartire con una reinstallazione pulita.',
+    'I progetti .diez, le foto e gli altri file che hai salvato personalmente in cartelle del computer non vengono mai cancellati automaticamente dall''installer.',
     True,
     True);
-  UserDataPage.Add('Mantieni i dati utente di Diez (consigliato)');
-  UserDataPage.Add('Elimina i dati utente di Diez e riparti da uno stato locale vuoto');
-  UserDataPage.Values[0] := True;
+  InstallModePage.Add('Mantieni i dati di lavoro — aggiorna/reinstalla Diez conservando i dati locali gestiti dall''app');
+  InstallModePage.Add('Reinstallazione pulita — rimuovi la precedente installazione e cancella i dati locali gestiti da Diez');
+  InstallModePage.Values[0] := True;
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
-  ForceCleanInstall: Boolean;
-  CleanSelected: Boolean;
+  CleanRequested: Boolean;
   ResetRequested: Boolean;
 begin
   Result := '';
-  ForceCleanInstall := CompareText(ExpandConstant('{param:CLEANOLD|0}'), '1') = 0;
-  CleanSelected := False;
-  if PreviousInstallDetected then
-    CleanSelected := CleanInstallPage.Values[1];
 
-  if PreviousInstallDetected and (ForceCleanInstall or CleanSelected) then
+  CleanRequested := InstallModePage.Values[1] or
+    (CompareText(ExpandConstant('{param:CLEANOLD|0}'), '1') = 0);
+  ResetRequested := InstallModePage.Values[1] or
+    (CompareText(ExpandConstant('{param:RESETUSERDATA|0}'), '1') = 0);
+
+  { La reinstallazione pulita rimuove prima il programma precedente. }
+  if PreviousInstallDetected and CleanRequested then
   begin
     if not RemovePreviousInstall() then
     begin
@@ -176,13 +161,11 @@ begin
     end;
   end;
 
-  ResetRequested := CompareText(ExpandConstant('{param:RESETUSERDATA|0}'), '1') = 0;
-  if not ResetRequested then
-    ResetRequested := UserDataPage.Values[1];
-
+  { L'opzione Mantieni dati non tocca il lavoro locale. La reinstallazione
+    pulita elimina soltanto le aree gestite internamente da Diez. }
   if ResetRequested then
   begin
-    if not ResetDiezUserData() then
-      Result := 'Non è stato possibile eliminare completamente i dati locali di Diez. Chiudi eventuali programmi che li stanno usando e riprova.';
+    if not ResetDiezManagedWorkData() then
+      Result := 'Non è stato possibile eliminare completamente i dati locali gestiti da Diez. Chiudi eventuali programmi che li stanno usando e riprova.';
   end;
 end;
