@@ -17,7 +17,7 @@ internal static class BookTypePromptProfileService
         public string Style { get; set; } = "Bold & Easy";
         public string TargetAudience { get; set; } = "Bambini 6–9 anni";
         public string Difficulty { get; set; } = "Facile";
-        public string LineWeight { get; set; } = "Spesso";
+        public string LineWeight { get; set; } = "Spesso — Bold";
         public string Complexity { get; set; } = "Bassa";
         public string ElementDensity { get; set; } = "Bassa";
         public string Background { get; set; } = "Semplice / minimo";
@@ -25,8 +25,8 @@ internal static class BookTypePromptProfileService
         public bool ClosedAreas { get; set; } = true;
         public bool AvoidTinyAreas { get; set; } = true;
         public bool CleanContours { get; set; } = true;
-        // Legacy persisted flags are retained for backward compatibility only.
-        // Coloring output is now unconditionally two-color black/white.
+        // Kept only for compatibility with previously persisted profiles.
+        // Coloring output is now always binary black/white.
         public bool BlackAndWhiteOnly { get; set; } = true;
         public bool NoGray { get; set; } = true;
         public bool NoShadows { get; set; } = true;
@@ -57,7 +57,15 @@ internal static class BookTypePromptProfileService
     ];
 
     public static readonly string[] Difficulties = ["Molto facile", "Facile", "Media", "Impegnativa"];
-    public static readonly string[] LineWeights = ["Molto spesso", "Spesso", "Medio", "Sottile"];
+    public static readonly string[] LineWeights =
+    [
+        "Molto spesso — Extra Bold",
+        "Spesso — Bold",
+        "Medio",
+        "Sottile — Fine",
+        "Molto sottile — Extra Fine",
+        "Variabile — contorni principali più spessi, dettagli più sottili"
+    ];
     public static readonly string[] Complexities = ["Molto bassa", "Bassa", "Media", "Alta"];
     public static readonly string[] Densities = ["Molto bassa", "Bassa", "Media", "Alta"];
     public static readonly string[] Backgrounds = ["Nessuno / bianco", "Semplice / minimo", "Contestuale leggero", "Dettagliato"];
@@ -70,6 +78,7 @@ internal static class BookTypePromptProfileService
         try
         {
             var profile = JsonSerializer.Deserialize<ColoringProfile>(entity.Notes, JsonOptions) ?? new ColoringProfile();
+            profile.LineWeight = NormalizeLineWeight(profile.LineWeight);
             profile.BlackAndWhiteOnly = true;
             profile.NoGray = true;
             profile.NoShadows = true;
@@ -80,6 +89,7 @@ internal static class BookTypePromptProfileService
 
     public static void SaveColoring(PreviewProject project, ColoringProfile profile)
     {
+        profile.LineWeight = NormalizeLineWeight(profile.LineWeight);
         profile.BlackAndWhiteOnly = true;
         profile.NoGray = true;
         profile.NoShadows = true;
@@ -110,7 +120,8 @@ internal static class BookTypePromptProfileService
         sb.AppendLine($"- Stile principale: {p.Style}.");
         sb.AppendLine($"- Pubblico / fascia: {p.TargetAudience}.");
         sb.AppendLine($"- Difficoltà di colorazione: {p.Difficulty}.");
-        sb.AppendLine($"- Spessore linea: {p.LineWeight}.");
+        sb.AppendLine($"- Spessore linee selezionato: {p.LineWeight}.");
+        sb.AppendLine("- " + LineWeightRule(p.LineWeight));
         sb.AppendLine($"- Complessità visiva: {p.Complexity}.");
         sb.AppendLine($"- Densità di elementi: {p.ElementDensity}.");
         sb.AppendLine($"- Sfondo: {p.Background}.");
@@ -133,6 +144,32 @@ internal static class BookTypePromptProfileService
         sb.AppendLine("- Ogni tavola deve avere un soggetto/composizione distinta ma restare coerente con eventuali regole Consistent e paradigmi assegnati.");
         sb.AppendLine("- Non ritagliare parti importanti del soggetto e non posizionare dettagli essenziali troppo vicino ai bordi o al margine di sicurezza.");
         return sb.ToString().Trim();
+    }
+
+    private static string NormalizeLineWeight(string? value) => value switch
+    {
+        "Molto spesso" => "Molto spesso — Extra Bold",
+        "Spesso" => "Spesso — Bold",
+        "Sottile" => "Sottile — Fine",
+        "Molto sottile" => "Molto sottile — Extra Fine",
+        null or "" => "Spesso — Bold",
+        _ when LineWeights.Contains(value, StringComparer.Ordinal) => value!,
+        _ => "Spesso — Bold"
+    };
+
+    private static string LineWeightRule(string value)
+    {
+        if (value.StartsWith("Molto spesso", StringComparison.Ordinal))
+            return "Usa linee molto spesse e dominanti, adatte a Bold & Easy e a soggetti con grandi aree da colorare.";
+        if (value.StartsWith("Spesso", StringComparison.Ordinal))
+            return "Usa linee spesse, uniformi e molto leggibili, senza appesantire i dettagli interni.";
+        if (value == "Medio")
+            return "Usa linee di spessore medio, nitide e uniformi, con buon equilibrio tra leggibilità e dettaglio.";
+        if (value.StartsWith("Molto sottile", StringComparison.Ordinal))
+            return "Usa linee molto sottili solo se restano perfettamente nere, continue, separate e leggibili alla dimensione di stampa finale.";
+        if (value.StartsWith("Sottile", StringComparison.Ordinal))
+            return "Usa linee sottili e nitide, adatte a illustrazioni dettagliate, senza grigi o perdita di continuità alla stampa.";
+        return "Usa gerarchia di spessori: contorno principale più spesso, dettagli interni più sottili, sempre in nero puro e ben separati.";
     }
 
     private static IEnumerable<string> StyleRules(string style)
