@@ -41,9 +41,13 @@ internal static class SingleWindowConsistencyCriteriaUi
         var pageHost = host.GetType().GetField("_pageHost", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(host) as ContentControl;
         if (pageHost is null) return;
 
-        // React only when the logical page host changes. Do not poll LayoutUpdated:
-        // changing layout must never keep the UI thread busy.
-        pageHost.PropertyChanged += (_, _) => EnsureCurrentPage(window);
+        // React only to the logical page replacement. Bounds/layout changes must not
+        // rebuild or scan the criteria UI.
+        pageHost.PropertyChanged += (_, e) =>
+        {
+            if (e.Property == ContentControl.ContentProperty)
+                EnsureCurrentPage(window);
+        };
         window.Closed += (_, _) => States.Remove(window);
         EnsureCurrentPage(window);
     }
