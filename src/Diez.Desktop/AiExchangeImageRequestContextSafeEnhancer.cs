@@ -11,6 +11,8 @@ namespace DiezPublishingStudio;
 internal static class AiExchangeImageRequestContextSafeEnhancer
 {
     private const string InstructionsName = "instructions.md";
+    private const string AuthoritativeImageRule =
+        "REGOLA AUTORITATIVA IMMAGINI: le descrizioni utente e le descrizioni correnti accompagnano e guidano il lavoro, ma non sostituiscono il file immagine reale. Per una correzione/modifica, usa sempre base_version.file come sorgente visiva autoritativa e applica su quella immagine preserve/change/add/remove e tutti i preset presenti in request-context.json.";
 
     public static async Task<AiExchangeImageRequestContextService.EnhanceResult> EnhancePromptPackAsync(
         PreviewProject project,
@@ -74,11 +76,14 @@ internal static class AiExchangeImageRequestContextSafeEnhancer
 
     private static string MergeInstructions(string original, string visual)
     {
-        var a = (original ?? string.Empty).TrimEnd();
+        var parts = new List<string>();
+        var a = (original ?? string.Empty).Trim();
         var b = (visual ?? string.Empty).Trim();
-        if (a.Length == 0) return b;
-        if (b.Length == 0) return a;
-        if (a.Contains("Contesto visuale Diez V2", StringComparison.Ordinal)) return a;
-        return a + Environment.NewLine + Environment.NewLine + b;
+        if (a.Length > 0) parts.Add(a);
+        if (b.Length > 0 && !a.Contains("Contesto visuale Diez V2", StringComparison.Ordinal)) parts.Add(b);
+        var merged = string.Join(Environment.NewLine + Environment.NewLine, parts);
+        if (!merged.Contains("non sostituiscono il file immagine reale", StringComparison.OrdinalIgnoreCase))
+            merged = merged.TrimEnd() + Environment.NewLine + Environment.NewLine + AuthoritativeImageRule;
+        return merged.Trim();
     }
 }
