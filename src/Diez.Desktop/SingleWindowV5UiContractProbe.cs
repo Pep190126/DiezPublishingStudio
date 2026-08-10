@@ -8,7 +8,7 @@ internal static class SingleWindowV5UiContractProbe
 {
     public static async Task RunAsync(MainWindow window)
     {
-        var temp = Path.Combine(Path.GetTempPath(), "diez-ui-v6-" + Guid.NewGuid().ToString("N") + ".diez");
+        var temp = Path.Combine(Path.GetTempPath(), "diez-ui-v7-" + Guid.NewGuid().ToString("N") + ".diez");
         try
         {
             // 1. No project: the first visible logical page must be the guided start page.
@@ -22,7 +22,7 @@ internal static class SingleWindowV5UiContractProbe
             AssertButton(pageHost.Content as Control, "Apri progetto .diez");
 
             // 2. Existing project: book type choice must be the first page.
-            var project = ProjectFileStore.Create("Coloring V6 Contract");
+            var project = ProjectFileStore.Create("Coloring V7 Contract");
             await ProjectFileStore.SaveAsync(temp, project);
             SetSession(window, project, temp);
             SingleWindowV5StartupUi.ShowStart(window);
@@ -84,16 +84,31 @@ internal static class SingleWindowV5UiContractProbe
             if (levelCombos.Any(c => !string.Equals(c.SelectedItem?.ToString(), "Da mantenere", StringComparison.Ordinal)))
                 throw new InvalidOperationException("Tutto coerente non imposta tutti i criteri su Da mantenere.");
 
-            // 6. Prompt page: the three human-facing editors must exist and support undo/redo.
+            // 6. Prompt page: three editors + target AI selector + undo/redo.
             SingleWindowEntryPointUi.Invoke(host, "OpenPrompt", 12);
+            SingleWindowPromptTargetAiUi.EnsureCurrentPage(window);
             AssertText(pageHost.Content as Control, "DEVE FARE");
             AssertText(pageHost.Content as Control, "NON DEVE FARE");
             AssertText(pageHost.Content as Control, "PROMPT — modificabile");
+            AssertText(pageHost.Content as Control, "AI per cui preparare il prompt specifico");
+
             var editors = Descendants(pageHost.Content as Control).OfType<TextBox>()
                 .Where(t => t.IsVisible && t.IsEnabled && !t.IsReadOnly).ToList();
             if (editors.Count < 3) throw new InvalidOperationException("I tre box editabili non sono visibili.");
             if (editors.Take(3).Any(t => !t.IsUndoEnabled))
                 throw new InvalidOperationException("Undo/Redo non è abilitato sui tre editor.");
+
+            var targetAi = Descendants(pageHost.Content as Control).OfType<ComboBox>()
+                .FirstOrDefault(c => string.Equals(c.Name, "PromptTargetAi", StringComparison.Ordinal))
+                ?? throw new InvalidOperationException("La scelta AI per prompt specifico non è visibile.");
+            if (targetAi.ItemsSource is not IEnumerable targetSource)
+                throw new InvalidOperationException("Il selettore AI non è alimentato dal catalogo.");
+            var targetNames = targetSource.Cast<object>().Select(x => x.ToString() ?? string.Empty).ToList();
+            foreach (var expected in new[] { "Generico / nessuna AI specifica", "ChatGPT / OpenAI", "Gemini", "Altra / nuova AI" })
+                if (!targetNames.Contains(expected, StringComparer.Ordinal))
+                    throw new InvalidOperationException($"Provider prompt mancante: {expected}");
+
+            AssertButton(pageHost.Content as Control, "Prepara prompt per AI scelta");
         }
         finally
         {
