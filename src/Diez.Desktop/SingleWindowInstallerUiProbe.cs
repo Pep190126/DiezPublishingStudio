@@ -35,6 +35,7 @@ internal static class SingleWindowInstallerUiProbe
         SetSession(window, project, tempPath);
         SingleWindowV5StartupUi.ShowStart(window);
         await WaitForLayoutAsync();
+
         AssertText(pageHost.Content as Control, "Quale libro stai preparando?");
         var typeChoice = Descendants(pageHost.Content as Control).OfType<ComboBox>().FirstOrDefault()
             ?? throw new InvalidOperationException("La scelta del Tipo libro non è visibile.");
@@ -62,12 +63,13 @@ internal static class SingleWindowInstallerUiProbe
         RequireRendered(environment, 220, 60, "Ambientazione");
         subject.Text = "Bambina con cappello. Immagine 3: aggiungi un gatto.";
         environment.Text = "Parco. Immagine 3: cucina.";
+        await WaitForLayoutAsync();
 
         AssertText(coloring, "SOLO 2 COLORI");
         RequireCombo(coloring, "ColoringStyle");
         RequireCombo(coloring, "ColoringLineWeight");
         AssertImageSpecs(coloring, project);
-        AssertConsistencyStrategies(coloring);
+        await AssertConsistencyStrategiesAsync(coloring, host);
 
         SingleWindowEntryPointUi.Invoke(host, "OpenPrompt", 12);
         SingleWindowColoringProfileUi.EnsureCurrentPage(window);
@@ -77,13 +79,15 @@ internal static class SingleWindowInstallerUiProbe
         SingleWindowPersistentImageCountUi.Refresh(window);
         SingleWindowVisibleInputsUi.Apply(window);
         await WaitForLayoutAsync();
+
         var prompt = pageHost.Content as Control ?? throw new InvalidOperationException("Pagina prompt assente.");
         AssertText(prompt, "DEVE FARE");
         AssertText(prompt, "NON DEVE FARE");
         AssertText(prompt, "PROMPT — modificabile");
         var editors = Descendants(prompt).OfType<TextBox>().Where(t => t.IsVisible && t.IsEnabled && !t.IsReadOnly).ToList();
         if (editors.Count < 3) throw new InvalidOperationException("I tre box editabili non sono visibili.");
-        if (editors.Take(3).Any(t => !t.IsUndoEnabled)) throw new InvalidOperationException("Undo/Redo non è abilitato sui tre box.");
+        if (editors.Take(3).Any(t => !t.IsUndoEnabled))
+            throw new InvalidOperationException("Undo/Redo non è abilitato sui tre box.");
         foreach (var pair in editors.Take(3).Zip(new[] { "DEVE FARE", "NON DEVE FARE", "PROMPT" }))
         {
             RequireRendered(pair.First, 220, 60, pair.Second);
@@ -161,19 +165,19 @@ internal static class SingleWindowInstallerUiProbe
         foreach (var expected in ResolutionClasses)
             if (!values.Contains(expected, StringComparer.Ordinal))
                 throw new InvalidOperationException($"Classe risoluzione mancante: {expected}");
-        foreach (var name in new[] { "ImageSpecAspectRatio", "ImageSpecSafeMargin" })
-            RequireEditableTextBox(page, name, false);
+        RequireEditableTextBox(page, "ImageSpecAspectRatio", false);
+        RequireEditableTextBox(page, "ImageSpecSafeMargin", false);
         RequireCombo(page, "ImageSpecQuality");
         RequireCombo(page, "ImageSpecLineDetail");
+
         if (Descendants(page).Any(c => string.Equals(c.Name, "ImageSpecBleed", StringComparison.Ordinal) && c.IsVisible))
             throw new InvalidOperationException("Il controllo bleed è ancora visibile nel flusso di generazione immagini.");
-
         var prompt = SingleWindowImageSpecsUi.BuildPromptBlock(project);
         if (prompt.Contains("bleed", StringComparison.OrdinalIgnoreCase) || prompt.Contains("abbondanza", StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("Le specifiche AI contengono ancora bleed/abbondanza.");
     }
 
-    private static void AssertConsistencyStrategies(Control page)
+    private static async Task AssertConsistencyStrategiesAsync(Control page, object host)
     {
         var consistent = Descendants(page).OfType<CheckBox>().FirstOrDefault(c =>
             (c.Content?.ToString() ?? string.Empty).StartsWith("Consistent", StringComparison.OrdinalIgnoreCase))
@@ -182,12 +186,16 @@ internal static class SingleWindowInstallerUiProbe
             ?? throw new InvalidOperationException("Pannello criteri Consistent mancante.");
 
         consistent.IsChecked = true;
+        await WaitForLayoutAsync();
         if (!criteria.IsVisible) throw new InvalidOperationException("I criteri Consistent non compaiono quando Consistent è ON.");
 
         var level = RequireCombo(page, "ConsistencyLevel_character");
         SelectByText(level, "Può variare");
+        await WaitForLayoutAsync();
+
         var strategy = RequireCombo(page, "ConsistencyVariationStrategy_character");
-        if (!strategy.IsVisible) throw new InvalidOperationException("La scelta di chi decide la variazione non compare con 'Può variare'.");
+        if (!strategy.IsVisible)
+            throw new InvalidOperationException("La scelta di chi decide la variazione non compare con 'Può variare'.");
         foreach (var expected in new[] { "La definisco io", "La decide l’AI", "Mista: do indicazioni e l’AI completa" })
             if (!Values(strategy).Contains(expected, StringComparer.Ordinal))
                 throw new InvalidOperationException($"Strategia 'Può variare' mancante: {expected}");
@@ -199,18 +207,40 @@ internal static class SingleWindowInstallerUiProbe
 
         variation.Text = string.Empty;
         SelectByText(strategy, "La decide l’AI");
-        if (!next.IsEnabled) throw new InvalidOperationException("Con 'La decide l’AI' la descrizione deve essere facoltativa.");
+        await WaitForLayoutAsync();
+        if (!next.IsEnabled)
+            throw new InvalidOperationException("Con 'La decide l’AI' la descrizione deve essere facoltativa.");
+        if (!ReadHostRules(host).Contains("chi decide: AI", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("La scelta 'La decide l’AI' non viene serializzata nelle regole Consistent.");
 
         SelectByText(strategy, "La definisco io");
-        if (next.IsEnabled) throw new InvalidOperationException("Con 'La definisco io' la descrizione della variazione deve essere obbligatoria.");
+        await WaitForLayoutAsync();
+        if (next.IsEnabled)
+            throw new InvalidOperationException("Con 'La definisco io' la descrizione della variazione deve essere obbligatoria.");
         variation.Text = "Lo sfondo cambia a ogni tavola.";
-        if (!next.IsEnabled) throw new InvalidOperationException("La descrizione utente valida non riabilita Avanti.");
+        await WaitForLayoutAsync();
+        if (!next.IsEnabled)
+            throw new InvalidOperationException("La descrizione utente valida non riabilita Avanti.");
 
         variation.Text = string.Empty;
         SelectByText(strategy, "Mista: do indicazioni e l’AI completa");
-        if (next.IsEnabled) throw new InvalidOperationException("In modalità mista le indicazioni utente devono essere obbligatorie.");
+        await WaitForLayoutAsync();
+        if (next.IsEnabled)
+            throw new InvalidOperationException("In modalità mista le indicazioni utente devono essere obbligatorie.");
         variation.Text = "Cambia l'ambientazione; l'AI decide i dettagli secondari.";
-        if (!next.IsEnabled) throw new InvalidOperationException("Le indicazioni miste valide non riabilitano Avanti.");
+        await WaitForLayoutAsync();
+        if (!next.IsEnabled)
+            throw new InvalidOperationException("Le indicazioni miste valide non riabilitano Avanti.");
+        var rules = ReadHostRules(host);
+        if (!rules.Contains("chi decide: MISTA", StringComparison.OrdinalIgnoreCase) ||
+            !rules.Contains("l'AI decide i dettagli secondari", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("La modalità mista non viene serializzata con le indicazioni utente.");
+    }
+
+    private static string ReadHostRules(object host)
+    {
+        var coloring = host.GetType().GetField("_coloring", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(host);
+        return coloring?.GetType().GetProperty("Rules", BindingFlags.Instance | BindingFlags.Public)?.GetValue(coloring)?.ToString() ?? string.Empty;
     }
 
     private static TextBlock HostTitle(object host) =>
