@@ -61,6 +61,16 @@ internal static class SingleWindowProjectResumeUi
             projectButton.Click += (_, _) => Dispatcher.UIThread.Post(RefreshLabel, DispatcherPriority.Background);
         }
 
+        var host = SingleWindowEntryPointUi.GetHost(window);
+        if (host.GetType().GetField("_pageHost", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(host) is ContentControl pageHost)
+        {
+            pageHost.PropertyChanged += (_, e) =>
+            {
+                if (e.Property == ContentControl.ContentProperty)
+                    Dispatcher.UIThread.Post(RefreshLabel, DispatcherPriority.Background);
+            };
+        }
+
         window.Opened += (_, _) => RefreshLabel();
         window.Closed += (_, _) => Attached.Remove(window);
         RefreshLabel();
@@ -72,6 +82,66 @@ internal static class SingleWindowProjectResumeUi
     }
 
     internal static bool HasActiveProject(MainWindow window) => TrySession(window);
+
+    internal static async Task RunContractAsync(MainWindow window)
+    {
+        var host = SingleWindowEntryPointUi.GetHost(window);
+        var pageHost = host.GetType().GetField("_pageHost", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(host) as ContentControl
+            ?? throw new InvalidOperationException("PageHost non disponibile nel contratto Home/Resume.");
+        var tempPath = Path.Combine(Path.GetTempPath(), "diez-resume-contract-" + Guid.NewGuid().ToString("N") + ".diez");
+        try
+        {
+            var project = ProjectFileStore.Create("Resume Contract");
+            BookTypeProfileService.Set(project, BookTypeProfileService.ColoringBook);
+            await ProjectFileStore.SaveAsync(tempPath, project);
+            SetSession(window, project, tempPath);
+
+            SingleWindowNativeV11Ui.ShowStart(window);
+            await WaitAsync();
+            AssertText(pageHost.Content as Control, "Quale libro stai preparando?");
+
+            SingleWindowEntryPointUi.Invoke(host, "ShowHome");
+            await WaitAsync();
+            if (!HasActiveProject(window))
+                throw new InvalidOperationException("Tornando Home il progetto attivo è stato perso.");
+
+            var resumeButton = Descendants(window).OfType<Button>().FirstOrDefault(b => b.Name == "DiezResumeBookWorkflow")
+                ?? throw new InvalidOperationException("Pulsante Avanti/Riprendi non presente nella Home.");
+            if (!string.Equals(resumeButton.Content?.ToString(), "Avanti · Tipo libro", StringComparison.Ordinal))
+                throw new InvalidOperationException("Con progetto attivo la Home non mostra 'Avanti · Tipo libro'.");
+
+            Resume(window);
+            await WaitAsync();
+            AssertText(pageHost.Content as Control, "Quale libro stai preparando?");
+            if (pageHost.Content is Control page && Descendants(page).OfType<TextBlock>().Any(t =>
+                    (t.Text ?? string.Empty).Contains("Crea o apri un progetto", StringComparison.OrdinalIgnoreCase)))
+                throw new InvalidOperationException("Riprendendo dalla Home Diez è tornato erroneamente a Nuovo/Apri progetto.");
+        }
+        finally
+        {
+            try { if (File.Exists(tempPath)) File.Delete(tempPath); } catch { }
+        }
+    }
+
+    private static async Task WaitAsync()
+    {
+        await Task.Delay(120);
+        await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+    }
+
+    private static void AssertText(Control? root, string expected)
+    {
+        if (root is null || !Descendants(root).OfType<TextBlock>().Any(t =>
+                (t.Text ?? string.Empty).Contains(expected, StringComparison.Ordinal)))
+            throw new InvalidOperationException("Testo UI mancante nel contratto Home/Resume: " + expected);
+    }
+
+    private static void SetSession(MainWindow window, PreviewProject project, string path)
+    {
+        var flags = BindingFlags.Instance | BindingFlags.NonPublic;
+        typeof(MainWindow).GetField("_project", flags)?.SetValue(window, project);
+        typeof(MainWindow).GetField("_currentProjectPath", flags)?.SetValue(window, path);
+    }
 
     private static bool TrySession(MainWindow window)
     {
