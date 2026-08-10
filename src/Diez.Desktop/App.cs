@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Markup.Xaml.Styling;
 using Avalonia.Themes.Fluent;
 using Avalonia.Threading;
 
@@ -10,6 +11,10 @@ public sealed class App : Application
     public override void Initialize()
     {
         Styles.Add(new FluentTheme());
+        Styles.Add(new StyleInclude(null)
+        {
+            Source = new Uri("avares://AvaloniaEdit/Themes/Fluent/AvaloniaEdit.xaml", UriKind.Absolute)
+        });
         CrashDiagnostics.Attach();
     }
 
@@ -47,8 +52,10 @@ public sealed class App : Application
                 failures.Add(imageContextError);
             if (!StartupDiagnostics.TryAttach("Export immagini AI sicuro", () => SingleWindowSafeImageContextExportUi.Attach(mainWindow), out var safeExportError) && safeExportError is not null)
                 failures.Add(safeExportError);
-            if (!StartupDiagnostics.TryAttach("Stile input di riserva", () => SingleWindowVisibleInputsUi.Attach(mainWindow), out var visibleInputsError) && visibleInputsError is not null)
-                failures.Add(visibleInputsError);
+            if (!StartupDiagnostics.TryAttach("Editor visibili AvaloniaEdit", () => VisibleEditorBridgeUi.Attach(mainWindow), out var editorBridgeError) && editorBridgeError is not null)
+                failures.Add(editorBridgeError);
+            if (!StartupDiagnostics.TryAttach("Progetto attivo e ripresa percorso", () => SingleWindowProjectResumeUi.Attach(mainWindow), out var resumeError) && resumeError is not null)
+                failures.Add(resumeError);
             if (!StartupDiagnostics.TryAttach("Avvio guidato SW-FLOW-11", () => SingleWindowV5StartupUi.Attach(mainWindow), out var startupError) && startupError is not null)
                 failures.Add(startupError);
 
@@ -91,7 +98,7 @@ public sealed class App : Application
                             throw new InvalidOperationException("La conferma uscita non è collegata al MainWindow.");
                         await SingleWindowV11ContractProbe.RunAsync(mainWindow);
                         File.WriteAllText(resultFile,
-                            "OK\nSW-FLOW-11\nstartup=native-single-window\nbook-type=visible\nbook-type-back=works\nbook-type-page=native-host\nquantity-change-type=absent\nquantity-field=native-numeric\nquantity-visible-all-steps=yes\nessential-editors=native-host\nvisual-subject-environment=native-visible\nvisual-per-image-overrides=yes\ncoloring-style=native-visible\ncoloring-binary-bw=fixed\nline-thickness=dropdown\nimage-specs=visible\nkdp-trim-presets=yes\neditable-inputs=native-rendered-bordered\nconsistent-on=criteria-native-visible\nconsistency-notes=native-visible\nconsistency-levels=3\nconsistency-free-strategies=USER,AI,MIXED\nconsistency-free-user=description-required\nconsistency-free-ai=description-optional\nconsistency-free-mixed=description-required\nbleed=image-generation-removed\nprompt-editors=native-3\nundo=ctrl-z\nredo=ctrl-y\n" +
+                            "OK\nSW-FLOW-11\nstartup=native-single-window\nbook-type=visible\nbook-type-back=works\nbook-type-page=native-host\nquantity-change-type=absent\nquantity-field=native-numeric\nquantity-visible-all-steps=yes\nessential-editors=native-host\nvisual-subject-environment=native-visible\nvisual-per-image-overrides=yes\ncoloring-style=native-visible\ncoloring-binary-bw=fixed\nline-thickness=dropdown\nimage-specs=visible\nkdp-trim-presets=yes\neditable-inputs=avaloniaedit-raster\nactive-project=kept-until-replace-or-exit\nhome-resume=book-type\nconsistent-on=criteria-native-visible\nconsistency-notes=native-visible\nconsistency-levels=3\nconsistency-free-strategies=USER,AI,MIXED\nconsistency-free-user=description-required\nconsistency-free-ai=description-optional\nconsistency-free-mixed=description-required\nbleed=image-generation-removed\nprompt-editors=native-3\nundo=ctrl-z\nredo=ctrl-y\n" +
                             // Compatibility keys expected by the current workflow wrapper. The V11 probe above is the source of truth.
                             "SW-FLOW-10\nstartup=guided\nquantity-field=visible\ncoloring-style=visible\ncoloring-profile=rich\nsubject-environment=visible\nimage-resolution-classes=HD,FHD,2K,4K,8K,PRINT,CUSTOM\nimage-resolution-preserves-aspect=yes\nimage-specs-in-prompt=yes\nimage-collection-color-modes=visible\nillustrated-book-shares-illustration-profile=yes\nillustrated-book-not-coloring=yes\nresolution-classes-all-visual-book-types=yes\nconsistent-off=criteria-hidden\nconsistent-on=criteria-visible\nprompt-target-ai=visible\nprompt-target-catalog=central\nprompt-editors=3");
                         Environment.Exit(0);
