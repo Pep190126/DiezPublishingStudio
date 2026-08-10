@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
@@ -7,8 +8,9 @@ using Avalonia.Layout;
 namespace DiezPublishingStudio;
 
 /// <summary>
-/// Production controls shared by all image workflows. Physical dimensions, aspect ratio,
-/// resolution and print settings are common; color policy remains specific to the Book Type.
+/// Production controls shared by Coloring, Image Collection and Illustrated Book.
+/// Physical size/DPI, aspect ratio and a screen-resolution quality class are deliberately
+/// separate: HD/FHD/2K/4K/8K preserve the selected book aspect ratio instead of forcing 16:9.
 /// </summary>
 internal static class SingleWindowImageSpecsUi
 {
@@ -23,6 +25,17 @@ internal static class SingleWindowImageSpecsUi
         new("a5", "A5 — 148 × 210 mm", "148", "210", "mm", "148:210", "1748", "2480"),
         new("square", "Quadrato — 8.5 × 8.5 in", "8.5", "8.5", "in", "1:1", "2550", "2550"),
         new("custom", "Personalizzato", "8.5", "11", "in", "17:22", "2550", "3300")
+    ];
+
+    private static readonly ResolutionClass[] ResolutionClasses =
+    [
+        new("hd", "HD — lato lungo 1280 px", 1280),
+        new("fhd", "Full HD — lato lungo 1920 px", 1920),
+        new("2k", "2K — lato lungo 2560 px", 2560),
+        new("4k", "4K UHD — lato lungo 3840 px", 3840),
+        new("8k", "8K UHD — lato lungo 7680 px", 7680),
+        new("print300", "Stampa — dimensioni fisiche × DPI", 0),
+        new("custom", "Personalizzata — usa i pixel indicati", -1)
     ];
 
     public static void Attach(MainWindow window)
@@ -56,6 +69,8 @@ internal static class SingleWindowImageSpecsUi
         var s = Load(project);
         var type = BookTypeProfileService.Get(project);
         var coloring = string.Equals(type, BookTypeProfileService.ColoringBook, StringComparison.OrdinalIgnoreCase);
+        var resolutionLabel = ResolutionClasses.FirstOrDefault(x => x.Id == s.ResolutionClassId)?.Label ?? "Personalizzata";
+
         var sb = new StringBuilder();
         sb.AppendLine("SPECIFICHE TECNICHE:");
         sb.AppendLine($"- Tipo libro / uso immagini: {type}.");
@@ -63,9 +78,10 @@ internal static class SingleWindowImageSpecsUi
         sb.AppendLine($"- Dimensioni finali: {s.Width} × {s.Height} {s.Unit}.");
         sb.AppendLine($"- Orientamento: {s.Orientation}.");
         sb.AppendLine($"- Aspect ratio: {s.AspectRatio}.");
-        sb.AppendLine($"- Risoluzione target: {s.PixelWidth} × {s.PixelHeight} px.");
-        sb.AppendLine($"- DPI di destinazione per stampa: {s.Dpi} DPI.");
-        sb.AppendLine($"- Qualità: {s.Quality}.");
+        sb.AppendLine($"- Classe risoluzione / qualità immagine: {resolutionLabel}.");
+        sb.AppendLine($"- Risoluzione target effettiva: {s.PixelWidth} × {s.PixelHeight} px; preserva questo aspect ratio e non deformare il soggetto.");
+        sb.AppendLine($"- DPI di destinazione per stampa: {s.Dpi} DPI. I DPI sono separati dalla classe HD/FHD/2K/4K/8K.");
+        sb.AppendLine($"- Qualità rendering: {s.Quality}.");
         sb.AppendLine($"- Livello tecnico di dettaglio: {s.LineDetail}.");
         sb.AppendLine($"- Margine di sicurezza: {s.SafeMargin} {s.Unit}.");
         if (s.Bleed)
@@ -84,7 +100,7 @@ internal static class SingleWindowImageSpecsUi
         }
 
         sb.AppendLine("- Evita testo tecnico, watermark, ID e nomi file dentro l'immagine salvo richiesta editoriale esplicita.");
-        sb.AppendLine("- Mantieni gli elementi importanti entro il margine di sicurezza; il DPI è un requisito di output/stampa, non testo da disegnare nell'immagine.");
+        sb.AppendLine("- Mantieni gli elementi importanti entro il margine di sicurezza; risoluzione e DPI sono requisiti di output, non testo da disegnare nell'immagine.");
         return sb.ToString().Trim();
     }
 
@@ -97,6 +113,8 @@ internal static class SingleWindowImageSpecsUi
 
         var coloring = string.Equals(BookTypeProfileService.Get(project), BookTypeProfileService.ColoringBook, StringComparison.OrdinalIgnoreCase);
         var s = Load(project);
+        NormalizeResolutionClass(s);
+
         var preset = new ComboBox { Name = "ImageSpecPreset", ItemsSource = Presets, Width = 310, HorizontalAlignment = HorizontalAlignment.Left };
         preset.SelectedItem = Presets.FirstOrDefault(p => p.Id == s.PresetId) ?? Presets[0];
         var width = SmallEditor(s.Width, 90); width.Name = "ImageSpecWidth";
@@ -104,6 +122,16 @@ internal static class SingleWindowImageSpecsUi
         var unit = new ComboBox { Name = "ImageSpecUnit", ItemsSource = new[] { "in", "mm" }, SelectedItem = s.Unit, Width = 80 };
         var orientation = new ComboBox { Name = "ImageSpecOrientation", ItemsSource = new[] { "Verticale", "Orizzontale", "Quadrata" }, SelectedItem = s.Orientation, Width = 160 };
         var ratio = SmallEditor(s.AspectRatio, 110); ratio.Name = "ImageSpecAspectRatio";
+
+        var resolutionClass = new ComboBox
+        {
+            Name = "ImageSpecResolutionClass",
+            ItemsSource = ResolutionClasses,
+            Width = 330,
+            HorizontalAlignment = HorizontalAlignment.Left
+        };
+        resolutionClass.SelectedItem = ResolutionClasses.FirstOrDefault(x => x.Id == s.ResolutionClassId) ?? ResolutionClasses[5];
+
         var pxW = SmallEditor(s.PixelWidth, 105); pxW.Name = "ImageSpecPixelWidth";
         var pxH = SmallEditor(s.PixelHeight, 105); pxH.Name = "ImageSpecPixelHeight";
         var dpi = SmallEditor(s.Dpi, 90); dpi.Name = "ImageSpecDpi";
@@ -116,6 +144,7 @@ internal static class SingleWindowImageSpecsUi
         var safe = SmallEditor(s.SafeMargin, 90); safe.Name = "ImageSpecSafeMargin";
         var bleed = new CheckBox { Name = "ImageSpecBleed", Content = "Bleed / abbondanza", IsChecked = s.Bleed };
         var bleedAmount = SmallEditor(s.BleedAmount, 90); bleedAmount.Name = "ImageSpecBleedAmount"; bleedAmount.IsVisible = s.Bleed;
+        var applyingResolution = false;
 
         void FromControls()
         {
@@ -125,6 +154,7 @@ internal static class SingleWindowImageSpecsUi
             s.Unit = unit.SelectedItem?.ToString() ?? s.Unit;
             s.Orientation = orientation.SelectedItem?.ToString() ?? s.Orientation;
             s.AspectRatio = ratio.Text?.Trim() ?? s.AspectRatio;
+            s.ResolutionClassId = (resolutionClass.SelectedItem as ResolutionClass)?.Id ?? "custom";
             s.PixelWidth = pxW.Text?.Trim() ?? s.PixelWidth;
             s.PixelHeight = pxH.Text?.Trim() ?? s.PixelHeight;
             s.Dpi = dpi.Text?.Trim() ?? s.Dpi;
@@ -136,6 +166,22 @@ internal static class SingleWindowImageSpecsUi
             Save(project, s);
         }
 
+        void ApplyResolutionClass()
+        {
+            if (applyingResolution || resolutionClass.SelectedItem is not ResolutionClass selected || selected.LongSidePixels < 0) return;
+            applyingResolution = true;
+            try
+            {
+                var (pixelWidth, pixelHeight) = selected.LongSidePixels == 0
+                    ? PixelsFromPhysicalSize(width.Text, height.Text, unit.SelectedItem?.ToString(), dpi.Text)
+                    : PixelsFromLongSide(width.Text, height.Text, ratio.Text, selected.LongSidePixels);
+                pxW.Text = pixelWidth.ToString(CultureInfo.InvariantCulture);
+                pxH.Text = pixelHeight.ToString(CultureInfo.InvariantCulture);
+                FromControls();
+            }
+            finally { applyingResolution = false; }
+        }
+
         void ApplyPreset(PagePreset p)
         {
             if (p.Id == "custom") return;
@@ -143,21 +189,37 @@ internal static class SingleWindowImageSpecsUi
             height.Text = p.Height;
             unit.SelectedItem = p.Unit;
             ratio.Text = p.Ratio;
-            pxW.Text = p.PixelWidth;
-            pxH.Text = p.PixelHeight;
             orientation.SelectedItem = p.Width == p.Height ? "Quadrata" : "Verticale";
-            FromControls();
+            if (resolutionClass.SelectedItem is ResolutionClass selected && selected.LongSidePixels >= 0)
+                ApplyResolutionClass();
+            else
+            {
+                pxW.Text = p.PixelWidth;
+                pxH.Text = p.PixelHeight;
+                FromControls();
+            }
         }
 
         preset.SelectionChanged += (_, _) => { if (preset.SelectedItem is PagePreset p) ApplyPreset(p); };
-        width.TextChanged += (_, _) => FromControls();
-        height.TextChanged += (_, _) => FromControls();
-        unit.SelectionChanged += (_, _) => FromControls();
+        resolutionClass.SelectionChanged += (_, _) => ApplyResolutionClass();
+        width.TextChanged += (_, _) => { if (!applyingResolution) { FromControls(); ApplyResolutionClass(); } };
+        height.TextChanged += (_, _) => { if (!applyingResolution) { FromControls(); ApplyResolutionClass(); } };
+        unit.SelectionChanged += (_, _) => { FromControls(); ApplyResolutionClass(); };
         orientation.SelectionChanged += (_, _) => FromControls();
-        ratio.TextChanged += (_, _) => FromControls();
-        pxW.TextChanged += (_, _) => FromControls();
-        pxH.TextChanged += (_, _) => FromControls();
-        dpi.TextChanged += (_, _) => FromControls();
+        ratio.TextChanged += (_, _) => { if (!applyingResolution) { FromControls(); ApplyResolutionClass(); } };
+        pxW.TextChanged += (_, _) =>
+        {
+            if (applyingResolution) return;
+            if ((resolutionClass.SelectedItem as ResolutionClass)?.Id != "custom") resolutionClass.SelectedItem = ResolutionClasses[^1];
+            FromControls();
+        };
+        pxH.TextChanged += (_, _) =>
+        {
+            if (applyingResolution) return;
+            if ((resolutionClass.SelectedItem as ResolutionClass)?.Id != "custom") resolutionClass.SelectedItem = ResolutionClasses[^1];
+            FromControls();
+        };
+        dpi.TextChanged += (_, _) => { FromControls(); if ((resolutionClass.SelectedItem as ResolutionClass)?.Id == "print300") ApplyResolutionClass(); };
         quality.SelectionChanged += (_, _) => FromControls();
         line.SelectionChanged += (_, _) => FromControls();
         safe.TextChanged += (_, _) => FromControls();
@@ -174,14 +236,15 @@ internal static class SingleWindowImageSpecsUi
                 new TextBlock { Text = "Specifiche immagine / stampa", FontSize = 19 },
                 new TextBlock
                 {
-                    Text = "Formato, aspect ratio, pixel, DPI, qualità e margini entrano automaticamente nel prompt e nel Prompt Pack. La resa cromatica resta nel profilo del Tipo libro.",
+                    Text = "Formato, aspect ratio, classe HD/FHD/2K/4K/8K, pixel, DPI, qualità e margini entrano automaticamente nel prompt. La classe di risoluzione mantiene l'aspect ratio del libro: non forza il formato video 16:9.",
                     TextWrapping = Avalonia.Media.TextWrapping.Wrap
                 },
                 Labeled("Formato pagina", preset),
                 new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { Labeled("Larghezza", width), Labeled("Altezza", height), Labeled("Unità", unit) } },
                 new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { Labeled("Orientamento", orientation), Labeled("Aspect ratio", ratio) } },
+                Labeled("Qualità / classe risoluzione", resolutionClass),
                 new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { Labeled("Larghezza px", pxW), Labeled("Altezza px", pxH), Labeled("DPI", dpi) } },
-                new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { Labeled("Qualità", quality), Labeled("Dettaglio tecnico", line) } },
+                new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { Labeled("Qualità rendering", quality), Labeled("Dettaglio tecnico", line) } },
                 new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { Labeled("Margine sicurezza", safe), bleed, bleedAmount } }
             }
         };
@@ -196,6 +259,53 @@ internal static class SingleWindowImageSpecsUi
             if (next is not null)
                 next.Click += async (_, _) => { FromControls(); await ProjectFileStore.SaveAsync(path, project); };
         }
+    }
+
+    private static (int Width, int Height) PixelsFromLongSide(string? widthText, string? heightText, string? ratioText, int longSide)
+    {
+        var (w, h) = EffectiveRatio(widthText, heightText, ratioText);
+        if (w >= h)
+            return (longSide, Math.Max(1, (int)Math.Round(longSide * h / w)));
+        return (Math.Max(1, (int)Math.Round(longSide * w / h)), longSide);
+    }
+
+    private static (int Width, int Height) PixelsFromPhysicalSize(string? widthText, string? heightText, string? unit, string? dpiText)
+    {
+        var width = ParsePositive(widthText, 8.5);
+        var height = ParsePositive(heightText, 11);
+        var dpi = ParsePositive(dpiText, 300);
+        var inchesFactor = string.Equals(unit, "mm", StringComparison.OrdinalIgnoreCase) ? 1.0 / 25.4 : 1.0;
+        return (
+            Math.Max(1, (int)Math.Round(width * inchesFactor * dpi)),
+            Math.Max(1, (int)Math.Round(height * inchesFactor * dpi)));
+    }
+
+    private static (double Width, double Height) EffectiveRatio(string? widthText, string? heightText, string? ratioText)
+    {
+        var width = ParsePositive(widthText, 0);
+        var height = ParsePositive(heightText, 0);
+        if (width > 0 && height > 0) return (width, height);
+
+        var parts = (ratioText ?? string.Empty).Split(':', StringSplitOptions.TrimEntries);
+        if (parts.Length == 2)
+        {
+            var rw = ParsePositive(parts[0], 0);
+            var rh = ParsePositive(parts[1], 0);
+            if (rw > 0 && rh > 0) return (rw, rh);
+        }
+        return (17, 22);
+    }
+
+    private static double ParsePositive(string? text, double fallback)
+    {
+        var normalized = (text ?? string.Empty).Trim().Replace(',', '.');
+        return double.TryParse(normalized, NumberStyles.Float, CultureInfo.InvariantCulture, out var value) && value > 0 ? value : fallback;
+    }
+
+    private static void NormalizeResolutionClass(ImageSpecs s)
+    {
+        if (ResolutionClasses.Any(x => x.Id == s.ResolutionClassId)) return;
+        s.ResolutionClassId = "print300";
     }
 
     private static void EnsurePromptInjection(Control page, PreviewProject project)
@@ -225,7 +335,7 @@ internal static class SingleWindowImageSpecsUi
         var marker = new TextBlock
         {
             Name = "DiezImageSpecsPromptMarker",
-            Text = "Formato, aspect ratio, pixel, DPI, qualità, margini e bleed vengono inclusi automaticamente nel prompt.",
+            Text = "Formato, aspect ratio, HD/FHD/2K/4K/8K, pixel, DPI, qualità, margini e bleed vengono inclusi automaticamente nel prompt.",
             TextWrapping = Avalonia.Media.TextWrapping.Wrap
         };
         if (root is not null)
@@ -240,7 +350,12 @@ internal static class SingleWindowImageSpecsUi
         var entity = project.Entities.FirstOrDefault(e => string.Equals(e.Kind, EntityKind, StringComparison.OrdinalIgnoreCase));
         if (entity is not null && !string.IsNullOrWhiteSpace(entity.Notes))
         {
-            try { return JsonSerializer.Deserialize<ImageSpecs>(entity.Notes, JsonOptions) ?? Default(); }
+            try
+            {
+                var result = JsonSerializer.Deserialize<ImageSpecs>(entity.Notes, JsonOptions) ?? Default();
+                NormalizeResolutionClass(result);
+                return result;
+            }
             catch { }
         }
         return Default();
@@ -248,6 +363,7 @@ internal static class SingleWindowImageSpecsUi
 
     private static void Save(PreviewProject project, ImageSpecs settings)
     {
+        NormalizeResolutionClass(settings);
         var entity = project.Entities.FirstOrDefault(e => string.Equals(e.Kind, EntityKind, StringComparison.OrdinalIgnoreCase));
         if (entity is null)
         {
@@ -316,6 +432,7 @@ internal static class SingleWindowImageSpecsUi
         public string Unit { get; set; } = "in";
         public string Orientation { get; set; } = "Verticale";
         public string AspectRatio { get; set; } = "17:22";
+        public string ResolutionClassId { get; set; } = "print300";
         public string PixelWidth { get; set; } = "2550";
         public string PixelHeight { get; set; } = "3300";
         public string Dpi { get; set; } = "300";
@@ -327,6 +444,11 @@ internal static class SingleWindowImageSpecsUi
     }
 
     private sealed record PagePreset(string Id, string Label, string Width, string Height, string Unit, string Ratio, string PixelWidth, string PixelHeight)
+    {
+        public override string ToString() => Label;
+    }
+
+    private sealed record ResolutionClass(string Id, string Label, int LongSidePixels)
     {
         public override string ToString() => Label;
     }
