@@ -56,11 +56,16 @@ internal static class BookTypeProfileService
         foreach (var duplicate in matches.Skip(1)) project.Entities.Remove(duplicate);
     }
 
+    /// <summary>
+    /// Types that need the common image-series workflow. Illustrated books share
+    /// the illustration controls with Image Collection, but keep their own book type.
+    /// </summary>
     public static bool IsImageCollection(PreviewProject project)
     {
         var type = Get(project);
         return string.Equals(type, ColoringBook, StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(type, ImageCollection, StringComparison.OrdinalIgnoreCase);
+               string.Equals(type, ImageCollection, StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(type, IllustratedBook, StringComparison.OrdinalIgnoreCase);
     }
 
     public static bool IsWordSearch(PreviewProject project) =>
