@@ -58,14 +58,14 @@ jobs:
           }
           Stop-Process -Id $process.Id -Force
 
-      - name: Real GUI contract startup type quantity consistency target-AI prompt undo redo
+      - name: Real GUI contract visual books prompt consistency and quality
         shell: powershell
         run: |
           $exe = (Resolve-Path "artifacts\publish\DiezPublishingStudio.exe").Path
           $result = Join-Path (Split-Path $exe) "ui-flow-contract.txt"
           if (Test-Path $result) { Remove-Item $result -Force }
           $probe = Start-Process -FilePath $exe -ArgumentList "--ui-flow-contract" -PassThru
-          if (-not $probe.WaitForExit(20000)) {
+          if (-not $probe.WaitForExit(30000)) {
             Stop-Process -Id $probe.Id -Force -ErrorAction SilentlyContinue
             throw "UI flow contract timed out"
           }
@@ -73,7 +73,34 @@ jobs:
           if ($probe.ExitCode -ne 0) { throw "UI flow contract failed with exit code $($probe.ExitCode)" }
           if (!(Test-Path $result)) { throw "UI flow contract did not produce a result file" }
           $text = Get-Content $result -Raw
-          foreach ($required in @("OK", "SW-FLOW-7", "startup=guided", "book-type=visible", "quantity-field=visible", "consistent-off=criteria-hidden", "consistent-on=criteria-visible", "consistency-levels=3", "prompt-target-ai=visible", "prompt-target-catalog=central", "prompt-editors=3", "undo=ctrl-z", "redo=ctrl-y")) {
+          foreach ($required in @(
+            "OK",
+            "SW-FLOW-10",
+            "startup=guided",
+            "book-type=visible",
+            "quantity-field=visible",
+            "coloring-style=visible",
+            "coloring-profile=rich",
+            "coloring-binary-bw=fixed",
+            "line-thickness=dropdown",
+            "subject-environment=visible",
+            "image-specs=visible",
+            "image-resolution-classes=HD,FHD,2K,4K,8K,PRINT,CUSTOM",
+            "image-resolution-preserves-aspect=yes",
+            "image-specs-in-prompt=yes",
+            "image-collection-color-modes=visible",
+            "illustrated-book-shares-illustration-profile=yes",
+            "illustrated-book-not-coloring=yes",
+            "resolution-classes-all-visual-book-types=yes",
+            "consistent-off=criteria-hidden",
+            "consistent-on=criteria-visible",
+            "consistency-levels=3",
+            "prompt-target-ai=visible",
+            "prompt-target-catalog=central",
+            "prompt-editors=3",
+            "undo=ctrl-z",
+            "redo=ctrl-y"
+          )) {
             if ($text -notmatch [regex]::Escape($required)) { throw "UI flow contract missing: $required" }
           }
 
@@ -128,13 +155,11 @@ jobs:
           Set-Content -Path $configMarker -Value "config"
           Set-Content -Path $workMarker -Value "work"
 
-          # UPDATE + KEEP WORK: config and work must both survive.
           $updateKeep = Start-Process -FilePath $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/KEEPWORKDATA=1", $dirArg -Wait -PassThru
           if ($updateKeep.ExitCode -ne 0) { throw "Update/keep failed with exit code $($updateKeep.ExitCode)" }
           if (!(Test-Path $configMarker)) { throw "Update unexpectedly removed Diez configuration" }
           if (!(Test-Path $workMarker)) { throw "Update unexpectedly removed work/versioning" }
 
-          # REMOVE/REINSTALL + KEEP WORK: config must be reset, work/versioning kept.
           $removeKeep = Start-Process -FilePath $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLEANOLD=1", "/KEEPWORKDATA=1", $dirArg -Wait -PassThru
           if ($removeKeep.ExitCode -ne 0) { throw "Remove/reinstall keep-work failed with exit code $($removeKeep.ExitCode)" }
           if (Test-Path $configMarker) { throw "Remove/reinstall kept configuration even though configuration must reset" }
@@ -144,7 +169,6 @@ jobs:
           New-Item -ItemType Directory -Force $configDir | Out-Null
           Set-Content -Path $configMarker -Value "config-again"
 
-          # REMOVE/REINSTALL + DROP WORK: both config and managed work/versioning must go.
           $removeDrop = Start-Process -FilePath $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLEANOLD=1", "/KEEPWORKDATA=0", $dirArg -Wait -PassThru
           if ($removeDrop.ExitCode -ne 0) { throw "Remove/reinstall drop-work failed with exit code $($removeDrop.ExitCode)" }
           if (Test-Path $configMarker) { throw "Configuration marker still exists after remove/reinstall" }
@@ -164,7 +188,7 @@ jobs:
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
-          name: DiezPublishingStudio-Setup-1.0.0-rc8-SW-FLOW-7
+          name: DiezPublishingStudio-Setup-1.0.0-rc8-SW-FLOW-10
           path: artifacts/installer/DiezPublishingStudio-Setup.exe
           if-no-files-found: error
           retention-days: 90
