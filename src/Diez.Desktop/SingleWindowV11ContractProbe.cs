@@ -90,12 +90,42 @@ internal static class SingleWindowV11ContractProbe
             await WaitForLayoutAsync();
             if (!next.IsEnabled) throw new InvalidOperationException("La descrizione della variazione non riabilita Avanti.");
 
-            // Only after the native essentials have passed, verify optional decorators/specs.
+            // Only after native essentials have passed, verify optional image specifications.
             SingleWindowImageSpecsUi.EnsureCurrentPage(window);
             SingleWindowCustomDimensionsUi.EnsureCurrentPage(window);
             await WaitForLayoutAsync();
             if (Descendants(quantity).OfType<ComboBox>().All(c => c.Name != "ImageSpecPreset"))
                 throw new InvalidOperationException("Specifiche immagine non collegate alla pagina V11.");
+
+            if (Descendants(quantity).Any(c => c.Name == "ImageSpecOrientation"))
+                throw new InvalidOperationException("Orientamento è ancora presente come controllo indipendente.");
+            if (Descendants(quantity).Any(c => c.Name == "ImageSpecSafeMargin"))
+                throw new InvalidOperationException("Margine di sicurezza è ancora presente nel flusso AI.");
+
+            var ratio = RequireCombo(quantity, "ImageSpecAspectRatio");
+            var ratioValues = Values(ratio);
+            foreach (var expectedPrefix in new[] { "1:1", "2:3", "3:2", "9:16", "16:9", "17:22" })
+                if (!ratioValues.Any(x => x.StartsWith(expectedPrefix, StringComparison.Ordinal)))
+                    throw new InvalidOperationException("Aspect ratio guidato mancante: " + expectedPrefix);
+
+            var coherence = Descendants(quantity).OfType<TextBlock>().FirstOrDefault(x => x.Name == "ImageSpecAspectCoherence")
+                ?? throw new InvalidOperationException("Controllo coerenza trim/aspect ratio mancante.");
+            SelectByPrefix(ratio, "16:9");
+            await WaitForLayoutAsync();
+            if (!(coherence.Text ?? string.Empty).Contains("Molto diverso", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("16:9 su trim Letter non produce l'avviso di forte incoerenza.");
+
+            SelectByPrefix(ratio, "17:22");
+            await WaitForLayoutAsync();
+            if (!(coherence.Text ?? string.Empty).Contains("Coerente", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("17:22 su trim Letter non risulta coerente.");
+
+            var technicalPrompt = SingleWindowImageSpecsUi.BuildPromptBlock(project);
+            if (technicalPrompt.Contains("- Orientamento:", StringComparison.OrdinalIgnoreCase) ||
+                technicalPrompt.Contains("Margine di sicurezza creativo", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("Il prompt contiene ancora Orientamento o Margine di sicurezza.");
+            if (!technicalPrompt.Contains("Coerenza trim/aspect ratio", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("Il prompt non contiene il controllo di coerenza trim/aspect ratio.");
 
             SingleWindowNativeV11Ui.ShowPrompt(window, host, 12);
             await WaitForLayoutAsync();
@@ -144,6 +174,14 @@ internal static class SingleWindowV11ContractProbe
             throw new InvalidOperationException("Combo senza ItemsSource: " + combo.Name);
         combo.SelectedItem = source.Cast<object>().FirstOrDefault(x => string.Equals(x.ToString(), text, StringComparison.Ordinal))
             ?? throw new InvalidOperationException($"Voce '{text}' mancante in {combo.Name}.");
+    }
+
+    private static void SelectByPrefix(ComboBox combo, string prefix)
+    {
+        if (combo.ItemsSource is not IEnumerable source)
+            throw new InvalidOperationException("Combo senza ItemsSource: " + combo.Name);
+        combo.SelectedItem = source.Cast<object>().FirstOrDefault(x => (x.ToString() ?? string.Empty).StartsWith(prefix, StringComparison.Ordinal))
+            ?? throw new InvalidOperationException($"Voce '{prefix}…' mancante in {combo.Name}.");
     }
 
     private static List<string> Values(ComboBox combo) =>
