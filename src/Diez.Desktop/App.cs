@@ -68,7 +68,7 @@ public sealed class App : Application
                 {
                     try
                     {
-                        foreach (var file in new[] { "ui-quantity.png", "ui-prompt.png", "ui-raster-error.txt" })
+                        foreach (var file in new[] { "ui-quantity.png", "ui-prompt.png", "ui-consistent.png", "ui-raster-error.txt" })
                         {
                             var path = Path.Combine(AppContext.BaseDirectory, file);
                             if (File.Exists(path)) File.Delete(path);
@@ -97,6 +97,7 @@ public sealed class App : Application
                         if (!ExitConfirmationUi.IsAttached(mainWindow))
                             throw new InvalidOperationException("La conferma uscita non è collegata al MainWindow.");
                         await SingleWindowV11ContractProbe.RunAsync(mainWindow);
+                        await SingleWindowProjectResumeUi.RunContractAsync(mainWindow);
                         File.WriteAllText(resultFile,
                             "OK\nSW-FLOW-11\nstartup=native-single-window\nbook-type=visible\nbook-type-back=works\nbook-type-page=native-host\nquantity-change-type=absent\nquantity-field=native-numeric\nquantity-visible-all-steps=yes\nessential-editors=native-host\nvisual-subject-environment=native-visible\nvisual-per-image-overrides=yes\ncoloring-style=native-visible\ncoloring-binary-bw=fixed\nline-thickness=dropdown\nimage-specs=visible\nkdp-trim-presets=yes\neditable-inputs=avaloniaedit-raster\nactive-project=kept-until-replace-or-exit\nhome-resume=book-type\nconsistent-on=criteria-native-visible\nconsistency-notes=native-visible\nconsistency-levels=3\nconsistency-free-strategies=USER,AI,MIXED\nconsistency-free-user=description-required\nconsistency-free-ai=description-optional\nconsistency-free-mixed=description-required\nbleed=image-generation-removed\nprompt-editors=native-3\nundo=ctrl-z\nredo=ctrl-y\n" +
                             // Compatibility keys expected by the current workflow wrapper. The V11 probe above is the source of truth.
