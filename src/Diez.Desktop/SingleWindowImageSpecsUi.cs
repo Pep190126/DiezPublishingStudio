@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
@@ -71,8 +70,9 @@ internal static class SingleWindowImageSpecsUi
             sb.AppendLine($"- Bleed / abbondanza: {s.BleedAmount} {s.Unit} per lato.");
         else
             sb.AppendLine("- Bleed / abbondanza: nessuno.");
-        sb.AppendLine("- Output Coloring Book: line art nero pulito su fondo bianco, senza testo, watermark, numeri, cornici tecniche o nomi file nell'immagine.");
-        sb.AppendLine("- Evita grigi, ombreggiature e riempimenti pieni salvo richiesta esplicita nel prompt.");
+        sb.AppendLine("- Output Coloring Book: line art binaria con ESATTAMENTE due colori: nero puro #000000 su fondo bianco puro #FFFFFF.");
+        sb.AppendLine("- Vietati senza eccezioni: grigi, mezzetinte, colori, ombre, sfumature, gradienti e qualunque valore cromatico intermedio.");
+        sb.AppendLine("- Senza testo, watermark, numeri, cornici tecniche o nomi file nell'immagine.");
         sb.AppendLine("- Mantieni gli elementi importanti entro il margine di sicurezza; il DPI è un requisito di output/stampa, non testo da disegnare nell'immagine.");
         return sb.ToString().Trim();
     }
@@ -273,15 +273,9 @@ internal static class SingleWindowImageSpecsUi
                 case Panel p:
                     for (var i = p.Children.Count - 1; i >= 0; i--) stack.Push(p.Children[i]);
                     break;
-                case Border b when b.Child is Control child:
-                    stack.Push(child);
-                    break;
-                case ScrollViewer s when s.Content is Control child:
-                    stack.Push(child);
-                    break;
-                case ContentControl c when c.Content is Control child:
-                    stack.Push(child);
-                    break;
+                case Border b when b.Child is Control child: stack.Push(child); break;
+                case ScrollViewer s when s.Content is Control child: stack.Push(child); break;
+                case ContentControl c when c.Content is Control child: stack.Push(child); break;
             }
         }
     }
