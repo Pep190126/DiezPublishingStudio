@@ -2,6 +2,7 @@ using System.Collections;
 using System.Reflection;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Layout;
 
 namespace DiezPublishingStudio;
@@ -15,6 +16,8 @@ internal static class SingleWindowEntryPointUi
         if (window.Content is not Border border || border.Child is not Grid desktop) return;
         var header = desktop.Children.OfType<Grid>().FirstOrDefault(c => Grid.GetRow(c) == 0);
         if (header is null) return;
+
+        InstallUndoRedo(window);
 
         if (header.Children.OfType<StackPanel>().Any(p => p.Children.OfType<Button>()
             .Any(b => (b.Content?.ToString() ?? string.Empty).Contains(Marker, StringComparison.Ordinal)))) return;
@@ -46,6 +49,27 @@ internal static class SingleWindowEntryPointUi
         };
         Grid.SetRow(bar, 3);
         header.Children.Add(bar);
+    }
+
+    private static void InstallUndoRedo(MainWindow window)
+    {
+        window.KeyDown += (_, e) =>
+        {
+            if ((e.KeyModifiers & KeyModifiers.Control) == 0) return;
+            var editor = window.FocusManager?.GetFocusedElement() as TextBox;
+            if (editor is null || editor.IsReadOnly || !editor.IsEnabled || !editor.IsUndoEnabled) return;
+
+            if (e.Key == Key.Z)
+            {
+                if (editor.CanUndo) editor.Undo();
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Y)
+            {
+                if (editor.CanRedo) editor.Redo();
+                e.Handled = true;
+            }
+        };
     }
 
     internal static object GetHost(MainWindow window)
@@ -175,7 +199,10 @@ internal static class SingleWindowUiContractProbe
         var editors = controls.OfType<TextBox>().Where(t => t.IsEnabled && !t.IsReadOnly).ToList();
         if (editors.Count < 3) throw new InvalidOperationException("I tre box non sono tutti editabili.");
         if (editors.Take(3).Any(t => !t.IsUndoEnabled))
-            throw new InvalidOperationException("Ctrl+Z/undo non è attivo su tutti i tre box.");
+            throw new InvalidOperationException("Undo/redo non è attivo su tutti i tre box.");
+        if (typeof(TextBox).GetMethod(nameof(TextBox.Undo), Type.EmptyTypes) is null ||
+            typeof(TextBox).GetMethod(nameof(TextBox.Redo), Type.EmptyTypes) is null)
+            throw new InvalidOperationException("Il controllo editor non espone Undo/Redo.");
     }
 
     private static IEnumerable<Control> Descendants(Control root)
