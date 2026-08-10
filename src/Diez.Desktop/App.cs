@@ -11,7 +11,7 @@ public sealed class App : Application
     public override void Initialize()
     {
         Styles.Add(new FluentTheme());
-        Styles.Add(new StyleInclude(null)
+        Styles.Add(new StyleInclude((Uri?)null)
         {
             Source = new Uri("avares://AvaloniaEdit/Themes/Fluent/AvaloniaEdit.xaml", UriKind.Absolute)
         });
