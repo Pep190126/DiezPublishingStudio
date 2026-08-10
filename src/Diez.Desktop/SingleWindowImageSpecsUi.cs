@@ -11,6 +11,8 @@ namespace DiezPublishingStudio;
 /// Production controls shared by Coloring, Image Collection and Illustrated Book.
 /// Physical size/DPI, aspect ratio and a screen-resolution quality class are deliberately
 /// separate: HD/FHD/2K/4K/8K preserve the selected book aspect ratio instead of forcing 16:9.
+/// Page presets use Amazon KDP trim sizes. Bleed is intentionally not part of the AI-generation
+/// instructions: it belongs to the later layout/print preparation stage.
 /// </summary>
 internal static class SingleWindowImageSpecsUi
 {
@@ -20,10 +22,22 @@ internal static class SingleWindowImageSpecsUi
 
     private static readonly PagePreset[] Presets =
     [
-        new("letter", "US Letter — 8.5 × 11 in", "8.5", "11", "in", "17:22", "2550", "3300"),
-        new("a4", "A4 — 210 × 297 mm", "210", "297", "mm", "210:297", "2480", "3508"),
-        new("a5", "A5 — 148 × 210 mm", "148", "210", "mm", "148:210", "1748", "2480"),
-        new("square", "Quadrato — 8.5 × 8.5 in", "8.5", "8.5", "in", "1:1", "2550", "2550"),
+        new("kdp_5x8", "KDP — 5 × 8 in", "5", "8", "in", "5:8", "1500", "2400"),
+        new("kdp_5_06x7_81", "KDP — 5.06 × 7.81 in", "5.06", "7.81", "in", "5.06:7.81", "1518", "2343"),
+        new("kdp_5_25x8", "KDP — 5.25 × 8 in", "5.25", "8", "in", "5.25:8", "1575", "2400"),
+        new("kdp_5_5x8_5", "KDP — 5.5 × 8.5 in", "5.5", "8.5", "in", "5.5:8.5", "1650", "2550"),
+        new("kdp_6x9", "KDP — 6 × 9 in", "6", "9", "in", "2:3", "1800", "2700"),
+        new("kdp_6_14x9_21", "KDP — 6.14 × 9.21 in", "6.14", "9.21", "in", "6.14:9.21", "1842", "2763"),
+        new("kdp_6_69x9_61", "KDP — 6.69 × 9.61 in", "6.69", "9.61", "in", "6.69:9.61", "2007", "2883"),
+        new("kdp_7x10", "KDP — 7 × 10 in", "7", "10", "in", "7:10", "2100", "3000"),
+        new("kdp_7_44x9_69", "KDP — 7.44 × 9.69 in", "7.44", "9.69", "in", "7.44:9.69", "2232", "2907"),
+        new("kdp_7_5x9_25", "KDP — 7.5 × 9.25 in", "7.5", "9.25", "in", "7.5:9.25", "2250", "2775"),
+        new("kdp_8x10", "KDP — 8 × 10 in", "8", "10", "in", "4:5", "2400", "3000"),
+        new("kdp_8_25x6", "KDP — 8.25 × 6 in (orizzontale)", "8.25", "6", "in", "11:8", "2475", "1800"),
+        new("kdp_8_25_square", "KDP — 8.25 × 8.25 in", "8.25", "8.25", "in", "1:1", "2475", "2475"),
+        new("kdp_8_5_square", "KDP — 8.5 × 8.5 in", "8.5", "8.5", "in", "1:1", "2550", "2550"),
+        new("kdp_letter", "KDP — 8.5 × 11 in", "8.5", "11", "in", "17:22", "2550", "3300"),
+        new("kdp_a4", "KDP — 8.27 × 11.69 in / A4", "8.27", "11.69", "in", "8.27:11.69", "2481", "3507"),
         new("custom", "Personalizzato", "8.5", "11", "in", "17:22", "2550", "3300")
     ];
 
@@ -74,7 +88,7 @@ internal static class SingleWindowImageSpecsUi
         var sb = new StringBuilder();
         sb.AppendLine("SPECIFICHE TECNICHE:");
         sb.AppendLine($"- Tipo libro / uso immagini: {type}.");
-        sb.AppendLine($"- Formato pagina: {PresetLabel(s.PresetId)}.");
+        sb.AppendLine($"- Formato pagina / trim finale: {PresetLabel(s.PresetId)}.");
         sb.AppendLine($"- Dimensioni finali: {s.Width} × {s.Height} {s.Unit}.");
         sb.AppendLine($"- Orientamento: {s.Orientation}.");
         sb.AppendLine($"- Aspect ratio: {s.AspectRatio}.");
@@ -83,11 +97,7 @@ internal static class SingleWindowImageSpecsUi
         sb.AppendLine($"- DPI di destinazione per stampa: {s.Dpi} DPI. I DPI sono separati dalla classe HD/FHD/2K/4K/8K.");
         sb.AppendLine($"- Qualità rendering: {s.Quality}.");
         sb.AppendLine($"- Livello tecnico di dettaglio: {s.LineDetail}.");
-        sb.AppendLine($"- Margine di sicurezza: {s.SafeMargin} {s.Unit}.");
-        if (s.Bleed)
-            sb.AppendLine($"- Bleed / abbondanza: {s.BleedAmount} {s.Unit} per lato.");
-        else
-            sb.AppendLine("- Bleed / abbondanza: nessuno.");
+        sb.AppendLine($"- Margine di sicurezza creativo: {s.SafeMargin} {s.Unit}.");
 
         if (coloring)
         {
@@ -114,9 +124,10 @@ internal static class SingleWindowImageSpecsUi
         var coloring = string.Equals(BookTypeProfileService.Get(project), BookTypeProfileService.ColoringBook, StringComparison.OrdinalIgnoreCase);
         var s = Load(project);
         NormalizeResolutionClass(s);
+        NormalizeLegacyPreset(s);
 
-        var preset = new ComboBox { Name = "ImageSpecPreset", ItemsSource = Presets, Width = 310, HorizontalAlignment = HorizontalAlignment.Left };
-        preset.SelectedItem = Presets.FirstOrDefault(p => p.Id == s.PresetId) ?? Presets[0];
+        var preset = new ComboBox { Name = "ImageSpecPreset", ItemsSource = Presets, Width = 360, HorizontalAlignment = HorizontalAlignment.Left };
+        preset.SelectedItem = Presets.FirstOrDefault(p => p.Id == s.PresetId) ?? Presets.First(p => p.Id == "kdp_letter");
         var width = SmallEditor(s.Width, 90); width.Name = "ImageSpecWidth";
         var height = SmallEditor(s.Height, 90); height.Name = "ImageSpecHeight";
         var unit = new ComboBox { Name = "ImageSpecUnit", ItemsSource = new[] { "in", "mm" }, SelectedItem = s.Unit, Width = 80 };
@@ -142,8 +153,6 @@ internal static class SingleWindowImageSpecsUi
         if (!detailChoices.Contains(s.LineDetail, StringComparer.Ordinal)) s.LineDetail = "Dettaglio medio";
         var line = new ComboBox { Name = "ImageSpecLineDetail", ItemsSource = detailChoices, SelectedItem = s.LineDetail, Width = 260 };
         var safe = SmallEditor(s.SafeMargin, 90); safe.Name = "ImageSpecSafeMargin";
-        var bleed = new CheckBox { Name = "ImageSpecBleed", Content = "Bleed / abbondanza", IsChecked = s.Bleed };
-        var bleedAmount = SmallEditor(s.BleedAmount, 90); bleedAmount.Name = "ImageSpecBleedAmount"; bleedAmount.IsVisible = s.Bleed;
         var applyingResolution = false;
 
         void FromControls()
@@ -161,8 +170,8 @@ internal static class SingleWindowImageSpecsUi
             s.Quality = quality.SelectedItem?.ToString() ?? s.Quality;
             s.LineDetail = line.SelectedItem?.ToString() ?? s.LineDetail;
             s.SafeMargin = safe.Text?.Trim() ?? s.SafeMargin;
-            s.Bleed = bleed.IsChecked == true;
-            s.BleedAmount = bleedAmount.Text?.Trim() ?? s.BleedAmount;
+            // Bleed remains readable from old project JSON for compatibility, but it is no longer
+            // edited here and never enters AI-generation prompts.
             Save(project, s);
         }
 
@@ -189,7 +198,7 @@ internal static class SingleWindowImageSpecsUi
             height.Text = p.Height;
             unit.SelectedItem = p.Unit;
             ratio.Text = p.Ratio;
-            orientation.SelectedItem = p.Width == p.Height ? "Quadrata" : "Verticale";
+            orientation.SelectedItem = p.Width == p.Height ? "Quadrata" : ParsePositive(p.Width, 0) > ParsePositive(p.Height, 0) ? "Orizzontale" : "Verticale";
             if (resolutionClass.SelectedItem is ResolutionClass selected && selected.LongSidePixels >= 0)
                 ApplyResolutionClass();
             else
@@ -223,8 +232,6 @@ internal static class SingleWindowImageSpecsUi
         quality.SelectionChanged += (_, _) => FromControls();
         line.SelectionChanged += (_, _) => FromControls();
         safe.TextChanged += (_, _) => FromControls();
-        bleed.IsCheckedChanged += (_, _) => { bleedAmount.IsVisible = bleed.IsChecked == true; FromControls(); };
-        bleedAmount.TextChanged += (_, _) => FromControls();
 
         var panel = new StackPanel
         {
@@ -236,16 +243,16 @@ internal static class SingleWindowImageSpecsUi
                 new TextBlock { Text = "Specifiche immagine / stampa", FontSize = 19 },
                 new TextBlock
                 {
-                    Text = "Formato, aspect ratio, classe HD/FHD/2K/4K/8K, pixel, DPI, qualità e margini entrano automaticamente nel prompt. La classe di risoluzione mantiene l'aspect ratio del libro: non forza il formato video 16:9.",
+                    Text = "I preset pagina seguono i trim Amazon KDP. Formato, aspect ratio, classe HD/FHD/2K/4K/8K, pixel, DPI, qualità e margine di sicurezza entrano automaticamente nel prompt. Il bleed verrà gestito più avanti nella preparazione di stampa, non dall’AI che crea l’immagine.",
                     TextWrapping = Avalonia.Media.TextWrapping.Wrap
                 },
-                Labeled("Formato pagina", preset),
+                Labeled("Formato pagina / trim KDP", preset),
                 new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { Labeled("Larghezza", width), Labeled("Altezza", height), Labeled("Unità", unit) } },
                 new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { Labeled("Orientamento", orientation), Labeled("Aspect ratio", ratio) } },
                 Labeled("Qualità / classe risoluzione", resolutionClass),
                 new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { Labeled("Larghezza px", pxW), Labeled("Altezza px", pxH), Labeled("DPI", dpi) } },
                 new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { Labeled("Qualità rendering", quality), Labeled("Dettaglio tecnico", line) } },
-                new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { Labeled("Margine sicurezza", safe), bleed, bleedAmount } }
+                Labeled("Margine di sicurezza", safe)
             }
         };
 
@@ -308,6 +315,18 @@ internal static class SingleWindowImageSpecsUi
         s.ResolutionClassId = "print300";
     }
 
+    private static void NormalizeLegacyPreset(ImageSpecs s)
+    {
+        s.PresetId = s.PresetId switch
+        {
+            "letter" => "kdp_letter",
+            "a4" => "kdp_a4",
+            "square" => "kdp_8_5_square",
+            _ => s.PresetId
+        };
+        if (!Presets.Any(p => p.Id == s.PresetId)) s.PresetId = "custom";
+    }
+
     private static void EnsurePromptInjection(Control page, PreviewProject project)
     {
         if (Descendants(page).Any(c => string.Equals(c.Name, "DiezImageSpecsPromptMarker", StringComparison.Ordinal))) return;
@@ -335,7 +354,7 @@ internal static class SingleWindowImageSpecsUi
         var marker = new TextBlock
         {
             Name = "DiezImageSpecsPromptMarker",
-            Text = "Formato, aspect ratio, HD/FHD/2K/4K/8K, pixel, DPI, qualità, margini e bleed vengono inclusi automaticamente nel prompt.",
+            Text = "Formato/trim KDP, aspect ratio, HD/FHD/2K/4K/8K, pixel, DPI, qualità e margine di sicurezza vengono inclusi automaticamente nel prompt. Il bleed resta fuori dal flusso creativo AI.",
             TextWrapping = Avalonia.Media.TextWrapping.Wrap
         };
         if (root is not null)
@@ -354,6 +373,7 @@ internal static class SingleWindowImageSpecsUi
             {
                 var result = JsonSerializer.Deserialize<ImageSpecs>(entity.Notes, JsonOptions) ?? Default();
                 NormalizeResolutionClass(result);
+                NormalizeLegacyPreset(result);
                 return result;
             }
             catch { }
@@ -364,6 +384,7 @@ internal static class SingleWindowImageSpecsUi
     private static void Save(PreviewProject project, ImageSpecs settings)
     {
         NormalizeResolutionClass(settings);
+        NormalizeLegacyPreset(settings);
         var entity = project.Entities.FirstOrDefault(e => string.Equals(e.Kind, EntityKind, StringComparison.OrdinalIgnoreCase));
         if (entity is null)
         {
@@ -426,7 +447,7 @@ internal static class SingleWindowImageSpecsUi
 
     private sealed class ImageSpecs
     {
-        public string PresetId { get; set; } = "letter";
+        public string PresetId { get; set; } = "kdp_letter";
         public string Width { get; set; } = "8.5";
         public string Height { get; set; } = "11";
         public string Unit { get; set; } = "in";
@@ -439,6 +460,7 @@ internal static class SingleWindowImageSpecsUi
         public string Quality { get; set; } = "Alta";
         public string LineDetail { get; set; } = "Dettaglio medio";
         public string SafeMargin { get; set; } = "0.25";
+        // Retained only to deserialize older .diez projects. Not exposed to AI creation UI.
         public bool Bleed { get; set; }
         public string BleedAmount { get; set; } = "0.125";
     }
