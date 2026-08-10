@@ -86,23 +86,34 @@ jobs:
           if (!(Test-Path $setup)) { throw "Installer not generated: $setup" }
           Get-FileHash $setup -Algorithm SHA256
 
-      - name: Smoke test install upgrade clean-removal and uninstall
+      - name: Smoke test install preserve/reset user data and uninstall
         shell: powershell
         run: |
           $setup = (Resolve-Path "artifacts\installer\DiezPublishingStudio-Setup.exe").Path
           $installDir = Join-Path $env:RUNNER_TEMP "DiezPublishingStudio-Smoke"
           $dirArg = "/DIR=`"$installDir`""
           $uninstallKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{E6BE35BE-1F4B-4A3D-8CEB-27D970D85911}_is1"
+          $userDataDir = Join-Path $env:LOCALAPPDATA "Diez Publishing Studio"
+          $marker = Join-Path $userDataDir "installer-preserve-test.txt"
 
           $first = Start-Process -FilePath $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", $dirArg -Wait -PassThru
           if ($first.ExitCode -ne 0) { throw "First install failed with exit code $($first.ExitCode)" }
           $exe = Join-Path $installDir "DiezPublishingStudio.exe"
           if (!(Test-Path $exe)) { throw "Installed executable missing after first install" }
 
-          $upgrade = Start-Process -FilePath $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLEANOLD=1", $dirArg -Wait -PassThru
-          if ($upgrade.ExitCode -ne 0) { throw "Clean upgrade failed with exit code $($upgrade.ExitCode)" }
+          New-Item -ItemType Directory -Force $userDataDir | Out-Null
+          Set-Content -Path $marker -Value "keep me"
+
+          $preserve = Start-Process -FilePath $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLEANOLD=1", $dirArg -Wait -PassThru
+          if ($preserve.ExitCode -ne 0) { throw "Clean upgrade preserving user data failed with exit code $($preserve.ExitCode)" }
+          if (!(Test-Path $marker)) { throw "User data was removed even though reset was not requested" }
           if (!(Test-Path $exe)) { throw "Installed executable missing after clean upgrade" }
-          if (!(Test-Path $uninstallKey)) { throw "Uninstall registry entry missing after clean upgrade" }
+
+          $reset = Start-Process -FilePath $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLEANOLD=1", "/RESETUSERDATA=1", $dirArg -Wait -PassThru
+          if ($reset.ExitCode -ne 0) { throw "Clean upgrade with user-data reset failed with exit code $($reset.ExitCode)" }
+          if (Test-Path $marker) { throw "User data marker still exists after RESETUSERDATA=1" }
+          if (!(Test-Path $exe)) { throw "Installed executable missing after reset upgrade" }
+          if (!(Test-Path $uninstallKey)) { throw "Uninstall registry entry missing after reset upgrade" }
 
           $uninstallString = (Get-ItemProperty -Path $uninstallKey).UninstallString
           if ([string]::IsNullOrWhiteSpace($uninstallString)) { throw "UninstallString missing" }
@@ -116,7 +127,7 @@ jobs:
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
-          name: DiezPublishingStudio-Setup-1.0.0-rc7
+          name: DiezPublishingStudio-Setup-1.0.0-rc8-SW-FLOW-3
           path: artifacts/installer/DiezPublishingStudio-Setup.exe
           if-no-files-found: error
           retention-days: 90
