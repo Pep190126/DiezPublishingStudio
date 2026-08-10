@@ -8,10 +8,9 @@ internal static class SingleWindowV5UiContractProbe
 {
     public static async Task RunAsync(MainWindow window)
     {
-        var temp = Path.Combine(Path.GetTempPath(), "diez-ui-v8-" + Guid.NewGuid().ToString("N") + ".diez");
+        var temp = Path.Combine(Path.GetTempPath(), "diez-ui-v9-" + Guid.NewGuid().ToString("N") + ".diez");
         try
         {
-            // 1. Guided startup.
             typeof(MainWindow).GetField("_project", BindingFlags.Instance | BindingFlags.NonPublic)?.SetValue(window, null);
             typeof(MainWindow).GetField("_currentProjectPath", BindingFlags.Instance | BindingFlags.NonPublic)?.SetValue(window, null);
             SingleWindowV5StartupUi.ShowStart(window);
@@ -21,8 +20,7 @@ internal static class SingleWindowV5UiContractProbe
             AssertButton(pageHost.Content as Control, "Nuovo progetto");
             AssertButton(pageHost.Content as Control, "Apri progetto .diez");
 
-            // 2. Existing project -> explicit book type.
-            var project = ProjectFileStore.Create("Coloring V8 Contract");
+            var project = ProjectFileStore.Create("Coloring V9 Contract");
             await ProjectFileStore.SaveAsync(temp, project);
             SetSession(window, project, temp);
             SingleWindowV5StartupUi.ShowStart(window);
@@ -30,7 +28,6 @@ internal static class SingleWindowV5UiContractProbe
             if (!Descendants(pageHost.Content as Control).OfType<ComboBox>().Any())
                 throw new InvalidOperationException("La scelta del Tipo libro non è visibile.");
 
-            // 3. Coloring quantity page + native profile + image production specs.
             BookTypeProfileService.Set(project, BookTypeProfileService.ColoringBook);
             await ProjectFileStore.SaveAsync(temp, project);
             SingleWindowEntryPointUi.Invoke(host, "OpenQuantity");
@@ -38,21 +35,47 @@ internal static class SingleWindowV5UiContractProbe
             SingleWindowImageSpecsUi.EnsureCurrentPage(window);
             SingleWindowConsistencyCriteriaUi.EnsureCurrentPage(window);
             var quantityPage = pageHost.Content as Control ?? throw new InvalidOperationException("Pagina quantità assente.");
+
             AssertText(quantityPage, "Quante immagini vuoi creare?");
             if (Descendants(quantityPage).OfType<RadioButton>().Any())
                 throw new InvalidOperationException("La pagina Coloring contiene ancora radio legacy.");
+            if (!Descendants(quantityPage).OfType<TextBox>().Any(t => t.IsVisible && t.IsEnabled && !t.IsReadOnly && !t.AcceptsReturn))
+                throw new InvalidOperationException("Il numero immagini non è digitabile.");
 
-            var count = Descendants(quantityPage).OfType<TextBox>().FirstOrDefault(t => t.IsVisible && t.IsEnabled && !t.IsReadOnly && !t.AcceptsReturn);
-            if (count is null) throw new InvalidOperationException("Il numero immagini non è digitabile.");
+            AssertText(quantityPage, "Soggetto/i — scelta e descrizione");
+            AssertText(quantityPage, "Ambiente / scenario — descrizione");
+            var subject = NamedTextBox(quantityPage, "ColoringSubjectDescription");
+            var environment = NamedTextBox(quantityPage, "ColoringEnvironmentDescription");
+            if (!subject.AcceptsReturn || !environment.AcceptsReturn || !subject.IsUndoEnabled || !environment.IsUndoEnabled)
+                throw new InvalidOperationException("I box Soggetto/Ambiente devono essere multilinea con Undo/Redo.");
+            subject.Text = "Un piccolo drago sorridente con grandi ali, seduto mentre legge un libro aperto.";
+            environment.Text = "Biblioteca magica con scaffali semplici, una finestra ad arco e poche stelle decorative sullo sfondo.";
 
-            AssertText(quantityPage, "Stile e livello del Coloring");
+            AssertText(quantityPage, "SOLO 2 COLORI");
+            AssertText(quantityPage, "#000000");
+            AssertText(quantityPage, "#FFFFFF");
+
             var style = NamedCombo(quantityPage, "ColoringStyle");
             var styles = Values(style);
             foreach (var expected in new[] { "Bold & Easy", "Line Art pulita", "Line Art dettagliata", "Kawaii / Cartoon", "Mandala / Pattern" })
                 if (!styles.Contains(expected, StringComparer.Ordinal)) throw new InvalidOperationException($"Stile Coloring mancante: {expected}");
-            style.SelectedItem = "Bold & Easy";
 
-            foreach (var name in new[] { "ColoringAudience", "ColoringDifficulty", "ColoringLineWeight", "ColoringComplexity", "ColoringDensity", "ColoringBackground", "ColoringWhiteSpace" })
+            var lineWeight = NamedCombo(quantityPage, "ColoringLineWeight");
+            var lineWeights = Values(lineWeight);
+            foreach (var expected in new[]
+            {
+                "Molto spesso — Extra Bold", "Spesso — Bold", "Medio", "Sottile — Fine",
+                "Molto sottile — Extra Fine", "Variabile — contorni principali più spessi, dettagli più sottili"
+            })
+                if (!lineWeights.Contains(expected, StringComparer.Ordinal))
+                    throw new InvalidOperationException($"Spessore linee mancante: {expected}");
+
+            style.SelectedItem = "Line Art dettagliata";
+            if (!string.Equals(lineWeight.SelectedItem?.ToString(), "Sottile — Fine", StringComparison.Ordinal))
+                throw new InvalidOperationException("Line Art dettagliata deve proporre linee sottili come default.");
+            lineWeight.SelectedItem = "Molto sottile — Extra Fine";
+
+            foreach (var name in new[] { "ColoringAudience", "ColoringDifficulty", "ColoringComplexity", "ColoringDensity", "ColoringBackground", "ColoringWhiteSpace" })
                 _ = NamedCombo(quantityPage, name);
 
             AssertText(quantityPage, "Specifiche immagine / stampa");
@@ -61,10 +84,11 @@ internal static class SingleWindowV5UiContractProbe
             _ = NamedCombo(quantityPage, "ImageSpecQuality");
             _ = NamedCombo(quantityPage, "ImageSpecLineDetail");
             foreach (var name in new[] { "ImageSpecAspectRatio", "ImageSpecPixelWidth", "ImageSpecPixelHeight", "ImageSpecDpi", "ImageSpecSafeMargin" })
-                if (!Descendants(quantityPage).OfType<TextBox>().Any(t => string.Equals(t.Name, name, StringComparison.Ordinal) && t.IsEnabled && !t.IsReadOnly))
-                    throw new InvalidOperationException($"Specifica immagine non editabile: {name}");
+            {
+                var field = NamedTextBox(quantityPage, name);
+                if (!field.IsEnabled || field.IsReadOnly) throw new InvalidOperationException($"Specifica immagine non editabile: {name}");
+            }
 
-            // 4. Consistent OFF -> hidden criteria; ON -> six criteria x three levels.
             var consistent = Descendants(quantityPage).OfType<CheckBox>().FirstOrDefault(c =>
                 (c.Content?.ToString() ?? string.Empty).StartsWith("Consistent", StringComparison.OrdinalIgnoreCase))
                 ?? throw new InvalidOperationException("Il comando Consistent non è visibile.");
@@ -84,7 +108,6 @@ internal static class SingleWindowV5UiContractProbe
                 if (combo.ItemsSource is not IEnumerable source || source.Cast<object>().Count() != 3)
                     throw new InvalidOperationException($"{combo.Name} non offre tre livelli.");
 
-            // 5. Prompt page: three editors, target AI and rich prompt even without user text.
             SingleWindowEntryPointUi.Invoke(host, "OpenPrompt", 12);
             SingleWindowColoringProfileUi.EnsureCurrentPage(window);
             SingleWindowImageSpecsUi.EnsureCurrentPage(window);
@@ -103,18 +126,18 @@ internal static class SingleWindowV5UiContractProbe
 
             var basePrompt = SingleWindowEntryPointUi.Invoke(host, "BuildPrompt", project, 12)?.ToString() ?? string.Empty;
             editors[2].Text = basePrompt;
-            // TextChanged hooks append the book-type profile and technical block synchronously.
             var richPrompt = editors[2].Text ?? string.Empty;
             foreach (var required in new[]
             {
-                "PROFILO EDITORIALE COLORING BOOK:", "Bold & Easy", "forme grandi", "aree chiuse", "micro-aree",
-                "Solo bianco e nero", "Nessun grigio", "Nessuna ombra", "SPECIFICHE TECNICHE:",
-                "Dimensioni finali", "Aspect ratio", "Risoluzione target", "DPI", "Qualità", "Margine di sicurezza", "Bleed / abbondanza"
+                "PROFILO EDITORIALE COLORING BOOK:",
+                "SOGGETTO/I RICHIESTI DALL'UTENTE:", "piccolo drago sorridente", "AMBIENTE / SCENARIO RICHIESTO DALL'UTENTE:", "Biblioteca magica",
+                "Line Art dettagliata", "Molto sottile — Extra Fine", "linee molto sottili", "ESATTAMENTE DUE SOLI COLORI", "#000000", "#FFFFFF",
+                "Nessun terzo valore cromatico", "SPECIFICHE TECNICHE:", "Dimensioni finali", "Aspect ratio", "Risoluzione target", "DPI", "Qualità", "Margine di sicurezza", "Bleed / abbondanza"
             })
                 if (!richPrompt.Contains(required, StringComparison.OrdinalIgnoreCase))
                     throw new InvalidOperationException($"Il prompt Coloring non è abbastanza ricco: manca '{required}'.");
-            if (richPrompt.Length < 1200)
-                throw new InvalidOperationException($"Prompt Coloring troppo breve ({richPrompt.Length} caratteri): deve essere corposo anche senza testo utente.");
+            if (richPrompt.Length < 1500)
+                throw new InvalidOperationException($"Prompt Coloring troppo breve ({richPrompt.Length} caratteri): deve essere corposo anche con breve input utente.");
 
             var targetAi = NamedCombo(promptPage, "PromptTargetAi");
             var targetNames = Values(targetAi);
@@ -131,6 +154,10 @@ internal static class SingleWindowV5UiContractProbe
     private static ComboBox NamedCombo(Control root, string name) =>
         Descendants(root).OfType<ComboBox>().FirstOrDefault(c => string.Equals(c.Name, name, StringComparison.Ordinal))
         ?? throw new InvalidOperationException($"ComboBox mancante: {name}");
+
+    private static TextBox NamedTextBox(Control root, string name) =>
+        Descendants(root).OfType<TextBox>().FirstOrDefault(c => string.Equals(c.Name, name, StringComparison.Ordinal))
+        ?? throw new InvalidOperationException($"TextBox mancante: {name}");
 
     private static List<string> Values(ComboBox combo) =>
         combo.ItemsSource is IEnumerable source ? source.Cast<object>().Select(x => x.ToString() ?? string.Empty).ToList() : [];
