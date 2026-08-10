@@ -1,6 +1,7 @@
 using System.Reflection;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Layout;
 
 namespace DiezPublishingStudio;
@@ -16,6 +17,8 @@ internal static class SingleWindowV5StartupUi
 
     public static void Attach(MainWindow window)
     {
+        window.KeyDown += HandleEditorShortcuts;
+        window.Closed += (_, _) => window.KeyDown -= HandleEditorShortcuts;
         window.Opened += async (_, _) =>
         {
             // MainWindow may already be opening a .diez supplied on the command line.
@@ -110,6 +113,23 @@ internal static class SingleWindowV5StartupUi
         SingleWindowEntryPointUi.Invoke(host, "Push", "Inizia · SW-FLOW-5", content, preview,
             "Crea o apri un progetto; il passo successivo sarà la scelta del Tipo libro.");
         ReplaceMarker(window);
+    }
+
+    private static void HandleEditorShortcuts(object? sender, KeyEventArgs e)
+    {
+        if ((e.KeyModifiers & KeyModifiers.Control) == 0) return;
+        if (e.Source is not TextBox editor || editor.IsReadOnly || !editor.IsEnabled || !editor.IsUndoEnabled) return;
+
+        if (e.Key == Key.Z)
+        {
+            editor.Undo();
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Y)
+        {
+            editor.Redo();
+            e.Handled = true;
+        }
     }
 
     private static async Task InvokeMainTaskAsync(MainWindow window, string methodName)
