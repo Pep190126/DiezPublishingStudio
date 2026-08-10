@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Themes.Fluent;
+using Avalonia.Threading;
 
 namespace DiezPublishingStudio;
 
@@ -49,12 +50,13 @@ public sealed class App : Application
 
             if (args.Any(a => string.Equals(a, "--ui-flow-contract", StringComparison.OrdinalIgnoreCase)))
             {
-                mainWindow.Opened += async (_, _) =>
+                Dispatcher.UIThread.Post(async () =>
                 {
                     var resultFile = Path.Combine(AppContext.BaseDirectory, "ui-flow-contract.txt");
                     try
                     {
                         if (File.Exists(resultFile)) File.Delete(resultFile);
+                        await Task.Delay(120);
                         await SingleWindowInstallerUiProbe.RunAsync(mainWindow);
                         File.WriteAllText(resultFile,
                             "OK\nSW-FLOW-10\nstartup=guided\nbook-type=visible\nquantity-field=visible\ncoloring-style=visible\ncoloring-profile=rich\ncoloring-binary-bw=fixed\nline-thickness=dropdown\nsubject-environment=visible\nimage-specs=visible\nimage-resolution-classes=HD,FHD,2K,4K,8K,PRINT,CUSTOM\nimage-resolution-preserves-aspect=yes\nimage-specs-in-prompt=yes\nimage-collection-color-modes=visible\nillustrated-book-shares-illustration-profile=yes\nillustrated-book-not-coloring=yes\nresolution-classes-all-visual-book-types=yes\nimage-intake-real-files=yes\nimage-intake-json=yes\ncorrection-base-image-real=yes\ncorrection-base-description=yes\ncorrection-full-image-presets=yes\nrequest-context-json=yes\nconsistent-off=criteria-hidden\nconsistent-on=criteria-visible\nconsistency-levels=3\nprompt-target-ai=visible\nprompt-target-catalog=central\nprompt-editors=3\nundo=ctrl-z\nredo=ctrl-y");
@@ -65,7 +67,7 @@ public sealed class App : Application
                         try { File.WriteAllText(resultFile, ex.ToString()); } catch { }
                         Environment.Exit(2);
                     }
-                };
+                }, DispatcherPriority.Loaded);
             }
         }
 
