@@ -1,6 +1,7 @@
 using System.Reflection;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
@@ -47,35 +48,43 @@ internal static class VisibleEditorBridgeUi
         switch (control)
         {
             case Panel panel:
+            {
                 for (var i = 0; i < panel.Children.Count; i++)
                 {
-                    var child = panel.Children[i];
-                    if (child is TextBox box && ShouldBridge(box))
+                    var panelChild = panel.Children[i];
+                    if (panelChild is TextBox panelBox && ShouldBridge(panelBox))
                     {
                         panel.Children.RemoveAt(i);
-                        panel.Children.Insert(i, BuildBridge(box));
+                        panel.Children.Insert(i, BuildBridge(panelBox));
                     }
                     else
                     {
-                        BridgeContainer(child);
+                        BridgeContainer(panelChild);
                     }
                 }
                 break;
+            }
 
-            case Border border when border.Child is Control child:
-                if (child is TextBox box && ShouldBridge(box)) border.Child = BuildBridge(box);
-                else BridgeContainer(child);
+            case Border border when border.Child is Control borderChild:
+            {
+                if (borderChild is TextBox borderBox && ShouldBridge(borderBox)) border.Child = BuildBridge(borderBox);
+                else BridgeContainer(borderChild);
                 break;
+            }
 
-            case ScrollViewer scroll when scroll.Content is Control child:
-                if (child is TextBox box && ShouldBridge(box)) scroll.Content = BuildBridge(box);
-                else BridgeContainer(child);
+            case ScrollViewer scroll when scroll.Content is Control scrollChild:
+            {
+                if (scrollChild is TextBox scrollBox && ShouldBridge(scrollBox)) scroll.Content = BuildBridge(scrollBox);
+                else BridgeContainer(scrollChild);
                 break;
+            }
 
-            case ContentControl content when content.Content is Control child:
-                if (child is TextBox box && ShouldBridge(box)) content.Content = BuildBridge(box);
-                else BridgeContainer(child);
+            case ContentControl content when content.Content is Control contentChild:
+            {
+                if (contentChild is TextBox contentBox && ShouldBridge(contentBox)) content.Content = BuildBridge(contentBox);
+                else BridgeContainer(contentChild);
                 break;
+            }
         }
     }
 
@@ -143,10 +152,8 @@ internal static class VisibleEditorBridgeUi
         source.Opacity = 0;
         source.IsHitTestVisible = false;
         source.HorizontalAlignment = HorizontalAlignment.Stretch;
-        Panel.SetZIndex(source, 0);
-        Panel.SetZIndex(shell, 1);
         host.Children.Add(source);
-        host.Children.Add(shell);
+        host.Children.Add(shell); // Last child is painted above the transparent bridge.
 
         visible.TextChanged += (_, _) =>
         {
