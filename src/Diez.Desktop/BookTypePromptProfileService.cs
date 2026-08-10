@@ -14,6 +14,8 @@ internal static class BookTypePromptProfileService
 
     internal sealed class ColoringProfile
     {
+        public string SubjectDescription { get; set; } = string.Empty;
+        public string EnvironmentDescription { get; set; } = string.Empty;
         public string Style { get; set; } = "Bold & Easy";
         public string TargetAudience { get; set; } = "Bambini 6–9 anni";
         public string Difficulty { get; set; } = "Facile";
@@ -25,8 +27,6 @@ internal static class BookTypePromptProfileService
         public bool ClosedAreas { get; set; } = true;
         public bool AvoidTinyAreas { get; set; } = true;
         public bool CleanContours { get; set; } = true;
-        // Kept only for compatibility with previously persisted profiles.
-        // Coloring output is now always binary black/white.
         public bool BlackAndWhiteOnly { get; set; } = true;
         public bool NoGray { get; set; } = true;
         public bool NoShadows { get; set; } = true;
@@ -117,6 +117,19 @@ internal static class BookTypePromptProfileService
     {
         var sb = new StringBuilder();
         sb.AppendLine("PROFILO EDITORIALE COLORING BOOK:");
+
+        sb.AppendLine("SOGGETTO/I RICHIESTI DALL'UTENTE:");
+        if (string.IsNullOrWhiteSpace(p.SubjectDescription))
+            sb.AppendLine("- Non specificato: Diez/AI può proporre soggetti coerenti con tema, stile e fascia scelta, senza contraddire gli altri vincoli.");
+        else
+            sb.AppendLine("- " + p.SubjectDescription.Trim());
+
+        sb.AppendLine("AMBIENTE / SCENARIO RICHIESTO DALL'UTENTE:");
+        if (string.IsNullOrWhiteSpace(p.EnvironmentDescription))
+            sb.AppendLine("- Non specificato: usa uno scenario compatibile con soggetto, stile, densità e regole dello sfondo selezionate.");
+        else
+            sb.AppendLine("- " + p.EnvironmentDescription.Trim());
+
         sb.AppendLine($"- Stile principale: {p.Style}.");
         sb.AppendLine($"- Pubblico / fascia: {p.TargetAudience}.");
         sb.AppendLine($"- Difficoltà di colorazione: {p.Difficulty}.");
