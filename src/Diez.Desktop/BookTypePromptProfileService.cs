@@ -25,6 +25,8 @@ internal static class BookTypePromptProfileService
         public bool ClosedAreas { get; set; } = true;
         public bool AvoidTinyAreas { get; set; } = true;
         public bool CleanContours { get; set; } = true;
+        // Legacy persisted flags are retained for backward compatibility only.
+        // Coloring output is now unconditionally two-color black/white.
         public bool BlackAndWhiteOnly { get; set; } = true;
         public bool NoGray { get; set; } = true;
         public bool NoShadows { get; set; } = true;
@@ -65,12 +67,22 @@ internal static class BookTypePromptProfileService
     {
         var entity = project.Entities.FirstOrDefault(e => string.Equals(e.Kind, ColoringEntityKind, StringComparison.OrdinalIgnoreCase));
         if (entity is null || string.IsNullOrWhiteSpace(entity.Notes)) return new ColoringProfile();
-        try { return JsonSerializer.Deserialize<ColoringProfile>(entity.Notes, JsonOptions) ?? new ColoringProfile(); }
+        try
+        {
+            var profile = JsonSerializer.Deserialize<ColoringProfile>(entity.Notes, JsonOptions) ?? new ColoringProfile();
+            profile.BlackAndWhiteOnly = true;
+            profile.NoGray = true;
+            profile.NoShadows = true;
+            return profile;
+        }
         catch { return new ColoringProfile(); }
     }
 
     public static void SaveColoring(PreviewProject project, ColoringProfile profile)
     {
+        profile.BlackAndWhiteOnly = true;
+        profile.NoGray = true;
+        profile.NoShadows = true;
         var entity = project.Entities.FirstOrDefault(e => string.Equals(e.Kind, ColoringEntityKind, StringComparison.OrdinalIgnoreCase));
         if (entity is null)
         {
@@ -104,14 +116,15 @@ internal static class BookTypePromptProfileService
         sb.AppendLine($"- Sfondo: {p.Background}.");
         sb.AppendLine($"- Spazio bianco: {p.WhiteSpace}.");
 
+        sb.AppendLine("- VINCOLO CROMATICO ASSOLUTO: l'immagine finale deve contenere ESATTAMENTE DUE SOLI COLORI: nero puro #000000 e bianco puro #FFFFFF.");
+        sb.AppendLine("- Non sono ammessi grigi, mezzetinte, colori, gradienti, ombre, sfumature, texture tonali o livelli cromatici intermedi.");
+        sb.AppendLine("- Il fondo è bianco puro e tutte le linee/aree scure sono nero puro; nessun terzo valore cromatico deve comparire nel risultato finale.");
+        sb.AppendLine("- Se il formato raster introduce antialiasing grigio, il risultato finale deve essere normalizzato/binarizzato a solo nero e bianco prima dell'uso editoriale.");
         sb.AppendLine("- Obiettivo: produrre pagine realmente colorabili, leggibili a colpo d'occhio e adatte alla stampa, non semplici illustrazioni monocromatiche.");
         if (p.CleanContours) sb.AppendLine("- Contorni puliti, continui e facilmente distinguibili; evitare linee sporche, doppie o frammentate.");
         if (p.ClosedAreas) sb.AppendLine("- Preferire aree chiuse e chiaramente delimitate, facili da colorare senza ambiguità.");
         if (p.AvoidTinyAreas) sb.AppendLine("- Evitare micro-aree, dettagli minuscoli o incroci di linee che rendano difficile la colorazione.");
         if (p.SubjectClearlySeparated) sb.AppendLine("- Soggetto principale chiaramente separato dallo sfondo e leggibile anche in miniatura.");
-        if (p.BlackAndWhiteOnly) sb.AppendLine("- Solo bianco e nero puro: linee nere su fondo bianco.");
-        if (p.NoGray) sb.AppendLine("- Nessun grigio, mezzatinta, texture grigia, anti-shading visibile o riempimento tonale.");
-        if (p.NoShadows) sb.AppendLine("- Nessuna ombra o sfumatura salvo richiesta esplicita dell'utente.");
         if (p.NoTextInsideImage) sb.AppendLine("- Nessun testo, lettera, numero, watermark, firma, ID, didascalia o nome file dentro l'immagine.");
 
         foreach (var rule in StyleRules(p.Style)) sb.AppendLine("- " + rule);
@@ -133,8 +146,9 @@ internal static class BookTypePromptProfileService
         }
         if (style.Contains("Line Art dettagliata", StringComparison.OrdinalIgnoreCase))
         {
-            yield return "Line Art dettagliata: dettaglio ricco ma ancora colorabile; linee nitide, niente chiaroscuro pittorico.";
-            yield return "Distribuire il dettaglio senza creare rumore visivo o aree troppo piccole.";
+            yield return "Line Art dettagliata: dettaglio ricco ma ancora colorabile; le linee possono essere anche sottili, purché nitide, continue, ben separate e stampabili.";
+            yield return "Line Art dettagliata: usare linee sottili dove servono al dettaglio senza trasformarle in grigi, texture tonali o chiaroscuro.";
+            yield return "Distribuire il dettaglio senza creare rumore visivo o aree troppo piccole da colorare.";
             yield break;
         }
         if (style.Contains("Line Art", StringComparison.OrdinalIgnoreCase))
