@@ -28,6 +28,10 @@ public sealed class App : Application
                 failures.Add(layoutError);
             if (!StartupDiagnostics.TryAttach("Host single-window", () => SingleWindowOverlayFlowUi.Attach(mainWindow), out var singleWindowError) && singleWindowError is not null)
                 failures.Add(singleWindowError);
+            if (!StartupDiagnostics.TryAttach("Protezione scelta Tipo libro", () => SingleWindowBookTypeSelectionGuardUi.Attach(mainWindow), out var bookTypeGuardError) && bookTypeGuardError is not null)
+                failures.Add(bookTypeGuardError);
+            if (!StartupDiagnostics.TryAttach("Conferma uscita", () => ExitConfirmationUi.Attach(mainWindow), out var exitConfirmationError) && exitConfirmationError is not null)
+                failures.Add(exitConfirmationError);
             if (!StartupDiagnostics.TryAttach("Profilo Coloring", () => SingleWindowColoringProfileUi.Attach(mainWindow), out var coloringProfileError) && coloringProfileError is not null)
                 failures.Add(coloringProfileError);
             if (!StartupDiagnostics.TryAttach("Profilo illustrazioni", () => SingleWindowImageCollectionProfileUi.Attach(mainWindow), out var illustrationProfileError) && illustrationProfileError is not null)
@@ -59,9 +63,12 @@ public sealed class App : Application
                     {
                         if (File.Exists(resultFile)) File.Delete(resultFile);
                         await Task.Delay(120);
+                        if (!ExitConfirmationUi.IsAttached(mainWindow))
+                            throw new InvalidOperationException("La conferma uscita non è collegata al MainWindow.");
+                        await SingleWindowBookTypeSelectionGuardUi.RunContractAsync(mainWindow);
                         await SingleWindowInstallerUiProbe.RunAsync(mainWindow);
                         File.WriteAllText(resultFile,
-                            "OK\nSW-FLOW-10\nstartup=guided\nbook-type=visible\nquantity-field=visible\ncoloring-style=visible\ncoloring-profile=rich\ncoloring-binary-bw=fixed\nline-thickness=dropdown\nsubject-environment=visible\nimage-specs=visible\nimage-resolution-classes=HD,FHD,2K,4K,8K,PRINT,CUSTOM\nimage-resolution-preserves-aspect=yes\nimage-specs-in-prompt=yes\nimage-collection-color-modes=visible\nillustrated-book-shares-illustration-profile=yes\nillustrated-book-not-coloring=yes\nresolution-classes-all-visual-book-types=yes\nimage-intake-real-files=yes\nimage-intake-json=yes\ncorrection-base-image-real=yes\ncorrection-base-description=yes\ncorrection-full-image-presets=yes\nrequest-context-json=yes\nsafe-image-context-export=yes\nconsistent-off=criteria-hidden\nconsistent-on=criteria-visible\nconsistency-levels=3\nprompt-target-ai=visible\nprompt-target-catalog=central\nprompt-editors=3\nundo=ctrl-z\nredo=ctrl-y");
+                            "OK\nSW-FLOW-10\nstartup=guided\nbook-type=visible\nbook-type-apply=safe-save-and-navigation\nexit-confirmation=x-button\nquantity-field=visible\ncoloring-style=visible\ncoloring-profile=rich\ncoloring-binary-bw=fixed\nline-thickness=dropdown\nsubject-environment=visible\nimage-specs=visible\nimage-resolution-classes=HD,FHD,2K,4K,8K,PRINT,CUSTOM\nimage-resolution-preserves-aspect=yes\nimage-specs-in-prompt=yes\nimage-collection-color-modes=visible\nillustrated-book-shares-illustration-profile=yes\nillustrated-book-not-coloring=yes\nresolution-classes-all-visual-book-types=yes\nimage-intake-real-files=yes\nimage-intake-json=yes\ncorrection-base-image-real=yes\ncorrection-base-description=yes\ncorrection-full-image-presets=yes\nrequest-context-json=yes\nsafe-image-context-export=yes\nconsistent-off=criteria-hidden\nconsistent-on=criteria-visible\nconsistency-levels=3\nprompt-target-ai=visible\nprompt-target-catalog=central\nprompt-editors=3\nundo=ctrl-z\nredo=ctrl-y");
                         Environment.Exit(0);
                     }
                     catch (Exception ex)
