@@ -8,6 +8,7 @@ namespace DiezPublishingStudio;
 /// <summary>
 /// Replaces the visible V2 Prompt Pack export button with the safe enhancer path.
 /// Intake/paradigm/correction controls remain owned by SingleWindowAiImageContextUi.
+/// Also keeps visible copy aligned with the current contract: layout-only settings are not AI presets.
 /// </summary>
 internal static class SingleWindowSafeImageContextExportUi
 {
@@ -31,6 +32,8 @@ internal static class SingleWindowSafeImageContextExportUi
         var host = SingleWindowEntryPointUi.GetHost(window);
         var pageHost = host.GetType().GetField("_pageHost", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(host) as ContentControl;
         if (pageHost?.Content is not Control page) return;
+
+        CleanLayoutOnlyCopy(page);
         if (Descendants(page).Any(c => string.Equals(c.Name, SafeButtonName, StringComparison.Ordinal))) return;
 
         var candidate = Descendants(page).OfType<Button>().FirstOrDefault(b =>
@@ -46,7 +49,7 @@ internal static class SingleWindowSafeImageContextExportUi
             HorizontalContentAlignment = HorizontalAlignment.Center
         };
         ToolTip.SetTip(safe,
-            "Esporta file reali di base/intake/paradigmi, descrizioni, preserve/change e tutti i preset immagine in request-context.json.");
+            "Esporta file reali di base/intake/paradigmi, descrizioni, preserve/change e tutti i preset effettivi di generazione in request-context.json. I parametri d'impaginazione restano fuori.");
         safe.Click += async (_, _) =>
         {
             var state = AiExchangeStateStore.Load(project);
@@ -88,6 +91,18 @@ internal static class SingleWindowSafeImageContextExportUi
 
         var index = row.Children.IndexOf(candidate);
         row.Children.Insert(index < 0 ? row.Children.Count : index + 1, safe);
+    }
+
+    private static void CleanLayoutOnlyCopy(Control page)
+    {
+        foreach (var text in Descendants(page).OfType<TextBlock>())
+        {
+            var value = text.Text ?? string.Empty;
+            if (value.Contains("formato, margini e bleed", StringComparison.OrdinalIgnoreCase))
+                text.Text = value.Replace("formato, margini e bleed", "formato", StringComparison.OrdinalIgnoreCase);
+            else if (value.Contains("margini e bleed", StringComparison.OrdinalIgnoreCase))
+                text.Text = value.Replace("margini e bleed", "parametri d'impaginazione", StringComparison.OrdinalIgnoreCase);
+        }
     }
 
     private static bool TrySession(MainWindow window, out PreviewProject project, out string path)
