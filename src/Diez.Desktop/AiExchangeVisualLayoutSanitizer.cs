@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -14,6 +15,11 @@ internal static class AiExchangeVisualLayoutSanitizer
 {
     private const string ContextName = "request-context.json";
     private const string InstructionsName = "instructions.md";
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        WriteIndented = true,
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+    };
     private static readonly string[] RemovedKeys =
     [
         "orientation", "Orientation",
@@ -47,7 +53,7 @@ internal static class AiExchangeVisualLayoutSanitizer
         var replacement = archive.CreateEntry(ContextName, CompressionLevel.Optimal);
         using var target = replacement.Open();
         using var writer = new StreamWriter(target, new UTF8Encoding(false));
-        writer.Write(root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        writer.Write(root.ToJsonString(JsonOptions));
     }
 
     private static void RemoveRecursively(JsonNode node)
