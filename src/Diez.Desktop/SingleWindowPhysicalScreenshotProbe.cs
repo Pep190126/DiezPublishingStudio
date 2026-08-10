@@ -53,16 +53,19 @@ internal static class SingleWindowPhysicalScreenshotProbe
                     ?? throw new InvalidOperationException("Voce Può variare non disponibile nel raster.");
                 await WaitAsync();
 
-                FindTextBox(consistencyPage, "ConsistencyVariation_character").Text = "TEST VARIAZIONE VISIBILE: abiti e accessori possono cambiare.";
-                FindTextBox(consistencyPage, "ConsistencyNotes").Text = "TEST NOTE CONSISTENT VISIBILI";
+                var variation = FindTextBox(consistencyPage, "ConsistencyVariation_character");
+                var notes = FindTextBox(consistencyPage, "ConsistencyNotes");
+                variation.Text = "TEST VARIAZIONE VISIBILE: abiti e accessori possono cambiare.";
+                notes.Text = "TEST NOTE CONSISTENT VISIBILI";
                 await WaitAsync();
 
-                if (pageHost.Content is ScrollViewer scroller)
-                {
-                    scroller.Offset = new Vector(0, 10000);
-                    await WaitAsync();
-                }
-                await SaveWindowAsync(window, Path.Combine(AppContext.BaseDirectory, "ui-consistent.png"));
+                BringBridgeIntoView(variation);
+                await WaitAsync();
+                await SaveWindowAsync(window, Path.Combine(AppContext.BaseDirectory, "ui-consistent-variation.png"));
+
+                BringBridgeIntoView(notes);
+                await WaitAsync();
+                await SaveWindowAsync(window, Path.Combine(AppContext.BaseDirectory, "ui-consistent-notes.png"));
             }
 
             SingleWindowNativeV11Ui.ShowPrompt(window, host, 12);
@@ -80,6 +83,12 @@ internal static class SingleWindowPhysicalScreenshotProbe
         {
             try { if (File.Exists(tempPath)) File.Delete(tempPath); } catch { }
         }
+    }
+
+    private static void BringBridgeIntoView(TextBox source)
+    {
+        if (source.Parent is Control bridgeHost) bridgeHost.BringIntoView();
+        else source.BringIntoView();
     }
 
     private static TextBox FindTextBox(Control root, string name) =>
