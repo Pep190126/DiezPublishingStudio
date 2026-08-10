@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Reflection;
 using Avalonia;
 using Avalonia.Controls;
@@ -37,6 +38,33 @@ internal static class SingleWindowPhysicalScreenshotProbe
             await WaitAsync();
             await SaveWindowAsync(window, Path.Combine(AppContext.BaseDirectory, "ui-quantity.png"));
 
+            if (pageHost.Content is Control consistencyPage)
+            {
+                var consistent = Descendants(consistencyPage).OfType<CheckBox>().FirstOrDefault(c => c.Name == "NativeConsistent")
+                    ?? throw new InvalidOperationException("Consistent raster mancante.");
+                consistent.IsChecked = true;
+                await WaitAsync();
+
+                var level = Descendants(consistencyPage).OfType<ComboBox>().FirstOrDefault(c => c.Name == "ConsistencyLevel_character")
+                    ?? throw new InvalidOperationException("Criterio personaggio raster mancante.");
+                if (level.ItemsSource is not IEnumerable items)
+                    throw new InvalidOperationException("ItemsSource criterio personaggio non disponibile.");
+                level.SelectedItem = items.Cast<object>().FirstOrDefault(x => string.Equals(x.ToString(), "Può variare", StringComparison.Ordinal))
+                    ?? throw new InvalidOperationException("Voce Può variare non disponibile nel raster.");
+                await WaitAsync();
+
+                FindTextBox(consistencyPage, "ConsistencyVariation_character").Text = "TEST VARIAZIONE VISIBILE: abiti e accessori possono cambiare.";
+                FindTextBox(consistencyPage, "ConsistencyNotes").Text = "TEST NOTE CONSISTENT VISIBILI";
+                await WaitAsync();
+
+                if (pageHost.Content is ScrollViewer scroller)
+                {
+                    scroller.Offset = new Vector(0, 10000);
+                    await WaitAsync();
+                }
+                await SaveWindowAsync(window, Path.Combine(AppContext.BaseDirectory, "ui-consistent.png"));
+            }
+
             SingleWindowNativeV11Ui.ShowPrompt(window, host, 12);
             await WaitAsync();
             if (pageHost.Content is Control prompt)
@@ -54,14 +82,20 @@ internal static class SingleWindowPhysicalScreenshotProbe
         }
     }
 
-    private static TextBox FindTextBox(Control root, string name)
+    private static TextBox FindTextBox(Control root, string name) =>
+        Descendants(root).OfType<TextBox>().FirstOrDefault(box => box.Name == name)
+        ?? throw new InvalidOperationException("TextBox raster mancante: " + name);
+
+    private static IEnumerable<Control> Descendants(Control root)
     {
         var stack = new Stack<Control>();
+        var seen = new HashSet<Control>();
         stack.Push(root);
         while (stack.Count > 0)
         {
             var current = stack.Pop();
-            if (current is TextBox box && box.Name == name) return box;
+            if (!seen.Add(current)) continue;
+            yield return current;
             switch (current)
             {
                 case Panel panel:
@@ -72,7 +106,6 @@ internal static class SingleWindowPhysicalScreenshotProbe
                 case ContentControl content when content.Content is Control child: stack.Push(child); break;
             }
         }
-        throw new InvalidOperationException("TextBox raster mancante: " + name);
     }
 
     private static async Task SaveWindowAsync(MainWindow window, string path)
