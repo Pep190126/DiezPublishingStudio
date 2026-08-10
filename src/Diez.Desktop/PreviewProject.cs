@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.IO.Compression;
 using System.Text.Json;
 
@@ -193,6 +194,8 @@ internal sealed class RevisionCandidate
 internal static class ProjectFileStore
 {
     private const string ManifestEntryName = "project.json";
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> SaveGates =
+        new(StringComparer.OrdinalIgnoreCase);
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -248,12 +251,27 @@ internal static class ProjectFileStore
         if (string.IsNullOrWhiteSpace(path))
             throw new ArgumentException("Percorso progetto non valido.", nameof(path));
 
+        var fullPath = Path.GetFullPath(path);
+        var gate = SaveGates.GetOrAdd(fullPath, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync();
+        try
+        {
+            await SaveCoreAsync(fullPath, project);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    private static async Task SaveCoreAsync(string path, PreviewProject project)
+    {
         Normalize(project);
         project.Format = "diez-project-package";
         project.SchemaVersion = 10;
         project.SavedAtLocal = DateTimeOffset.Now.ToString("G");
 
-        var directory = Path.GetDirectoryName(Path.GetFullPath(path));
+        var directory = Path.GetDirectoryName(path);
         if (!string.IsNullOrWhiteSpace(directory))
             Directory.CreateDirectory(directory);
 
