@@ -41,6 +41,8 @@ public sealed class App : Application
                 failures.Add(visualIdentityError);
             if (!StartupDiagnostics.TryAttach("Specifiche immagini", () => SingleWindowImageSpecsUi.Attach(mainWindow), out var imageSpecsError) && imageSpecsError is not null)
                 failures.Add(imageSpecsError);
+            if (!StartupDiagnostics.TryAttach("Dimensioni personalizzate esplicite", () => SingleWindowCustomDimensionsUi.Attach(mainWindow), out var customDimensionsError) && customDimensionsError is not null)
+                failures.Add(customDimensionsError);
             if (!StartupDiagnostics.TryAttach("Criteri Consistent", () => SingleWindowConsistencyCriteriaUi.Attach(mainWindow), out var consistencyError) && consistencyError is not null)
                 failures.Add(consistencyError);
             if (!StartupDiagnostics.TryAttach("AI prompt specifico", () => SingleWindowPromptTargetAiUi.Attach(mainWindow), out var promptTargetError) && promptTargetError is not null)
@@ -49,6 +51,8 @@ public sealed class App : Application
                 failures.Add(imageContextError);
             if (!StartupDiagnostics.TryAttach("Export immagini AI sicuro", () => SingleWindowSafeImageContextExportUi.Attach(mainWindow), out var safeExportError) && safeExportError is not null)
                 failures.Add(safeExportError);
+            if (!StartupDiagnostics.TryAttach("Input editabili ben visibili", () => SingleWindowVisibleInputsUi.Attach(mainWindow), out var visibleInputsError) && visibleInputsError is not null)
+                failures.Add(visibleInputsError);
             if (!StartupDiagnostics.TryAttach("Avvio guidato SW-FLOW-10", () => SingleWindowV5StartupUi.Attach(mainWindow), out var startupError) && startupError is not null)
                 failures.Add(startupError);
 
@@ -69,7 +73,7 @@ public sealed class App : Application
                         await SingleWindowSafeBookTypePageUi.RunContractAsync(mainWindow);
                         await SingleWindowInstallerUiProbe.RunAsync(mainWindow);
                         File.WriteAllText(resultFile,
-                            "OK\nSW-FLOW-10\nstartup=guided\nbook-type=visible\nbook-type-page=native-safe-v2\nbook-type-apply=safe-save-deferred-navigation\ncrash-diagnostics=persistent\nexit-confirmation=x-button\nquantity-field=visible\ncoloring-style=visible\ncoloring-profile=rich\ncoloring-binary-bw=fixed\nline-thickness=dropdown\nsubject-environment=visible\nimage-specs=visible\nimage-resolution-classes=HD,FHD,2K,4K,8K,PRINT,CUSTOM\nimage-resolution-preserves-aspect=yes\nimage-specs-in-prompt=yes\nimage-collection-color-modes=visible\nillustrated-book-shares-illustration-profile=yes\nillustrated-book-not-coloring=yes\nresolution-classes-all-visual-book-types=yes\nimage-intake-real-files=yes\nimage-intake-json=yes\ncorrection-base-image-real=yes\ncorrection-base-description=yes\ncorrection-full-image-presets=yes\nrequest-context-json=yes\nsafe-image-context-export=yes\nconsistent-off=criteria-hidden\nconsistent-on=criteria-visible\nconsistency-levels=3\nprompt-target-ai=visible\nprompt-target-catalog=central\nprompt-editors=3\nundo=ctrl-z\nredo=ctrl-y");
+                            "OK\nSW-FLOW-10\nstartup=guided\nbook-type=visible\nbook-type-page=native-safe-v2\nbook-type-apply=safe-save-deferred-navigation\ncrash-diagnostics=persistent\nexit-confirmation=x-button\nquantity-field=visible\ncoloring-style=visible\ncoloring-profile=rich\ncoloring-binary-bw=fixed\nline-thickness=dropdown\nsubject-environment=visible\nimage-specs=visible\ncustom-physical-dimensions=numeric-visible\ncustom-pixel-dimensions=numeric-visible\neditable-inputs=rendered-bordered\nimage-resolution-classes=HD,FHD,2K,4K,8K,PRINT,CUSTOM\nimage-resolution-preserves-aspect=yes\nimage-specs-in-prompt=yes\nimage-collection-color-modes=visible\nillustrated-book-shares-illustration-profile=yes\nillustrated-book-not-coloring=yes\nresolution-classes-all-visual-book-types=yes\nimage-intake-real-files=yes\nimage-intake-json=yes\ncorrection-base-image-real=yes\ncorrection-base-description=yes\ncorrection-full-image-presets=yes\nrequest-context-json=yes\nsafe-image-context-export=yes\nconsistent-off=criteria-hidden\nconsistent-on=criteria-visible\nconsistency-levels=3\nprompt-target-ai=visible\nprompt-target-catalog=central\nprompt-editors=3\nundo=ctrl-z\nredo=ctrl-y");
                         Environment.Exit(0);
                     }
                     catch (Exception ex)
