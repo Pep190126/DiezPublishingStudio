@@ -23,13 +23,15 @@ public sealed class App : Application
 
             var failures = new List<string>();
 
-            // SW-FLOW-5 is the visible application flow. FriendlyLayout only builds
+            // SW-FLOW-6 is the visible application flow. FriendlyLayout only builds
             // the physical MainWindow grid; the logical workflow immediately covers it.
             if (!StartupDiagnostics.TryAttach("Layout principale", () => FriendlyLayoutUi.Attach(mainWindow), out var layoutError) && layoutError is not null)
                 failures.Add(layoutError);
             if (!StartupDiagnostics.TryAttach("Host single-window", () => SingleWindowOverlayFlowUi.Attach(mainWindow), out var singleWindowError) && singleWindowError is not null)
                 failures.Add(singleWindowError);
-            if (!StartupDiagnostics.TryAttach("Avvio guidato SW-FLOW-5", () => SingleWindowV5StartupUi.Attach(mainWindow), out var startupError) && startupError is not null)
+            if (!StartupDiagnostics.TryAttach("Criteri Consistent", () => SingleWindowConsistencyCriteriaUi.Attach(mainWindow), out var consistencyError) && consistencyError is not null)
+                failures.Add(consistencyError);
+            if (!StartupDiagnostics.TryAttach("Avvio guidato SW-FLOW-6", () => SingleWindowV5StartupUi.Attach(mainWindow), out var startupError) && startupError is not null)
                 failures.Add(startupError);
 
             mainWindow.Title = ProductInfo.WindowTitle;
@@ -45,7 +47,7 @@ public sealed class App : Application
                         if (File.Exists(resultFile)) File.Delete(resultFile);
                         await SingleWindowV5UiContractProbe.RunAsync(mainWindow);
                         File.WriteAllText(resultFile,
-                            "OK\nSW-FLOW-5\nstartup=guided\nbook-type=visible\nquantity-field=visible\nprompt-editors=3\nundo=ctrl-z\nredo=ctrl-y");
+                            "OK\nSW-FLOW-6\nstartup=guided\nbook-type=visible\nquantity-field=visible\nconsistent-off=criteria-hidden\nconsistent-on=criteria-visible\nconsistency-levels=3\nprompt-editors=3\nundo=ctrl-z\nredo=ctrl-y");
                         Environment.Exit(0);
                     }
                     catch (Exception ex)
