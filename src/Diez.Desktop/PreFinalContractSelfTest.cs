@@ -10,8 +10,8 @@ internal static class PreFinalContractSelfTest
             throw new InvalidOperationException($"Identità prodotto inattesa: {ProductInfo.Version}");
 
         if (!ProductInfo.WindowTitle.Contains("1.0 RC8", StringComparison.Ordinal) ||
-            !ProductInfo.WindowTitle.Contains("SW-FLOW-5", StringComparison.Ordinal))
-            throw new InvalidOperationException("Il titolo della build non espone correttamente RC8 / SW-FLOW-5.");
+            !ProductInfo.WindowTitle.Contains("SW-FLOW-6", StringComparison.Ordinal))
+            throw new InvalidOperationException("Il titolo della build non espone correttamente RC8 / SW-FLOW-6.");
 
         var informational = typeof(Program).Assembly
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
@@ -23,7 +23,7 @@ internal static class PreFinalContractSelfTest
             throw new InvalidOperationException("La UI contiene ancora branding Preview 0.x.");
 
         if (!ProductInfo.Subtitle.Contains("Single-window", StringComparison.OrdinalIgnoreCase) ||
-            !ProductInfo.Subtitle.Contains("SW-FLOW-5", StringComparison.OrdinalIgnoreCase))
+            !ProductInfo.Subtitle.Contains("SW-FLOW-6", StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("Il sottotitolo non identifica il percorso single-window corrente.");
 
         if (ProductInfo.Subtitle.Contains("Preflight", StringComparison.OrdinalIgnoreCase) ||
