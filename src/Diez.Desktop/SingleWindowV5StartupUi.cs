@@ -7,13 +7,13 @@ using Avalonia.Layout;
 namespace DiezPublishingStudio;
 
 /// <summary>
-/// SW-FLOW-6 makes the logical book workflow the first visible Diez screen.
+/// SW-FLOW-7 makes the logical book workflow the first visible Diez screen.
 /// The legacy MainWindow remains alive as the physical window and project host,
 /// but the user no longer needs to discover a hidden entry button.
 /// </summary>
 internal static class SingleWindowV5StartupUi
 {
-    public const string Marker = "SW-FLOW-6";
+    public const string Marker = "SW-FLOW-7";
 
     public static void Attach(MainWindow window)
     {
@@ -110,7 +110,7 @@ internal static class SingleWindowV5StartupUi
             }
         };
 
-        SingleWindowEntryPointUi.Invoke(host, "Push", "Inizia · SW-FLOW-6", content, preview,
+        SingleWindowEntryPointUi.Invoke(host, "Push", "Inizia · SW-FLOW-7", content, preview,
             "Crea o apri un progetto; il passo successivo sarà la scelta del Tipo libro.");
         ReplaceMarker(window);
     }
