@@ -36,8 +36,16 @@ internal static class SingleWindowConsistencyCriteriaUi
     {
         if (States.ContainsKey(window)) return;
         States[window] = new CriteriaState();
-        window.LayoutUpdated += (_, _) => EnsureCurrentPage(window);
+
+        var host = SingleWindowEntryPointUi.GetHost(window);
+        var pageHost = host.GetType().GetField("_pageHost", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(host) as ContentControl;
+        if (pageHost is null) return;
+
+        // React only when the logical page host changes. Do not poll LayoutUpdated:
+        // changing layout must never keep the UI thread busy.
+        pageHost.PropertyChanged += (_, _) => EnsureCurrentPage(window);
         window.Closed += (_, _) => States.Remove(window);
+        EnsureCurrentPage(window);
     }
 
     internal static void EnsureCurrentPage(MainWindow window)
@@ -67,7 +75,7 @@ internal static class SingleWindowConsistencyCriteriaUi
         if (index + 1 < parent.Children.Count && parent.Children[index + 1] is TextBox legacyRules)
             legacyRules.IsVisible = false;
 
-        var panel = BuildCriteriaPanel(window, host, state, consistent);
+        var panel = BuildCriteriaPanel(host, state);
         parent.Children.Insert(index + 1, panel);
         panel.IsVisible = consistent.IsChecked == true;
 
@@ -82,7 +90,7 @@ internal static class SingleWindowConsistencyCriteriaUi
         WriteRules(host, state);
     }
 
-    private static StackPanel BuildCriteriaPanel(MainWindow window, object host, CriteriaState state, CheckBox consistent)
+    private static StackPanel BuildCriteriaPanel(object host, CriteriaState state)
     {
         var panel = new StackPanel
         {
