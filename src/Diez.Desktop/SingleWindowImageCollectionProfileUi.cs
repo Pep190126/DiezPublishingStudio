@@ -25,22 +25,25 @@ internal static class SingleWindowImageCollectionProfileUi
         var host = SingleWindowEntryPointUi.GetHost(window);
         var pageHost = host.GetType().GetField("_pageHost", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(host) as ContentControl;
         if (pageHost?.Content is not Control page || !TrySession(window, out var project, out var path)) return;
-        if (!string.Equals(BookTypeProfileService.Get(project), BookTypeProfileService.ImageCollection, StringComparison.OrdinalIgnoreCase)) return;
+        var type = BookTypeProfileService.Get(project);
+        if (!string.Equals(type, BookTypeProfileService.ImageCollection, StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(type, BookTypeProfileService.IllustratedBook, StringComparison.OrdinalIgnoreCase)) return;
 
         var texts = Descendants(page).OfType<TextBlock>().Select(t => t.Text ?? string.Empty).ToList();
         if (texts.Any(t => t.Contains("Quante immagini vuoi creare?", StringComparison.Ordinal)))
-            EnsureQuantityProfile(page, project, path);
+            EnsureQuantityProfile(page, project, path, type);
         else if (texts.Any(t => string.Equals(t, "PROMPT — modificabile", StringComparison.Ordinal)))
-            EnsurePromptProfile(page, project);
+            EnsurePromptProfile(page, project, type);
     }
 
-    private static void EnsureQuantityProfile(Control page, PreviewProject project, string path)
+    private static void EnsureQuantityProfile(Control page, PreviewProject project, string path, string type)
     {
         if (Descendants(page).Any(c => string.Equals(c.Name, PanelName, StringComparison.Ordinal))) return;
         var root = Descendants(page).OfType<StackPanel>().FirstOrDefault(p =>
             p.Children.OfType<TextBlock>().Any(t => (t.Text ?? string.Empty).Contains("quantità", StringComparison.OrdinalIgnoreCase)));
         if (root is null) return;
 
+        var isIllustratedBook = string.Equals(type, BookTypeProfileService.IllustratedBook, StringComparison.OrdinalIgnoreCase);
         var profile = ImageCollectionPromptProfileService.Load(project);
         var subject = Editor("ImageCollectionSubject", profile.SubjectDescription, 100,
             "Descrivi soggetto/i, azione, caratteristiche, elementi obbligatori e variazioni consentite nella serie.");
@@ -92,10 +95,12 @@ internal static class SingleWindowImageCollectionProfileUi
             Children =
             {
                 new Separator(),
-                new TextBlock { Text = "Profilo della Raccolta immagini", FontSize = 19 },
+                new TextBlock { Text = isIllustratedBook ? "Profilo delle illustrazioni del Libro illustrato" : "Profilo della Raccolta immagini", FontSize = 19 },
                 new TextBlock
                 {
-                    Text = "La Raccolta immagini può essere a colori, in scala di grigi o in bianco/nero puro e può servire anche per figure di saggi, manuali e sequenze didattiche.",
+                    Text = isIllustratedBook
+                        ? "Le illustrazioni del Libro illustrato usano lo stesso profilo avanzato della Raccolta immagini: colore, scala di grigi o B/N, dettaglio, contorni, soggetto, ambiente e Consistent. Il libro resta comunque un progetto misto testo + immagini."
+                        : "La Raccolta immagini può essere a colori, in scala di grigi o in bianco/nero puro e può servire anche per figure di saggi, manuali e sequenze didattiche.",
                     TextWrapping = Avalonia.Media.TextWrapping.Wrap
                 },
                 new TextBlock { Text = "Soggetto/i — scelta e descrizione", FontSize = 15 }, subject,
@@ -125,7 +130,7 @@ internal static class SingleWindowImageCollectionProfileUi
         }
     }
 
-    private static void EnsurePromptProfile(Control page, PreviewProject project)
+    private static void EnsurePromptProfile(Control page, PreviewProject project, string type)
     {
         if (Descendants(page).Any(c => string.Equals(c.Name, "DiezImageCollectionPromptProfileMarker", StringComparison.Ordinal))) return;
         var editors = Descendants(page).OfType<TextBox>().Where(t => t.IsVisible && t.IsEnabled && !t.IsReadOnly).ToList();
@@ -139,7 +144,10 @@ internal static class SingleWindowImageCollectionProfileUi
             var text = prompt.Text ?? string.Empty;
             if (string.IsNullOrWhiteSpace(text) || text.Contains("PROFILO EDITORIALE RACCOLTA IMMAGINI:", StringComparison.Ordinal)) return;
             changing = true;
-            prompt.Text = text.TrimEnd() + Environment.NewLine + Environment.NewLine + ImageCollectionPromptProfileService.BuildPromptBlock(project);
+            var header = string.Equals(type, BookTypeProfileService.IllustratedBook, StringComparison.OrdinalIgnoreCase)
+                ? "CONTESTO LIBRO ILLUSTRATO:\n- Queste immagini sono illustrazioni interne a un Libro illustrato: devono sostenere e integrare il contenuto narrativo/editoriale, non comportarsi come una raccolta scollegata.\n\n"
+                : string.Empty;
+            prompt.Text = text.TrimEnd() + Environment.NewLine + Environment.NewLine + header + ImageCollectionPromptProfileService.BuildPromptBlock(project);
             changing = false;
         }
 
@@ -155,7 +163,9 @@ internal static class SingleWindowImageCollectionProfileUi
             root.Children.Insert(Math.Min(root.Children.Count, idx + 1), new TextBlock
             {
                 Name = "DiezImageCollectionPromptProfileMarker",
-                Text = "Diez aggiunge uso editoriale, resa cromatica, dettaglio, contorni, soggetto e ambiente della Raccolta immagini.",
+                Text = string.Equals(type, BookTypeProfileService.IllustratedBook, StringComparison.OrdinalIgnoreCase)
+                    ? "Diez aggiunge alle illustrazioni del Libro illustrato uso editoriale, resa cromatica, dettaglio, contorni, soggetto e ambiente."
+                    : "Diez aggiunge uso editoriale, resa cromatica, dettaglio, contorni, soggetto e ambiente della Raccolta immagini.",
                 TextWrapping = Avalonia.Media.TextWrapping.Wrap
             });
         }
