@@ -55,7 +55,8 @@ const
   DiezSettingsKey = 'Software\Diez Publishing Studio';
 
 var
-  InstallModePage: TInputOptionWizardPage;
+  ProgramActionPage: TInputOptionWizardPage;
+  WorkDataPage: TInputOptionWizardPage;
   PreviousInstallDetected: Boolean;
 
 function HasPreviousInstall(): Boolean;
@@ -102,70 +103,120 @@ begin
   if Result and (ResultCode <> 0) then Result := False;
 end;
 
-function ResetDiezManagedWorkData(): Boolean;
-var
-  LocalDataDir: String;
-  RoamingDataDir: String;
+function DeleteDirectoryIfPresent(const Path: String): Boolean;
 begin
   Result := True;
-  LocalDataDir := ExpandConstant('{localappdata}\Diez Publishing Studio');
-  RoamingDataDir := ExpandConstant('{userappdata}\Diez Publishing Studio');
+  if DirExists(Path) then
+    Result := DelTree(Path, True, True, True);
+end;
 
-  { Solo dati gestiti internamente da Diez. Non cercare né cancellare mai
-    progetti .diez, immagini, documenti o sorgenti salvati dall'utente
-    in altre cartelle del computer. }
-  if DirExists(LocalDataDir) then
-    if not DelTree(LocalDataDir, True, True, True) then Result := False;
+function ResetDiezConfiguration(): Boolean;
+var
+  LocalRoot: String;
+  RoamingRoot: String;
+begin
+  Result := True;
+  LocalRoot := ExpandConstant('{localappdata}\Diez Publishing Studio');
+  RoamingRoot := ExpandConstant('{userappdata}\Diez Publishing Studio');
 
-  if DirExists(RoamingDataDir) then
-    if not DelTree(RoamingDataDir, True, True, True) then Result := False;
-
+  { Configurazione e dati non editoriali: vengono sempre eliminati quando
+    l'utente sceglie "Rimuovi e reinstalla". }
+  if not DeleteDirectoryIfPresent(LocalRoot + '\config') then Result := False;
+  if not DeleteDirectoryIfPresent(LocalRoot + '\cache') then Result := False;
+  if not DeleteDirectoryIfPresent(LocalRoot + '\logs') then Result := False;
+  if not DeleteDirectoryIfPresent(LocalRoot + '\temp') then Result := False;
+  if not DeleteDirectoryIfPresent(RoamingRoot + '\config') then Result := False;
+  if not DeleteDirectoryIfPresent(RoamingRoot + '\cache') then Result := False;
+  if not DeleteDirectoryIfPresent(RoamingRoot + '\logs') then Result := False;
+  if not DeleteDirectoryIfPresent(RoamingRoot + '\temp') then Result := False;
   RegDeleteKeyIncludingSubkeys(HKCU, DiezSettingsKey);
+end;
+
+function ResetDiezWorkData(): Boolean;
+var
+  LocalRoot: String;
+  RoamingRoot: String;
+begin
+  Result := True;
+  LocalRoot := ExpandConstant('{localappdata}\Diez Publishing Studio');
+  RoamingRoot := ExpandConstant('{userappdata}\Diez Publishing Studio');
+
+  { Solo lavoro gestito internamente da Diez. Comprende eventuali copie di
+    lavoro, versioni, history/snapshot e asset interni. NON cerca mai .diez,
+    foto o documenti salvati dall'utente in cartelle esterne. }
+  if not DeleteDirectoryIfPresent(LocalRoot + '\work') then Result := False;
+  if not DeleteDirectoryIfPresent(LocalRoot + '\projects') then Result := False;
+  if not DeleteDirectoryIfPresent(LocalRoot + '\versions') then Result := False;
+  if not DeleteDirectoryIfPresent(LocalRoot + '\history') then Result := False;
+  if not DeleteDirectoryIfPresent(LocalRoot + '\snapshots') then Result := False;
+  if not DeleteDirectoryIfPresent(LocalRoot + '\assets') then Result := False;
+  if not DeleteDirectoryIfPresent(RoamingRoot + '\work') then Result := False;
+  if not DeleteDirectoryIfPresent(RoamingRoot + '\projects') then Result := False;
+  if not DeleteDirectoryIfPresent(RoamingRoot + '\versions') then Result := False;
+  if not DeleteDirectoryIfPresent(RoamingRoot + '\history') then Result := False;
+  if not DeleteDirectoryIfPresent(RoamingRoot + '\snapshots') then Result := False;
+  if not DeleteDirectoryIfPresent(RoamingRoot + '\assets') then Result := False;
 end;
 
 procedure InitializeWizard;
 begin
   PreviousInstallDetected := HasPreviousInstall();
 
-  InstallModePage := CreateInputOptionPage(
+  ProgramActionPage := CreateInputOptionPage(
     wpWelcome,
-    'Come vuoi installare Diez?',
-    'Scegli se mantenere il lavoro oppure ripartire con una reinstallazione pulita.',
-    'I progetti .diez, le foto e gli altri file che hai salvato personalmente in cartelle del computer non vengono mai cancellati automaticamente dall''installer.',
+    'Programma Diez',
+    'Come vuoi procedere con il programma?',
+    'La rimozione e reinstallazione elimina sempre la configurazione di Diez prima di installare la nuova versione.',
     True,
     True);
-  InstallModePage.Add('Mantieni i dati di lavoro — aggiorna/reinstalla Diez conservando i dati locali gestiti dall''app');
-  InstallModePage.Add('Reinstallazione pulita — rimuovi la precedente installazione e cancella i dati locali gestiti da Diez');
-  InstallModePage.Values[0] := True;
+  ProgramActionPage.Add('Aggiorna Diez');
+  ProgramActionPage.Add('Rimuovi la versione precedente e reinstalla Diez');
+  ProgramActionPage.Values[0] := True;
+
+  WorkDataPage := CreateInputOptionPage(
+    ProgramActionPage.ID,
+    'File di lavoro',
+    'Vuoi mantenere i file di lavoro gestiti da Diez?',
+    'Comprende copie di lavoro, asset interni, storico e versioning. I progetti .diez, le foto e gli altri file che hai salvato personalmente in cartelle esterne non vengono mai cancellati automaticamente dall''installer.',
+    False,
+    True);
+  WorkDataPage.Add('Mantieni i file di lavoro di Diez, compreso versioning e storico');
+  WorkDataPage.Values[0] := True;
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
-  CleanRequested: Boolean;
-  ResetRequested: Boolean;
+  RemoveAndReinstall: Boolean;
+  KeepWorkData: Boolean;
 begin
   Result := '';
 
-  CleanRequested := InstallModePage.Values[1] or
+  RemoveAndReinstall := ProgramActionPage.Values[1] or
     (CompareText(ExpandConstant('{param:CLEANOLD|0}'), '1') = 0);
-  ResetRequested := InstallModePage.Values[1] or
-    (CompareText(ExpandConstant('{param:RESETUSERDATA|0}'), '1') = 0);
+  KeepWorkData := WorkDataPage.Values[0];
+  if CompareText(ExpandConstant('{param:KEEPWORKDATA|1}'), '0') = 0 then
+    KeepWorkData := False;
 
-  { La reinstallazione pulita rimuove prima il programma precedente. }
-  if PreviousInstallDetected and CleanRequested then
+  if RemoveAndReinstall then
   begin
-    if not RemovePreviousInstall() then
+    if PreviousInstallDetected and (not RemovePreviousInstall()) then
     begin
       Result := 'Non è stato possibile rimuovere la versione precedente. Chiudi Diez Publishing Studio e riprova.';
       Exit;
     end;
+
+    { Una rimozione/reinstallazione non mantiene mai la configurazione Diez. }
+    if not ResetDiezConfiguration() then
+    begin
+      Result := 'Non è stato possibile eliminare completamente la configurazione di Diez. Chiudi eventuali programmi che la stanno usando e riprova.';
+      Exit;
+    end;
   end;
 
-  { L'opzione Mantieni dati non tocca il lavoro locale. La reinstallazione
-    pulita elimina soltanto le aree gestite internamente da Diez. }
-  if ResetRequested then
+  { Il checkbox file di lavoro è indipendente dall'azione sul programma. }
+  if not KeepWorkData then
   begin
-    if not ResetDiezManagedWorkData() then
-      Result := 'Non è stato possibile eliminare completamente i dati locali gestiti da Diez. Chiudi eventuali programmi che li stanno usando e riprova.';
+    if not ResetDiezWorkData() then
+      Result := 'Non è stato possibile eliminare completamente i file di lavoro gestiti da Diez. Chiudi eventuali programmi che li stanno usando e riprova.';
   end;
 end;
