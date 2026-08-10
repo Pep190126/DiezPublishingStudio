@@ -21,37 +21,17 @@ public sealed class App : Application
             desktop.MainWindow = mainWindow;
 
             var failures = new List<string>();
-            if (!StartupDiagnostics.TryAttach("Prepara consegna", () => EditionWorkflowUi.Attach(mainWindow), out var editionError) && editionError is not null)
-                failures.Add(editionError);
-            if (!StartupDiagnostics.TryAttach("Esporta / Consegna", () => HandoffWorkflowUi.Attach(mainWindow), out var handoffError) && handoffError is not null)
-                failures.Add(handoffError);
-            if (!StartupDiagnostics.TryAttach("Contenuti con AI", () => AiProductionUi.Attach(mainWindow), out var aiError) && aiError is not null)
-                failures.Add(aiError);
-            if (!StartupDiagnostics.TryAttach("Prompt Pack AI universale", () => AiExchangeUi.Attach(mainWindow), out var exchangeError) && exchangeError is not null)
-                failures.Add(exchangeError);
-            if (!StartupDiagnostics.TryAttach("Correzione AI mirata", () => AiExchangeCorrectionUi.Attach(mainWindow), out var correctionError) && correctionError is not null)
-                failures.Add(correctionError);
-            if (!StartupDiagnostics.TryAttach("Scelte AI per Tipo libro", () => BookTypeAiOptionsUi.Attach(mainWindow), out var bookAiOptionsError) && bookAiOptionsError is not null)
-                failures.Add(bookAiOptionsError);
-            if (!StartupDiagnostics.TryAttach("Serie immagini AI", () => AiImageBatchUi.Attach(mainWindow), out var batchError) && batchError is not null)
-                failures.Add(batchError);
-            if (!StartupDiagnostics.TryAttach("Descrizioni e impaginazione immagini", () => ImageCollectionDescriptionUi.Attach(mainWindow), out var imageDescriptionError) && imageDescriptionError is not null)
-                failures.Add(imageDescriptionError);
-            if (!StartupDiagnostics.TryAttach("Layout e aiuto contestuale", () => FriendlyLayoutUi.Attach(mainWindow), out var layoutError) && layoutError is not null)
-                failures.Add(layoutError);
-            if (!StartupDiagnostics.TryAttach("Libreria libri finalizzati", () => FinalizedLibraryUi.Attach(mainWindow), out var finalizedLibraryError) && finalizedLibraryError is not null)
-                failures.Add(finalizedLibraryError);
-            if (!StartupDiagnostics.TryAttach("Database e sostituzioni Word Search", () => WordSearchDatabaseToolsUi.Attach(mainWindow), out var wordSearchToolsError) && wordSearchToolsError is not null)
-                failures.Add(wordSearchToolsError);
-            if (!StartupDiagnostics.TryAttach("Word Search su Fogli Google", () => WordSearchGoogleExportUi.Attach(mainWindow), out var wordSearchGoogleError) && wordSearchGoogleError is not null)
-                failures.Add(wordSearchGoogleError);
 
-            // BookWorkspaceTabsUi/UnifiedBookWorkspaceUi and the old tree-polling
-            // profile/language layers are intentionally excluded. Book-specific
-            // screens now live in the logical overlay on the existing MainWindow.
+            // SW-FLOW-3 deliberately owns the visible application shell.
+            // Legacy popup/tab UI modules are not attached here: their services remain
+            // available to the logical pages, but they must not replace or compete with
+            // the single physical MainWindow while this vertical slice is validated.
+            if (!StartupDiagnostics.TryAttach("Layout principale", () => FriendlyLayoutUi.Attach(mainWindow), out var layoutError) && layoutError is not null)
+                failures.Add(layoutError);
             if (!StartupDiagnostics.TryAttach("Percorso libro a finestra unica", () => SingleWindowOverlayFlowUi.Attach(mainWindow), out var singleWindowError) && singleWindowError is not null)
                 failures.Add(singleWindowError);
 
+            mainWindow.Title = ProductInfo.WindowTitle;
             StartupDiagnostics.ShowWarning(mainWindow, failures);
         }
 
