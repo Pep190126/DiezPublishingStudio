@@ -53,16 +53,14 @@ public sealed class App : Application
                 failures.Add(layoutError);
             if (!StartupDiagnostics.TryAttach("Libreria libri finalizzati", () => FinalizedLibraryUi.Attach(mainWindow), out var finalizedLibraryError) && finalizedLibraryError is not null)
                 failures.Add(finalizedLibraryError);
-            if (!StartupDiagnostics.TryAttach("Ambiente del libro", () => BookWorkspaceTabsUi.Attach(mainWindow), out var workspaceError) && workspaceError is not null)
-                failures.Add(workspaceError);
             if (!StartupDiagnostics.TryAttach("Database e sostituzioni Word Search", () => WordSearchDatabaseToolsUi.Attach(mainWindow), out var wordSearchToolsError) && wordSearchToolsError is not null)
                 failures.Add(wordSearchToolsError);
             if (!StartupDiagnostics.TryAttach("Word Search su Fogli Google", () => WordSearchGoogleExportUi.Attach(mainWindow), out var wordSearchGoogleError) && wordSearchGoogleError is not null)
                 failures.Add(wordSearchGoogleError);
 
-            // The new book workflow is an overlay inside the already-initialized
-            // MainWindow Grid. It only switches IsVisible and never reparents the
-            // existing controls. Legacy recursive polling UI layers remain disabled.
+            // BookWorkspaceTabsUi/UnifiedBookWorkspaceUi and the old tree-polling
+            // profile/language layers are intentionally excluded. Book-specific
+            // screens now live in the logical overlay on the existing MainWindow.
             if (!StartupDiagnostics.TryAttach("Percorso libro a finestra unica", () => SingleWindowOverlayFlowUi.Attach(mainWindow), out var singleWindowError) && singleWindowError is not null)
                 failures.Add(singleWindowError);
 
