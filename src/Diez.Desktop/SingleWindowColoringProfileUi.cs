@@ -1,6 +1,7 @@
 using System.Reflection;
 using Avalonia.Controls;
 using Avalonia.Layout;
+using Avalonia.Threading;
 
 namespace DiezPublishingStudio;
 
@@ -15,7 +16,8 @@ internal static class SingleWindowColoringProfileUi
         if (pageHost is null) return;
         pageHost.PropertyChanged += (_, e) =>
         {
-            if (e.Property == ContentControl.ContentProperty) EnsureCurrentPage(window);
+            if (e.Property == ContentControl.ContentProperty)
+                Dispatcher.UIThread.Post(() => EnsureCurrentPage(window), DispatcherPriority.Loaded);
         };
         EnsureCurrentPage(window);
     }
@@ -90,7 +92,7 @@ internal static class SingleWindowColoringProfileUi
             IsUndoEnabled = true
         };
 
-        async Task SaveAsync()
+        async Task<bool> SaveAsync()
         {
             profile.SubjectDescription = subject.Text ?? string.Empty;
             profile.EnvironmentDescription = environment.Text ?? string.Empty;
@@ -112,19 +114,39 @@ internal static class SingleWindowColoringProfileUi
             profile.SubjectClearlySeparated = separate.IsChecked == true;
             profile.CustomStyleNotes = notes.Text ?? string.Empty;
             BookTypePromptProfileService.SaveColoring(project, profile);
-            await ProjectFileStore.SaveAsync(path, project);
+            return await SafeProjectAutosave.SaveAsync(path, project, "coloring-profile");
         }
+
+        var applyingStyleDefaults = false;
 
         subject.TextChanged += async (_, _) => await SaveAsync();
         environment.TextChanged += async (_, _) => await SaveAsync();
-        foreach (var combo in new[] { style, audience, difficulty, lineWeight, complexity, density, background, whiteSpace })
-            combo.SelectionChanged += async (_, _) => await SaveAsync();
+        foreach (var combo in new[] { audience, difficulty, lineWeight, complexity, density, background, whiteSpace })
+            combo.SelectionChanged += async (_, _) =>
+            {
+                if (!applyingStyleDefaults) await SaveAsync();
+            };
         foreach (var check in new[] { closed, noTiny, clean, noText, separate })
-            check.IsCheckedChanged += async (_, _) => await SaveAsync();
+            check.IsCheckedChanged += async (_, _) =>
+            {
+                if (!applyingStyleDefaults) await SaveAsync();
+            };
         notes.TextChanged += async (_, _) => await SaveAsync();
 
-        style.SelectionChanged += (_, _) => ApplyStyleDefaults(style.SelectedItem?.ToString() ?? profile.Style,
-            difficulty, lineWeight, complexity, density, background, whiteSpace, closed, noTiny, clean, noText, separate);
+        style.SelectionChanged += async (_, _) =>
+        {
+            applyingStyleDefaults = true;
+            try
+            {
+                ApplyStyleDefaults(style.SelectedItem?.ToString() ?? profile.Style,
+                    difficulty, lineWeight, complexity, density, background, whiteSpace, closed, noTiny, clean, noText, separate);
+            }
+            finally
+            {
+                applyingStyleDefaults = false;
+            }
+            await SaveAsync();
+        };
 
         var fixedColorRule = new Border
         {
