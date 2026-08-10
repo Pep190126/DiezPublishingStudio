@@ -23,17 +23,21 @@ public sealed class App : Application
 
             var failures = new List<string>();
 
-            // SW-FLOW-7 is the visible application flow. FriendlyLayout only builds
+            // SW-FLOW-8 is the visible application flow. FriendlyLayout only builds
             // the physical MainWindow grid; the logical workflow immediately covers it.
             if (!StartupDiagnostics.TryAttach("Layout principale", () => FriendlyLayoutUi.Attach(mainWindow), out var layoutError) && layoutError is not null)
                 failures.Add(layoutError);
             if (!StartupDiagnostics.TryAttach("Host single-window", () => SingleWindowOverlayFlowUi.Attach(mainWindow), out var singleWindowError) && singleWindowError is not null)
                 failures.Add(singleWindowError);
+            if (!StartupDiagnostics.TryAttach("Profilo Coloring", () => SingleWindowColoringProfileUi.Attach(mainWindow), out var coloringProfileError) && coloringProfileError is not null)
+                failures.Add(coloringProfileError);
+            if (!StartupDiagnostics.TryAttach("Specifiche immagini", () => SingleWindowImageSpecsUi.Attach(mainWindow), out var imageSpecsError) && imageSpecsError is not null)
+                failures.Add(imageSpecsError);
             if (!StartupDiagnostics.TryAttach("Criteri Consistent", () => SingleWindowConsistencyCriteriaUi.Attach(mainWindow), out var consistencyError) && consistencyError is not null)
                 failures.Add(consistencyError);
             if (!StartupDiagnostics.TryAttach("AI prompt specifico", () => SingleWindowPromptTargetAiUi.Attach(mainWindow), out var promptTargetError) && promptTargetError is not null)
                 failures.Add(promptTargetError);
-            if (!StartupDiagnostics.TryAttach("Avvio guidato SW-FLOW-7", () => SingleWindowV5StartupUi.Attach(mainWindow), out var startupError) && startupError is not null)
+            if (!StartupDiagnostics.TryAttach("Avvio guidato SW-FLOW-8", () => SingleWindowV5StartupUi.Attach(mainWindow), out var startupError) && startupError is not null)
                 failures.Add(startupError);
 
             mainWindow.Title = ProductInfo.WindowTitle;
@@ -49,7 +53,7 @@ public sealed class App : Application
                         if (File.Exists(resultFile)) File.Delete(resultFile);
                         await SingleWindowV5UiContractProbe.RunAsync(mainWindow);
                         File.WriteAllText(resultFile,
-                            "OK\nSW-FLOW-7\nstartup=guided\nbook-type=visible\nquantity-field=visible\nconsistent-off=criteria-hidden\nconsistent-on=criteria-visible\nconsistency-levels=3\nprompt-target-ai=visible\nprompt-target-catalog=central\nprompt-editors=3\nundo=ctrl-z\nredo=ctrl-y");
+                            "OK\nSW-FLOW-8\nstartup=guided\nbook-type=visible\nquantity-field=visible\ncoloring-style=visible\ncoloring-profile=rich\nimage-specs=visible\nimage-specs-in-prompt=yes\nconsistent-off=criteria-hidden\nconsistent-on=criteria-visible\nconsistency-levels=3\nprompt-target-ai=visible\nprompt-target-catalog=central\nprompt-editors=3\nundo=ctrl-z\nredo=ctrl-y");
                         Environment.Exit(0);
                     }
                     catch (Exception ex)
