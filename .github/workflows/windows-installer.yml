@@ -58,7 +58,7 @@ jobs:
           }
           Stop-Process -Id $process.Id -Force
 
-      - name: Real GUI contract startup book type quantity prompt undo redo
+      - name: Real GUI contract startup type quantity consistency prompt undo redo
         shell: powershell
         run: |
           $exe = (Resolve-Path "artifacts\publish\DiezPublishingStudio.exe").Path
@@ -73,7 +73,7 @@ jobs:
           if ($probe.ExitCode -ne 0) { throw "UI flow contract failed with exit code $($probe.ExitCode)" }
           if (!(Test-Path $result)) { throw "UI flow contract did not produce a result file" }
           $text = Get-Content $result -Raw
-          foreach ($required in @("OK", "SW-FLOW-5", "startup=guided", "book-type=visible", "quantity-field=visible", "prompt-editors=3", "undo=ctrl-z", "redo=ctrl-y")) {
+          foreach ($required in @("OK", "SW-FLOW-6", "startup=guided", "book-type=visible", "quantity-field=visible", "consistent-off=criteria-hidden", "consistent-on=criteria-visible", "consistency-levels=3", "prompt-editors=3", "undo=ctrl-z", "redo=ctrl-y")) {
             if ($text -notmatch [regex]::Escape($required)) { throw "UI flow contract missing: $required" }
           }
 
@@ -164,7 +164,7 @@ jobs:
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
-          name: DiezPublishingStudio-Setup-1.0.0-rc8-SW-FLOW-5
+          name: DiezPublishingStudio-Setup-1.0.0-rc8-SW-FLOW-6
           path: artifacts/installer/DiezPublishingStudio-Setup.exe
           if-no-files-found: error
           retention-days: 90
