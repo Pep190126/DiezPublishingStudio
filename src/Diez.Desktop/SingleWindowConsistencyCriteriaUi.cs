@@ -4,25 +4,20 @@ using Avalonia.Layout;
 
 namespace DiezPublishingStudio;
 
-/// <summary>
-/// Adds explicit visual-consistency criteria to the single-window image workflow.
-/// The criteria panel is hidden while Consistent is OFF and becomes visible when ON.
-/// Values are compiled into the existing coloring Rules field so the current Prompt Pack
-/// pipeline receives the user's effective consistency choices without a second UI model.
-/// </summary>
 internal static class SingleWindowConsistencyCriteriaUi
 {
     private const string PanelName = "DiezConsistencyCriteriaPanel";
+    private const string FixedPaletteKey = "palette";
     private static readonly Dictionary<MainWindow, CriteriaState> States = [];
 
     private static readonly Criterion[] Criteria =
     [
-        new("character", "Personaggio", "LOCKED"),
-        new("style", "Stile", "LOCKED"),
-        new("palette", "Palette / colori", "PREFERRED"),
-        new("line_detail", "Tratto / dettaglio", "LOCKED"),
-        new("environment_objects", "Ambientazioni / oggetti ricorrenti", "PREFERRED"),
-        new("composition", "Composizione", "PREFERRED")
+        new("character", "Personaggio", "LOCKED", false),
+        new("style", "Stile", "LOCKED", false),
+        new(FixedPaletteKey, "Palette / colori — fissa B/N", "LOCKED", true),
+        new("line_detail", "Tratto / dettaglio", "LOCKED", false),
+        new("environment_objects", "Ambientazioni / oggetti ricorrenti", "PREFERRED", false),
+        new("composition", "Composizione", "PREFERRED", false)
     ];
 
     private static readonly LevelChoice[] Levels =
@@ -40,9 +35,6 @@ internal static class SingleWindowConsistencyCriteriaUi
         var host = SingleWindowEntryPointUi.GetHost(window);
         var pageHost = host.GetType().GetField("_pageHost", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(host) as ContentControl;
         if (pageHost is null) return;
-
-        // React only to the logical page replacement. Bounds/layout changes must not
-        // rebuild or scan the criteria UI.
         pageHost.PropertyChanged += (_, e) =>
         {
             if (e.Property == ContentControl.ContentProperty)
@@ -58,11 +50,8 @@ internal static class SingleWindowConsistencyCriteriaUi
         var host = SingleWindowEntryPointUi.GetHost(window);
         var pageHost = host.GetType().GetField("_pageHost", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(host) as ContentControl;
         if (pageHost?.Content is not Control page) return;
-
         if (!Descendants(page).OfType<TextBlock>().Any(t =>
-                (t.Text ?? string.Empty).Contains("Quante immagini vuoi creare?", StringComparison.Ordinal)))
-            return;
-
+                (t.Text ?? string.Empty).Contains("Quante immagini vuoi creare?", StringComparison.Ordinal))) return;
         if (Descendants(page).Any(c => string.Equals(c.Name, PanelName, StringComparison.Ordinal))) return;
 
         var consistent = Descendants(page).OfType<CheckBox>().FirstOrDefault(c =>
@@ -70,12 +59,10 @@ internal static class SingleWindowConsistencyCriteriaUi
         if (consistent is null || consistent.Parent is not StackPanel parent) return;
 
         LoadFromHostIfNeeded(host, state);
+        state.Levels[FixedPaletteKey] = "LOCKED";
 
         var index = parent.Children.IndexOf(consistent);
         if (index < 0) return;
-
-        // Hide the former generic free-text rules box. Its value remains the internal
-        // transport field, now compiled from the explicit criteria below.
         if (index + 1 < parent.Children.Count && parent.Children[index + 1] is TextBox legacyRules)
             legacyRules.IsVisible = false;
 
@@ -87,6 +74,7 @@ internal static class SingleWindowConsistencyCriteriaUi
         {
             panel.IsVisible = consistent.IsChecked == true;
             state.Enabled = consistent.IsChecked == true;
+            state.Levels[FixedPaletteKey] = "LOCKED";
             WriteRules(host, state);
         };
 
@@ -102,22 +90,18 @@ internal static class SingleWindowConsistencyCriteriaUi
             Spacing = 8,
             Margin = new Avalonia.Thickness(14, 4, 0, 6)
         };
-
+        panel.Children.Add(new TextBlock { Text = "Quali aspetti devono restare coerenti?", FontSize = 17 });
         panel.Children.Add(new TextBlock
         {
-            Text = "Quali aspetti devono restare coerenti?",
-            FontSize = 17
-        });
-        panel.Children.Add(new TextBlock
-        {
-            Text = "Per ogni criterio scegli quanto deve essere vincolante nella serie.",
+            Text = "Per ogni criterio variabile scegli quanto deve essere vincolante. La palette del Coloring è sempre nero/bianco e non può variare.",
             TextWrapping = Avalonia.Media.TextWrapping.Wrap
         });
 
         var allLocked = new CheckBox
         {
-            Content = "Tutto coerente — mantieni tutti i criteri",
-            IsChecked = state.Levels.Values.All(v => string.Equals(v, "LOCKED", StringComparison.Ordinal))
+            Content = "Tutto coerente — mantieni tutti i criteri variabili",
+            IsChecked = Criteria.Where(c => !c.Fixed).All(c =>
+                state.Levels.TryGetValue(c.Key, out var v) && string.Equals(v, "LOCKED", StringComparison.Ordinal))
         };
         panel.Children.Add(allLocked);
 
@@ -129,26 +113,32 @@ internal static class SingleWindowConsistencyCriteriaUi
             var combo = new ComboBox
             {
                 Name = "ConsistencyLevel_" + criterion.Key,
-                ItemsSource = Levels,
+                ItemsSource = criterion.Fixed ? new[] { Levels[0] } : Levels,
                 Width = 230,
-                HorizontalAlignment = HorizontalAlignment.Left
+                HorizontalAlignment = HorizontalAlignment.Left,
+                IsEnabled = !criterion.Fixed
             };
-            var level = state.Levels.TryGetValue(criterion.Key, out var saved) ? saved : criterion.DefaultLevel;
-            combo.SelectedItem = Levels.First(x => string.Equals(x.Level, level, StringComparison.Ordinal));
+            var level = criterion.Fixed ? "LOCKED" :
+                state.Levels.TryGetValue(criterion.Key, out var saved) ? saved : criterion.DefaultLevel;
+            combo.SelectedItem = criterion.Fixed ? Levels[0] : Levels.First(x => string.Equals(x.Level, level, StringComparison.Ordinal));
             combos[criterion.Key] = combo;
 
-            combo.SelectionChanged += (_, _) =>
+            if (!criterion.Fixed)
             {
-                if (combo.SelectedItem is not LevelChoice choice) return;
-                state.Levels[criterion.Key] = choice.Level;
-                if (!changing)
+                combo.SelectionChanged += (_, _) =>
                 {
-                    changing = true;
-                    allLocked.IsChecked = state.Levels.Values.All(v => string.Equals(v, "LOCKED", StringComparison.Ordinal));
-                    changing = false;
-                }
-                WriteRules(host, state);
-            };
+                    if (combo.SelectedItem is not LevelChoice choice) return;
+                    state.Levels[criterion.Key] = choice.Level;
+                    if (!changing)
+                    {
+                        changing = true;
+                        allLocked.IsChecked = Criteria.Where(c => !c.Fixed).All(c =>
+                            state.Levels.TryGetValue(c.Key, out var v) && string.Equals(v, "LOCKED", StringComparison.Ordinal));
+                        changing = false;
+                    }
+                    WriteRules(host, state);
+                };
+            }
 
             panel.Children.Add(new Grid
             {
@@ -174,7 +164,7 @@ internal static class SingleWindowConsistencyCriteriaUi
             AcceptsReturn = true,
             Height = 82,
             TextWrapping = Avalonia.Media.TextWrapping.Wrap,
-            Watermark = "Note facoltative, es. stesso cappello rosso; sfondi liberi.",
+            Watermark = "Note facoltative, es. stesso cappello; stessa biblioteca; composizione libera.",
             IsUndoEnabled = true
         };
         notes.TextChanged += (_, _) =>
@@ -189,11 +179,12 @@ internal static class SingleWindowConsistencyCriteriaUi
         {
             if (changing || allLocked.IsChecked != true) return;
             changing = true;
-            foreach (var criterion in Criteria)
+            foreach (var criterion in Criteria.Where(c => !c.Fixed))
             {
                 state.Levels[criterion.Key] = "LOCKED";
                 combos[criterion.Key].SelectedItem = Levels[0];
             }
+            state.Levels[FixedPaletteKey] = "LOCKED";
             changing = false;
             WriteRules(host, state);
         };
@@ -205,24 +196,24 @@ internal static class SingleWindowConsistencyCriteriaUi
     {
         if (state.Loaded) return;
         state.Loaded = true;
-        foreach (var criterion in Criteria) state.Levels[criterion.Key] = criterion.DefaultLevel;
+        foreach (var criterion in Criteria)
+            state.Levels[criterion.Key] = criterion.Fixed ? "LOCKED" : criterion.DefaultLevel;
 
         var rules = ReadHostRules(host);
         if (string.IsNullOrWhiteSpace(rules)) return;
         foreach (var line in rules.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
             var criterion = Criteria.FirstOrDefault(c => line.StartsWith(c.Label + ":", StringComparison.OrdinalIgnoreCase));
-            if (criterion is not null)
+            if (criterion is not null && !criterion.Fixed)
             {
                 var label = line[(line.IndexOf(':') + 1)..].Trim();
                 var choice = Levels.FirstOrDefault(x => string.Equals(x.Label, label, StringComparison.OrdinalIgnoreCase));
                 if (choice is not null) state.Levels[criterion.Key] = choice.Level;
             }
             else if (line.StartsWith("Note:", StringComparison.OrdinalIgnoreCase))
-            {
                 state.Notes = line[5..].Trim();
-            }
         }
+        state.Levels[FixedPaletteKey] = "LOCKED";
     }
 
     private static void WriteRules(object host, CriteriaState state)
@@ -233,8 +224,10 @@ internal static class SingleWindowConsistencyCriteriaUi
             return;
         }
 
+        state.Levels[FixedPaletteKey] = "LOCKED";
         var lines = Criteria.Select(c =>
         {
+            if (c.Fixed) return "Palette / colori: Da mantenere — fisso nero puro #000000 e bianco puro #FFFFFF";
             var level = state.Levels.TryGetValue(c.Key, out var selected) ? selected : c.DefaultLevel;
             var label = Levels.First(x => string.Equals(x.Level, level, StringComparison.Ordinal)).Label;
             return $"{c.Label}: {label}";
@@ -270,15 +263,9 @@ internal static class SingleWindowConsistencyCriteriaUi
                 case Panel p:
                     for (var i = p.Children.Count - 1; i >= 0; i--) stack.Push(p.Children[i]);
                     break;
-                case Border b when b.Child is Control child:
-                    stack.Push(child);
-                    break;
-                case ScrollViewer s when s.Content is Control child:
-                    stack.Push(child);
-                    break;
-                case ContentControl c when c.Content is Control child:
-                    stack.Push(child);
-                    break;
+                case Border b when b.Child is Control child: stack.Push(child); break;
+                case ScrollViewer s when s.Content is Control child: stack.Push(child); break;
+                case ContentControl c when c.Content is Control child: stack.Push(child); break;
             }
         }
     }
@@ -291,7 +278,7 @@ internal static class SingleWindowConsistencyCriteriaUi
         public Dictionary<string, string> Levels { get; } = new(StringComparer.Ordinal);
     }
 
-    private sealed record Criterion(string Key, string Label, string DefaultLevel);
+    private sealed record Criterion(string Key, string Label, string DefaultLevel, bool Fixed);
     private sealed record LevelChoice(string Level, string Label)
     {
         public override string ToString() => Label;
