@@ -43,6 +43,28 @@ internal static class SingleWindowColoringProfileUi
         if (root is null) return;
 
         var profile = BookTypePromptProfileService.LoadColoring(project);
+
+        var subject = new TextBox
+        {
+            Name = "ColoringSubjectDescription",
+            Text = profile.SubjectDescription,
+            Height = 110,
+            AcceptsReturn = true,
+            TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+            Watermark = "Scegli e descrivi il soggetto o i soggetti: chi/cosa sono, caratteristiche, età/aspetto, azione o posa, elementi obbligatori, variazioni ammesse.",
+            IsUndoEnabled = true
+        };
+        var environment = new TextBox
+        {
+            Name = "ColoringEnvironmentDescription",
+            Text = profile.EnvironmentDescription,
+            Height = 110,
+            AcceptsReturn = true,
+            TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+            Watermark = "Descrivi ambiente/scenario: luogo, sfondo, oggetti presenti, elementi ricorrenti, relazione col soggetto e ciò che deve o non deve comparire.",
+            IsUndoEnabled = true
+        };
+
         var style = Combo("ColoringStyle", BookTypePromptProfileService.ColoringStyles, profile.Style, 285);
         var audience = Combo("ColoringAudience", BookTypePromptProfileService.TargetAudiences, profile.TargetAudience, 235);
         var difficulty = Combo("ColoringDifficulty", BookTypePromptProfileService.Difficulties, profile.Difficulty, 170);
@@ -70,6 +92,8 @@ internal static class SingleWindowColoringProfileUi
 
         async Task SaveAsync()
         {
+            profile.SubjectDescription = subject.Text ?? string.Empty;
+            profile.EnvironmentDescription = environment.Text ?? string.Empty;
             profile.Style = style.SelectedItem?.ToString() ?? profile.Style;
             profile.TargetAudience = audience.SelectedItem?.ToString() ?? profile.TargetAudience;
             profile.Difficulty = difficulty.SelectedItem?.ToString() ?? profile.Difficulty;
@@ -91,6 +115,8 @@ internal static class SingleWindowColoringProfileUi
             await ProjectFileStore.SaveAsync(path, project);
         }
 
+        subject.TextChanged += async (_, _) => await SaveAsync();
+        environment.TextChanged += async (_, _) => await SaveAsync();
         foreach (var combo in new[] { style, audience, difficulty, lineWeight, complexity, density, background, whiteSpace })
             combo.SelectionChanged += async (_, _) => await SaveAsync();
         foreach (var check in new[] { closed, noTiny, clean, noText, separate })
@@ -124,12 +150,16 @@ internal static class SingleWindowColoringProfileUi
             Children =
             {
                 new Separator(),
-                new TextBlock { Text = "Stile e livello del Coloring", FontSize = 19 },
+                new TextBlock { Text = "Contenuto e stile del Coloring", FontSize = 19 },
                 new TextBlock
                 {
-                    Text = "Coloring Book è il tipo di libro; qui scegli come devono essere realmente disegnate le pagine.",
+                    Text = "Descrivi prima ciò che vuoi vedere; Diez aggiunge poi le regole editoriali e tecniche del Coloring Book.",
                     TextWrapping = Avalonia.Media.TextWrapping.Wrap
                 },
+                new TextBlock { Text = "Soggetto/i — scelta e descrizione", FontSize = 15 },
+                subject,
+                new TextBlock { Text = "Ambiente / scenario — descrizione", FontSize = 15 },
+                environment,
                 fixedColorRule,
                 Labeled("Stile", style),
                 new StackPanel
@@ -200,7 +230,7 @@ internal static class SingleWindowColoringProfileUi
         var marker = new TextBlock
         {
             Name = "DiezColoringPromptProfileMarker",
-            Text = "Diez aggiunge automaticamente stile Coloring, spessore linee, livello di dettaglio e il vincolo fisso a due soli colori: nero e bianco.",
+            Text = "Diez aggiunge automaticamente soggetto/i, ambiente, stile Coloring, spessore linee, livello di dettaglio e il vincolo fisso a due soli colori: nero e bianco.",
             TextWrapping = Avalonia.Media.TextWrapping.Wrap
         };
         var root = Descendants(page).OfType<StackPanel>().FirstOrDefault(p => p.Children.Contains(prompt));
