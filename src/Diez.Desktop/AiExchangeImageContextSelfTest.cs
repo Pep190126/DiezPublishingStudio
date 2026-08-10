@@ -95,7 +95,7 @@ internal static class AiExchangeImageContextSelfTest
             var built = await AiExchangePromptPackBuilder.BuildAsync(project, projectPath, state, [unit.WorkUnitId], packPath);
             Require(built.Success, "Il core Prompt Pack non è stato creato.");
 
-            var enhanced = await AiExchangeImageRequestContextService.EnhancePromptPackAsync(
+            var enhanced = await AiExchangeImageRequestContextSafeEnhancer.EnhancePromptPackAsync(
                 project, projectPath, state, [unit.WorkUnitId], packPath);
             Require(enhanced.Success, "L'enrichment visuale V2 è fallito: " + enhanced.Message);
             Require(enhanced.IntakeImages == 1, "La foto intake reale non è stata inclusa.");
@@ -127,6 +127,7 @@ internal static class AiExchangeImageContextSelfTest
                 Require(requestContext.Contains(required, StringComparison.OrdinalIgnoreCase), "Preset/contesto mancante: " + required);
 
             var instructions = await ReadEntryAsync(zip, "instructions.md");
+            Require(instructions.Contains("Diez Publishing Studio — Prompt Pack v1", StringComparison.Ordinal), "Le istruzioni core sono state perse durante l'enrichment.");
             Require(instructions.Contains("base_version.file", StringComparison.Ordinal), "Le istruzioni non impongono l'uso della base reale.");
             Require(instructions.Contains("non sostituiscono il file immagine", StringComparison.OrdinalIgnoreCase), "Le descrizioni possono ancora sostituire impropriamente l'immagine.");
         }
