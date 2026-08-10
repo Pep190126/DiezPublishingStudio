@@ -10,6 +10,7 @@ namespace DiezPublishingStudio;
 /// Adds a normalized, provider-neutral effective_presets object to request-context.json.
 /// Raw profile JSON remains available, but critical visual choices are also exposed directly
 /// so an adapter/AI never has to infer them from UI-specific persistence structures.
+/// Layout-stage settings such as orientation, bleed and safety margins are intentionally absent.
 /// </summary>
 internal static class AiExchangeExplicitVisualPresetContext
 {
@@ -71,7 +72,6 @@ internal static class AiExchangeExplicitVisualPresetContext
         effective["width"] = Value(technical, "Width");
         effective["height"] = Value(technical, "Height");
         effective["unit"] = Value(technical, "Unit");
-        effective["orientation"] = Value(technical, "Orientation");
         effective["aspect_ratio"] = Value(technical, "AspectRatio");
         var resolutionId = Value(technical, "ResolutionClassId");
         effective["resolution_class_id"] = resolutionId;
@@ -81,9 +81,6 @@ internal static class AiExchangeExplicitVisualPresetContext
         effective["dpi"] = Value(technical, "Dpi");
         effective["render_quality"] = Value(technical, "Quality");
         effective["technical_detail"] = Value(technical, "LineDetail");
-        effective["safe_margin"] = Value(technical, "SafeMargin");
-        effective["bleed"] = BoolValue(technical, "Bleed");
-        effective["bleed_amount"] = Value(technical, "BleedAmount");
         effective["consistent_rules"] = ImageCollectionWorkspaceService.GetConsistencyRules(project) ?? string.Empty;
         effective["human_readable_visual_prompt"] = AiExchangeImageRequestContextService.BuildEffectiveVisualPrompt(project);
 
@@ -112,12 +109,6 @@ internal static class AiExchangeExplicitVisualPresetContext
         return node?.ToString() ?? string.Empty;
     }
 
-    private static bool BoolValue(JsonObject obj, string key)
-    {
-        var text = Value(obj, key);
-        return bool.TryParse(text, out var value) && value;
-    }
-
     private static JsonNode? Find(JsonObject obj, string key) =>
         obj.FirstOrDefault(p => string.Equals(p.Key, key, StringComparison.OrdinalIgnoreCase)).Value;
 
@@ -128,7 +119,7 @@ internal static class AiExchangeExplicitVisualPresetContext
         "2k" => "2K — lato lungo 2560 px",
         "4k" => "4K UHD — lato lungo 3840 px",
         "8k" => "8K UHD — lato lungo 7680 px",
-        "print" => "Stampa — dimensioni fisiche × DPI",
+        "print" or "print300" => "Stampa — dimensione pagina × DPI, mantenendo aspect ratio",
         "custom" => "Personalizzata — usa i pixel indicati",
         _ => id
     };
