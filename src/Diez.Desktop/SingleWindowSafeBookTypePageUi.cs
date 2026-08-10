@@ -1,4 +1,3 @@
-using System.Collections;
 using System.Reflection;
 using Avalonia.Controls;
 using Avalonia.Layout;
@@ -9,6 +8,7 @@ namespace DiezPublishingStudio;
 /// <summary>
 /// Native safe book-type page. It replaces the original page before the user can interact
 /// with the old async handler. Save and navigation are split across dispatcher turns.
+/// The page remains in the single-window history so step 1 can use the standard Back button.
 /// </summary>
 internal static class SingleWindowSafeBookTypePageUi
 {
@@ -141,6 +141,9 @@ internal static class SingleWindowSafeBookTypePageUi
             if (next is null || !Descendants(next).OfType<TextBlock>().Any(t =>
                     (t.Text ?? string.Empty).Contains("Quante immagini vuoi creare?", StringComparison.Ordinal)))
                 throw new InvalidOperationException("Navigazione alla quantità non completata.");
+
+            if (!IsBackEnabled(host))
+                throw new InvalidOperationException("Indietro deve essere abilitato nella pagina 1/4 per tornare al Tipo libro.");
         }
         finally
         {
@@ -170,7 +173,7 @@ internal static class SingleWindowSafeBookTypePageUi
                 try
                 {
                     CrashDiagnostics.Navigation("book-type-before-navigation", BookTypeProfileService.Get(project));
-                    ClearHistory(host);
+                    // Do not clear history: step 1 must go Back to this exact page.
                     if (BookTypeProfileService.IsImageCollection(project))
                         SingleWindowEntryPointUi.Invoke(host, "OpenQuantity");
                     else
@@ -203,11 +206,8 @@ internal static class SingleWindowSafeBookTypePageUi
         }
     }
 
-    private static void ClearHistory(object host)
-    {
-        if (host.GetType().GetField("_history", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(host) is IList list)
-            list.Clear();
-    }
+    private static bool IsBackEnabled(object host) =>
+        host.GetType().GetField("_back", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(host) is Button back && back.IsEnabled;
 
     private static void Report(MainWindow window, object host, string text)
     {
