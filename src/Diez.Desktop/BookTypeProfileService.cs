@@ -15,6 +15,7 @@ internal static class BookTypeProfileService
     public const string ColoringBook = "Coloring book";
     public const string ImageCollection = "Raccolta immagini";
     public const string Novel = "Romanzo / racconto";
+    public const string EssayManual = "Saggio / manuale";
     public const string IllustratedBook = "Libro illustrato";
     public const string DataCollection = "Catalogo / raccolta dati";
     public const string Other = "Altro";
@@ -81,6 +82,7 @@ internal static class BookTypeProfileService
             text.Contains("cerca parole", StringComparison.OrdinalIgnoreCase)) return WordSearch;
         if (text.Equals(ColoringBook, StringComparison.OrdinalIgnoreCase) || text.Contains("coloring", StringComparison.OrdinalIgnoreCase)) return ColoringBook;
         if (text.Equals(ImageCollection, StringComparison.OrdinalIgnoreCase) || text.Contains("raccolta immagini", StringComparison.OrdinalIgnoreCase) || text.Contains("image collection", StringComparison.OrdinalIgnoreCase)) return ImageCollection;
+        if (text.Equals(EssayManual, StringComparison.OrdinalIgnoreCase) || text.Contains("saggio", StringComparison.OrdinalIgnoreCase) || text.Contains("manuale", StringComparison.OrdinalIgnoreCase) || text.Contains("essay", StringComparison.OrdinalIgnoreCase)) return EssayManual;
         if (text.Equals(Novel, StringComparison.OrdinalIgnoreCase) || text.Contains("romanzo", StringComparison.OrdinalIgnoreCase) || text.Contains("racconto", StringComparison.OrdinalIgnoreCase)) return Novel;
         if (text.Equals(IllustratedBook, StringComparison.OrdinalIgnoreCase) || text.Contains("illustrato", StringComparison.OrdinalIgnoreCase)) return IllustratedBook;
         if (text.Equals(Quiz, StringComparison.OrdinalIgnoreCase) || text.Contains("quiz", StringComparison.OrdinalIgnoreCase) || text.Contains("trivia", StringComparison.OrdinalIgnoreCase)) return Quiz;
@@ -100,6 +102,7 @@ internal static class BookTypeProfileService
         if (combined.Contains("coloring", StringComparison.OrdinalIgnoreCase)) return ColoringBook;
         if (combined.Contains("raccolta immagini", StringComparison.OrdinalIgnoreCase) ||
             combined.Contains("image collection", StringComparison.OrdinalIgnoreCase)) return ImageCollection;
+        if (combined.Contains("saggio", StringComparison.OrdinalIgnoreCase) || combined.Contains("manuale", StringComparison.OrdinalIgnoreCase) || combined.Contains("essay", StringComparison.OrdinalIgnoreCase)) return EssayManual;
         if (combined.Contains("romanzo", StringComparison.OrdinalIgnoreCase) || combined.Contains("novel", StringComparison.OrdinalIgnoreCase)) return Novel;
         if (combined.Contains("libro illustrato", StringComparison.OrdinalIgnoreCase) || combined.Contains("illustrated book", StringComparison.OrdinalIgnoreCase)) return IllustratedBook;
         if (project.Materials.Any(m =>
@@ -166,6 +169,8 @@ internal static class BookTypeProfileUi
                 .ToList();
             if (choices.Count == 0) continue;
             AddChoice(panel, choices, BookTypeProfileService.ImageCollection);
+            choices = panel.Children.OfType<RadioButton>().Where(r => string.Equals(r.GroupName, "project-type", StringComparison.Ordinal)).ToList();
+            AddChoice(panel, choices, BookTypeProfileService.EssayManual);
             choices = panel.Children.OfType<RadioButton>().Where(r => string.Equals(r.GroupName, "project-type", StringComparison.Ordinal)).ToList();
             AddChoice(panel, choices, BookTypeProfileService.Crossword);
         }
