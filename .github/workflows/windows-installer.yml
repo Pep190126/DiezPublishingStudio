@@ -86,34 +86,52 @@ jobs:
           if (!(Test-Path $setup)) { throw "Installer not generated: $setup" }
           Get-FileHash $setup -Algorithm SHA256
 
-      - name: Smoke test install preserve/reset user data and uninstall
+      - name: Smoke test update/remove and work-data retention matrix
         shell: powershell
         run: |
           $setup = (Resolve-Path "artifacts\installer\DiezPublishingStudio-Setup.exe").Path
           $installDir = Join-Path $env:RUNNER_TEMP "DiezPublishingStudio-Smoke"
           $dirArg = "/DIR=`"$installDir`""
           $uninstallKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{E6BE35BE-1F4B-4A3D-8CEB-27D970D85911}_is1"
-          $userDataDir = Join-Path $env:LOCALAPPDATA "Diez Publishing Studio"
-          $marker = Join-Path $userDataDir "installer-preserve-test.txt"
+          $localRoot = Join-Path $env:LOCALAPPDATA "Diez Publishing Studio"
+          $configDir = Join-Path $localRoot "config"
+          $workDir = Join-Path $localRoot "versions"
+          $configMarker = Join-Path $configDir "config-marker.txt"
+          $workMarker = Join-Path $workDir "work-marker.txt"
 
           $first = Start-Process -FilePath $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", $dirArg -Wait -PassThru
           if ($first.ExitCode -ne 0) { throw "First install failed with exit code $($first.ExitCode)" }
           $exe = Join-Path $installDir "DiezPublishingStudio.exe"
           if (!(Test-Path $exe)) { throw "Installed executable missing after first install" }
 
-          New-Item -ItemType Directory -Force $userDataDir | Out-Null
-          Set-Content -Path $marker -Value "keep me"
+          New-Item -ItemType Directory -Force $configDir | Out-Null
+          New-Item -ItemType Directory -Force $workDir | Out-Null
+          Set-Content -Path $configMarker -Value "config"
+          Set-Content -Path $workMarker -Value "work"
 
-          $preserve = Start-Process -FilePath $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLEANOLD=1", $dirArg -Wait -PassThru
-          if ($preserve.ExitCode -ne 0) { throw "Clean upgrade preserving user data failed with exit code $($preserve.ExitCode)" }
-          if (!(Test-Path $marker)) { throw "User data was removed even though reset was not requested" }
-          if (!(Test-Path $exe)) { throw "Installed executable missing after clean upgrade" }
+          # UPDATE + KEEP WORK: config and work must both survive.
+          $updateKeep = Start-Process -FilePath $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/KEEPWORKDATA=1", $dirArg -Wait -PassThru
+          if ($updateKeep.ExitCode -ne 0) { throw "Update/keep failed with exit code $($updateKeep.ExitCode)" }
+          if (!(Test-Path $configMarker)) { throw "Update unexpectedly removed Diez configuration" }
+          if (!(Test-Path $workMarker)) { throw "Update unexpectedly removed work/versioning" }
 
-          $reset = Start-Process -FilePath $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLEANOLD=1", "/RESETUSERDATA=1", $dirArg -Wait -PassThru
-          if ($reset.ExitCode -ne 0) { throw "Clean upgrade with user-data reset failed with exit code $($reset.ExitCode)" }
-          if (Test-Path $marker) { throw "User data marker still exists after RESETUSERDATA=1" }
-          if (!(Test-Path $exe)) { throw "Installed executable missing after reset upgrade" }
-          if (!(Test-Path $uninstallKey)) { throw "Uninstall registry entry missing after reset upgrade" }
+          # REMOVE/REINSTALL + KEEP WORK: config must be reset, work/versioning kept.
+          $removeKeep = Start-Process -FilePath $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLEANOLD=1", "/KEEPWORKDATA=1", $dirArg -Wait -PassThru
+          if ($removeKeep.ExitCode -ne 0) { throw "Remove/reinstall keep-work failed with exit code $($removeKeep.ExitCode)" }
+          if (Test-Path $configMarker) { throw "Remove/reinstall kept configuration even though configuration must reset" }
+          if (!(Test-Path $workMarker)) { throw "Remove/reinstall deleted work/versioning even though KEEPWORKDATA=1" }
+          if (!(Test-Path $exe)) { throw "Installed executable missing after remove/reinstall keep-work" }
+
+          New-Item -ItemType Directory -Force $configDir | Out-Null
+          Set-Content -Path $configMarker -Value "config-again"
+
+          # REMOVE/REINSTALL + DROP WORK: both config and managed work/versioning must go.
+          $removeDrop = Start-Process -FilePath $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLEANOLD=1", "/KEEPWORKDATA=0", $dirArg -Wait -PassThru
+          if ($removeDrop.ExitCode -ne 0) { throw "Remove/reinstall drop-work failed with exit code $($removeDrop.ExitCode)" }
+          if (Test-Path $configMarker) { throw "Configuration marker still exists after remove/reinstall" }
+          if (Test-Path $workMarker) { throw "Work/versioning marker still exists with KEEPWORKDATA=0" }
+          if (!(Test-Path $exe)) { throw "Installed executable missing after remove/reinstall drop-work" }
+          if (!(Test-Path $uninstallKey)) { throw "Uninstall registry entry missing after final reinstall" }
 
           $uninstallString = (Get-ItemProperty -Path $uninstallKey).UninstallString
           if ([string]::IsNullOrWhiteSpace($uninstallString)) { throw "UninstallString missing" }
