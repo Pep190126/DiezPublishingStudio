@@ -6,5 +6,5 @@ internal static class ProductInfo
     public const string Version = "1.0.0-rc8";
     public const string DisplayVersion = "1.0 RC8 · SW-FLOW-11";
     public const string WindowTitle = ProductName + " — " + DisplayVersion;
-    public const string Subtitle = "Single-window SW-FLOW-11 — editor essenziali nativi, Consistent, anteprima e Prompt Pack";
+    public const string Subtitle = "Single-window SW-FLOW-11 — editor essenziali nativi, HD/FHD/2K/4K/8K, Consistent e prompt specifico per AI";
 }
