@@ -4,7 +4,7 @@ internal static class ProductInfo
 {
     public const string ProductName = "Diez Publishing Studio";
     public const string Version = "1.0.0-rc8";
-    public const string DisplayVersion = "1.0 RC8 · SW-FLOW-7";
+    public const string DisplayVersion = "1.0 RC8 · SW-FLOW-8";
     public const string WindowTitle = ProductName + " — " + DisplayVersion;
-    public const string Subtitle = "Single-window SW-FLOW-7 — avvio guidato, Consistent e prompt specifico per AI scelta";
+    public const string Subtitle = "Single-window SW-FLOW-8 — profilo Coloring ricco, specifiche tecniche, Consistent e prompt specifico per AI";
 }
