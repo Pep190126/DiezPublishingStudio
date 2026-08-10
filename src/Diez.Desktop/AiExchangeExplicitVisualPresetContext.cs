@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -13,7 +14,11 @@ namespace DiezPublishingStudio;
 internal static class AiExchangeExplicitVisualPresetContext
 {
     private const string ContextName = "request-context.json";
-    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        WriteIndented = true,
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+    };
 
     public static void Ensure(string promptPackPath, PreviewProject project)
     {
