@@ -35,15 +35,11 @@ jobs:
           $startupLog = Join-Path $env:LOCALAPPDATA "Diez Publishing Studio\logs\startup-errors.log"
           if (Test-Path $startupLog) { Remove-Item $startupLog -Force }
           $started = Get-Date
-
           $process = Start-Process -FilePath $exe -PassThru
           Start-Sleep -Seconds 4
           if ($process.HasExited) {
             Write-Host "Diez exited with code $($process.ExitCode). Diagnostic events since launch:"
-            if (Test-Path $startupLog) {
-              Write-Host "--- Diez startup log ---"
-              Get-Content $startupLog
-            }
+            if (Test-Path $startupLog) { Write-Host "--- Diez startup log ---"; Get-Content $startupLog }
             Write-Host "--- .NET Runtime / Application Error events ---"
             Get-WinEvent -FilterHashtable @{LogName='Application'; StartTime=$started.AddSeconds(-2)} -ErrorAction SilentlyContinue |
               Where-Object { $_.ProviderName -in @('.NET Runtime','Application Error','Windows Error Reporting') } |
@@ -57,6 +53,32 @@ jobs:
             throw "Diez entered startup diagnostic mode; one or more UI modules failed to attach"
           }
           Stop-Process -Id $process.Id -Force
+
+      - name: Rasterize real quantity and prompt screens
+        shell: powershell
+        run: |
+          $exe = (Resolve-Path "artifacts\publish\DiezPublishingStudio.exe").Path
+          $probe = Start-Process -FilePath $exe -ArgumentList "--ui-raster-probe" -Wait -PassThru
+          if ($probe.ExitCode -ne 0) {
+            $errorFile = "artifacts\publish\ui-raster-error.txt"
+            if (Test-Path $errorFile) { Get-Content $errorFile }
+            throw "UI raster probe failed with exit code $($probe.ExitCode)"
+          }
+          foreach ($file in @("artifacts\publish\ui-quantity.png", "artifacts\publish\ui-prompt.png")) {
+            if (!(Test-Path $file)) { throw "Missing raster screenshot: $file" }
+            $item = Get-Item $file
+            if ($item.Length -lt 10000) { throw "Raster screenshot unexpectedly small: $file ($($item.Length) bytes)" }
+          }
+
+      - name: Upload raster UI evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: DiezPublishingStudio-SW-FLOW-11-Raster-Evidence
+          path: |
+            artifacts/publish/ui-quantity.png
+            artifacts/publish/ui-prompt.png
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Real GUI contract visual books prompt consistency and quality
         shell: powershell
@@ -73,11 +95,6 @@ jobs:
           $probe = Start-Process -FilePath $exe -ArgumentList "--ui-flow-contract" -PassThru
           if (-not $probe.WaitForExit(30000)) {
             Stop-Process -Id $probe.Id -Force -ErrorAction SilentlyContinue
-            Write-Host "--- Diez navigation diagnostics ---"
-            foreach ($name in @("navigation.log", "navigation-errors.log", "fatal-errors.log")) {
-              $p = Join-Path $logRoot $name
-              if (Test-Path $p) { Write-Host "--- $name ---"; Get-Content $p }
-            }
             throw "UI flow contract timed out"
           }
           if (Test-Path $result) { Get-Content $result }
@@ -97,32 +114,14 @@ jobs:
           if (!(Test-Path $result)) { throw "UI flow contract did not produce a result file" }
           $text = Get-Content $result -Raw
           foreach ($required in @(
-            "OK",
-            "SW-FLOW-10",
-            "startup=guided",
-            "book-type=visible",
-            "quantity-field=visible",
-            "coloring-style=visible",
-            "coloring-profile=rich",
-            "coloring-binary-bw=fixed",
-            "line-thickness=dropdown",
-            "subject-environment=visible",
-            "image-specs=visible",
-            "image-resolution-classes=HD,FHD,2K,4K,8K,PRINT,CUSTOM",
-            "image-resolution-preserves-aspect=yes",
-            "image-specs-in-prompt=yes",
-            "image-collection-color-modes=visible",
-            "illustrated-book-shares-illustration-profile=yes",
-            "illustrated-book-not-coloring=yes",
-            "resolution-classes-all-visual-book-types=yes",
-            "consistent-off=criteria-hidden",
-            "consistent-on=criteria-visible",
-            "consistency-levels=3",
-            "prompt-target-ai=visible",
-            "prompt-target-catalog=central",
-            "prompt-editors=3",
-            "undo=ctrl-z",
-            "redo=ctrl-y"
+            "OK", "SW-FLOW-10", "startup=guided", "book-type=visible", "quantity-field=visible",
+            "coloring-style=visible", "coloring-profile=rich", "coloring-binary-bw=fixed", "line-thickness=dropdown",
+            "subject-environment=visible", "image-specs=visible", "image-resolution-classes=HD,FHD,2K,4K,8K,PRINT,CUSTOM",
+            "image-resolution-preserves-aspect=yes", "image-specs-in-prompt=yes", "image-collection-color-modes=visible",
+            "illustrated-book-shares-illustration-profile=yes", "illustrated-book-not-coloring=yes",
+            "resolution-classes-all-visual-book-types=yes", "consistent-off=criteria-hidden", "consistent-on=criteria-visible",
+            "consistency-levels=3", "prompt-target-ai=visible", "prompt-target-catalog=central", "prompt-editors=3",
+            "undo=ctrl-z", "redo=ctrl-y"
           )) {
             if ($text -notmatch [regex]::Escape($required)) { throw "UI flow contract missing: $required" }
           }
@@ -211,7 +210,7 @@ jobs:
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
-          name: DiezPublishingStudio-Setup-1.0.0-rc8-SW-FLOW-10
+          name: DiezPublishingStudio-Setup-1.0.0-rc8-SW-FLOW-11
           path: artifacts/installer/DiezPublishingStudio-Setup.exe
           if-no-files-found: error
           retention-days: 90
