@@ -34,10 +34,21 @@ jobs:
           $exe = (Resolve-Path "artifacts\publish\DiezPublishingStudio.exe").Path
           $startupLog = Join-Path $env:LOCALAPPDATA "Diez Publishing Studio\logs\startup-errors.log"
           if (Test-Path $startupLog) { Remove-Item $startupLog -Force }
+          $started = Get-Date
 
           $process = Start-Process -FilePath $exe -PassThru
           Start-Sleep -Seconds 4
           if ($process.HasExited) {
+            Write-Host "Diez exited with code $($process.ExitCode). Diagnostic events since launch:"
+            if (Test-Path $startupLog) {
+              Write-Host "--- Diez startup log ---"
+              Get-Content $startupLog
+            }
+            Write-Host "--- .NET Runtime / Application Error events ---"
+            Get-WinEvent -FilterHashtable @{LogName='Application'; StartTime=$started.AddSeconds(-2)} -ErrorAction SilentlyContinue |
+              Where-Object { $_.ProviderName -in @('.NET Runtime','Application Error','Windows Error Reporting') } |
+              Select-Object -First 12 TimeCreated, ProviderName, Id, LevelDisplayName, Message |
+              Format-List | Out-String -Width 240 | Write-Host
             throw "Diez exited during normal GUI startup with code $($process.ExitCode)"
           }
           if (Test-Path $startupLog) {
