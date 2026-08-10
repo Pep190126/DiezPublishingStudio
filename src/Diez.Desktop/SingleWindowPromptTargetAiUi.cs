@@ -148,16 +148,16 @@ internal static class SingleWindowPromptTargetAiUi
             {
                 if (prepareGeneric is not null)
                 {
-                    // Generic preparation remains the native Diez button. The user can
-                    // still edit the result immediately afterwards.
                     state.PreparedProviderId = GenericId;
                     RefreshNext();
                 }
                 return;
             }
 
-            var generic = BuildGenericFallback(host, mustDo.Text ?? string.Empty, mustNotDo.Text ?? string.Empty);
+            var generic = BuildGenericFallback(project, host, mustDo.Text ?? string.Empty, mustNotDo.Text ?? string.Empty);
             var basePrompt = string.IsNullOrWhiteSpace(prompt.Text) ? generic : prompt.Text!.Trim();
+            if (!basePrompt.Contains("SPECIFICHE TECNICHE:", StringComparison.Ordinal))
+                basePrompt += Environment.NewLine + Environment.NewLine + SingleWindowImageSpecsUi.BuildPromptBlock(project);
             prompt.Text = BuildSpecific(basePrompt, selected.Descriptor, advanced.IsChecked == true);
             state.PreparedProviderId = selected.Id;
             RefreshNext();
@@ -182,7 +182,6 @@ internal static class SingleWindowPromptTargetAiUi
             }
         };
 
-        // Put provider targeting immediately before the action row, after the editable prompt.
         if (stack.Parent is StackPanel parent)
         {
             var actionIndex = parent.Children.IndexOf(stack);
@@ -196,7 +195,7 @@ internal static class SingleWindowPromptTargetAiUi
         RefreshNext();
     }
 
-    private static string BuildGenericFallback(object host, string mustDo, string mustNotDo)
+    private static string BuildGenericFallback(PreviewProject project, object host, string mustDo, string mustNotDo)
     {
         var count = ReadColoringProperty(host, "Count");
         var rules = ReadColoringProperty(host, "Rules");
@@ -207,6 +206,7 @@ internal static class SingleWindowPromptTargetAiUi
         sb.AppendLine("NON DEVE FARE:").AppendLine(mustNotDo.Trim());
         if (consistent && !string.IsNullOrWhiteSpace(rules))
             sb.AppendLine().AppendLine("CONSISTENT:").AppendLine(rules.Trim());
+        sb.AppendLine().AppendLine(SingleWindowImageSpecsUi.BuildPromptBlock(project));
         sb.AppendLine().AppendLine("Ogni immagine deve essere distinta e non deve contenere ID, numeri o nomi file dentro l'immagine.");
         return sb.ToString().Trim();
     }
@@ -216,7 +216,7 @@ internal static class SingleWindowPromptTargetAiUi
         var sb = new StringBuilder();
         sb.AppendLine($"PROMPT SPECIFICO PER {provider.DisplayName.ToUpperInvariant()}").AppendLine();
         sb.AppendLine(AiProviderCatalog.ImageModelInstruction(provider.DisplayName, advanced)).AppendLine();
-        sb.AppendLine("Interpreta i vincoli seguenti in modo letterale. Non eliminare requisiti, divieti o regole di coerenza per rendere il prompt più creativo.").AppendLine();
+        sb.AppendLine("Interpreta i vincoli seguenti in modo letterale. Non eliminare requisiti, divieti, specifiche tecniche o regole di coerenza per rendere il prompt più creativo.").AppendLine();
         sb.AppendLine(basePrompt.Trim());
         return sb.ToString().Trim();
     }
