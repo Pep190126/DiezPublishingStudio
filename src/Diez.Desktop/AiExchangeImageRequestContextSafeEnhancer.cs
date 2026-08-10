@@ -4,9 +4,9 @@ using System.Text;
 namespace DiezPublishingStudio;
 
 /// <summary>
-/// Safe wrapper around the V2 enhancer. It removes instructions.md only after closing
-/// the read stream, lets the V2 service enrich the package, then recomposes the original
-/// master instructions with the V2 visual rules.
+/// Safe wrapper around the V2 enhancer. It preserves core instructions, enriches the
+/// package with real visual assets/context, adds normalized effective presets, then
+/// recomposes instructions without deleting an open ZIP entry.
 /// </summary>
 internal static class AiExchangeImageRequestContextSafeEnhancer
 {
@@ -28,6 +28,8 @@ internal static class AiExchangeImageRequestContextSafeEnhancer
         {
             result = await AiExchangeImageRequestContextService.EnhancePromptPackAsync(
                 project, projectPath, exchangeState, workUnitIds, promptPackPath);
+            if (result.Success)
+                AiExchangeExplicitVisualPresetContext.Ensure(promptPackPath, project);
         }
         catch
         {
