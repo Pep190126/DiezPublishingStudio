@@ -4,11 +4,6 @@ using Avalonia.Controls;
 
 namespace DiezPublishingStudio;
 
-/// <summary>
-/// Deterministic real-window contract used by installer CI. It verifies what a user can
-/// actually see and edit, but deliberately does not mutate many controls in sequence:
-/// persistence, prompt contents, presets and ZIP semantics are covered by self-tests.
-/// </summary>
 internal static class SingleWindowInstallerUiProbe
 {
     private static readonly string[] ResolutionClasses =
@@ -22,91 +17,83 @@ internal static class SingleWindowInstallerUiProbe
         "Personalizzata — usa i pixel indicati"
     ];
 
-    public static async Task RunAsync(MainWindow window)
+    public static Task RunAsync(MainWindow window)
     {
-        var temp = Path.Combine(Path.GetTempPath(), "diez-installer-ui-" + Guid.NewGuid().ToString("N") + ".diez");
-        try
-        {
-            SetSession(window, null, null);
-            SingleWindowV5StartupUi.ShowStart(window);
-            var host = SingleWindowEntryPointUi.GetHost(window);
-            var pageHost = PageHost(host);
-            AssertText(pageHost.Content as Control, "Diez Publishing Studio");
-            AssertButton(pageHost.Content as Control, "Nuovo progetto");
-            AssertButton(pageHost.Content as Control, "Apri progetto .diez");
+        SetSession(window, null, null);
+        SingleWindowV5StartupUi.ShowStart(window);
+        var host = SingleWindowEntryPointUi.GetHost(window);
+        var pageHost = PageHost(host);
+        AssertText(pageHost.Content as Control, "Diez Publishing Studio");
+        AssertButton(pageHost.Content as Control, "Nuovo progetto");
+        AssertButton(pageHost.Content as Control, "Apri progetto .diez");
 
-            var project = ProjectFileStore.Create("Installer UI Contract");
-            await ProjectFileStore.SaveAsync(temp, project);
-            SetSession(window, project, temp);
-            SingleWindowV5StartupUi.ShowStart(window);
-            AssertText(pageHost.Content as Control, "Quale libro stai preparando?");
-            var typeChoice = Descendants(pageHost.Content as Control).OfType<ComboBox>().FirstOrDefault()
-                ?? throw new InvalidOperationException("La scelta del Tipo libro non è visibile.");
-            var types = Values(typeChoice);
-            foreach (var expected in new[] { BookTypeProfileService.ColoringBook, BookTypeProfileService.ImageCollection, BookTypeProfileService.IllustratedBook })
-                if (!types.Contains(expected, StringComparer.Ordinal))
-                    throw new InvalidOperationException($"Tipo libro mancante: {expected}");
+        var project = ProjectFileStore.Create("Installer UI Contract");
+        SetSession(window, project, Path.Combine(Path.GetTempPath(), "diez-installer-ui-contract.diez"));
+        SingleWindowV5StartupUi.ShowStart(window);
+        AssertText(pageHost.Content as Control, "Quale libro stai preparando?");
+        var typeChoice = Descendants(pageHost.Content as Control).OfType<ComboBox>().FirstOrDefault()
+            ?? throw new InvalidOperationException("La scelta del Tipo libro non è visibile.");
+        var types = Values(typeChoice);
+        foreach (var expected in new[] { BookTypeProfileService.ColoringBook, BookTypeProfileService.ImageCollection, BookTypeProfileService.IllustratedBook })
+            if (!types.Contains(expected, StringComparer.Ordinal))
+                throw new InvalidOperationException($"Tipo libro mancante: {expected}");
 
-            BookTypeProfileService.Set(project, BookTypeProfileService.ColoringBook);
-            OpenQuantity(window, host);
-            var coloring = pageHost.Content as Control ?? throw new InvalidOperationException("Pagina Coloring assente.");
-            AssertText(coloring, "Quante immagini vuoi creare?");
-            if (Descendants(coloring).OfType<RadioButton>().Any())
-                throw new InvalidOperationException("La pagina Coloring contiene radio legacy.");
-            if (!Descendants(coloring).OfType<TextBox>().Any(t => t.IsVisible && t.IsEnabled && !t.IsReadOnly && !t.AcceptsReturn))
-                throw new InvalidOperationException("Il campo numero immagini non è digitabile.");
-            AssertText(coloring, "Soggetto/i — scelta e descrizione");
-            AssertText(coloring, "Ambiente / scenario — descrizione");
-            AssertText(coloring, "SOLO 2 COLORI");
-            RequireEditableTextBox(coloring, "ColoringSubjectDescription", true);
-            RequireEditableTextBox(coloring, "ColoringEnvironmentDescription", true);
-            RequireCombo(coloring, "ColoringStyle");
-            RequireCombo(coloring, "ColoringLineWeight");
-            AssertImageSpecs(coloring);
-            AssertConsistentVisibility(coloring);
+        BookTypeProfileService.Set(project, BookTypeProfileService.ColoringBook);
+        OpenQuantity(window, host);
+        var coloring = pageHost.Content as Control ?? throw new InvalidOperationException("Pagina Coloring assente.");
+        AssertText(coloring, "Quante immagini vuoi creare?");
+        if (Descendants(coloring).OfType<RadioButton>().Any())
+            throw new InvalidOperationException("La pagina Coloring contiene radio legacy.");
+        if (!Descendants(coloring).OfType<TextBox>().Any(t => t.IsVisible && t.IsEnabled && !t.IsReadOnly && !t.AcceptsReturn))
+            throw new InvalidOperationException("Il campo numero immagini non è digitabile.");
+        AssertText(coloring, "Soggetto/i — scelta e descrizione");
+        AssertText(coloring, "Ambiente / scenario — descrizione");
+        AssertText(coloring, "SOLO 2 COLORI");
+        RequireEditableTextBox(coloring, "ColoringSubjectDescription", true);
+        RequireEditableTextBox(coloring, "ColoringEnvironmentDescription", true);
+        RequireCombo(coloring, "ColoringStyle");
+        RequireCombo(coloring, "ColoringLineWeight");
+        AssertImageSpecs(coloring);
+        AssertConsistentVisibility(coloring);
 
-            SingleWindowEntryPointUi.Invoke(host, "OpenPrompt", 12);
-            SingleWindowColoringProfileUi.EnsureCurrentPage(window);
-            SingleWindowImageSpecsUi.EnsureCurrentPage(window);
-            SingleWindowPromptTargetAiUi.EnsureCurrentPage(window);
-            SingleWindowAiImageContextUi.EnsureCurrentPage(window);
-            var prompt = pageHost.Content as Control ?? throw new InvalidOperationException("Pagina prompt assente.");
-            AssertText(prompt, "DEVE FARE");
-            AssertText(prompt, "NON DEVE FARE");
-            AssertText(prompt, "PROMPT — modificabile");
-            var editors = Descendants(prompt).OfType<TextBox>().Where(t => t.IsVisible && t.IsEnabled && !t.IsReadOnly).ToList();
-            if (editors.Count < 3) throw new InvalidOperationException("I tre box editabili non sono visibili.");
-            if (editors.Take(3).Any(t => !t.IsUndoEnabled)) throw new InvalidOperationException("Undo/Redo non è abilitato sui tre box.");
-            AssertText(prompt, "AI per cui preparare il prompt specifico");
-            var provider = RequireCombo(prompt, "PromptTargetAi");
-            foreach (var expected in new[] { "Generico / nessuna AI specifica", "ChatGPT / OpenAI", "Gemini", "Altra / nuova AI" })
-                if (!Values(provider).Contains(expected, StringComparer.Ordinal))
-                    throw new InvalidOperationException($"Provider prompt mancante: {expected}");
-            AssertButton(prompt, "Prepara prompt per AI scelta");
+        SingleWindowEntryPointUi.Invoke(host, "OpenPrompt", 12);
+        SingleWindowColoringProfileUi.EnsureCurrentPage(window);
+        SingleWindowImageSpecsUi.EnsureCurrentPage(window);
+        SingleWindowPromptTargetAiUi.EnsureCurrentPage(window);
+        SingleWindowAiImageContextUi.EnsureCurrentPage(window);
+        var prompt = pageHost.Content as Control ?? throw new InvalidOperationException("Pagina prompt assente.");
+        AssertText(prompt, "DEVE FARE");
+        AssertText(prompt, "NON DEVE FARE");
+        AssertText(prompt, "PROMPT — modificabile");
+        var editors = Descendants(prompt).OfType<TextBox>().Where(t => t.IsVisible && t.IsEnabled && !t.IsReadOnly).ToList();
+        if (editors.Count < 3) throw new InvalidOperationException("I tre box editabili non sono visibili.");
+        if (editors.Take(3).Any(t => !t.IsUndoEnabled)) throw new InvalidOperationException("Undo/Redo non è abilitato sui tre box.");
+        AssertText(prompt, "AI per cui preparare il prompt specifico");
+        var provider = RequireCombo(prompt, "PromptTargetAi");
+        foreach (var expected in new[] { "Generico / nessuna AI specifica", "ChatGPT / OpenAI", "Gemini", "Altra / nuova AI" })
+            if (!Values(provider).Contains(expected, StringComparer.Ordinal))
+                throw new InvalidOperationException($"Provider prompt mancante: {expected}");
+        AssertButton(prompt, "Prepara prompt per AI scelta");
 
-            BookTypeProfileService.Set(project, BookTypeProfileService.ImageCollection);
-            OpenQuantity(window, host);
-            var collection = pageHost.Content as Control ?? throw new InvalidOperationException("Pagina Raccolta immagini assente.");
-            AssertText(collection, "Profilo della Raccolta immagini");
-            var collectionColor = RequireCombo(collection, "ImageCollectionColorMode");
-            foreach (var expected in new[] { "Colore pieno", "Scala di grigi — con sfumature", "Bianco e nero puro — 2 colori" })
-                if (!Values(collectionColor).Contains(expected, StringComparer.Ordinal))
-                    throw new InvalidOperationException($"Resa cromatica Raccolta immagini mancante: {expected}");
-            AssertImageSpecs(collection);
-            AssertNoText(collection, "Vincolo fisso Coloring: SOLO 2 COLORI");
+        BookTypeProfileService.Set(project, BookTypeProfileService.ImageCollection);
+        OpenQuantity(window, host);
+        var collection = pageHost.Content as Control ?? throw new InvalidOperationException("Pagina Raccolta immagini assente.");
+        AssertText(collection, "Profilo della Raccolta immagini");
+        var collectionColor = RequireCombo(collection, "ImageCollectionColorMode");
+        foreach (var expected in new[] { "Colore pieno", "Scala di grigi — con sfumature", "Bianco e nero puro — 2 colori" })
+            if (!Values(collectionColor).Contains(expected, StringComparer.Ordinal))
+                throw new InvalidOperationException($"Resa cromatica Raccolta immagini mancante: {expected}");
+        AssertImageSpecs(collection);
+        AssertNoText(collection, "Vincolo fisso Coloring: SOLO 2 COLORI");
 
-            BookTypeProfileService.Set(project, BookTypeProfileService.IllustratedBook);
-            OpenQuantity(window, host);
-            var illustrated = pageHost.Content as Control ?? throw new InvalidOperationException("Pagina Libro illustrato assente.");
-            AssertText(illustrated, "Profilo delle illustrazioni del Libro illustrato");
-            RequireCombo(illustrated, "ImageCollectionColorMode");
-            AssertImageSpecs(illustrated);
-            AssertNoText(illustrated, "Vincolo fisso Coloring: SOLO 2 COLORI");
-        }
-        finally
-        {
-            try { if (File.Exists(temp)) File.Delete(temp); } catch { }
-        }
+        BookTypeProfileService.Set(project, BookTypeProfileService.IllustratedBook);
+        OpenQuantity(window, host);
+        var illustrated = pageHost.Content as Control ?? throw new InvalidOperationException("Pagina Libro illustrato assente.");
+        AssertText(illustrated, "Profilo delle illustrazioni del Libro illustrato");
+        RequireCombo(illustrated, "ImageCollectionColorMode");
+        AssertImageSpecs(illustrated);
+        AssertNoText(illustrated, "Vincolo fisso Coloring: SOLO 2 COLORI");
+        return Task.CompletedTask;
     }
 
     private static void OpenQuantity(MainWindow window, object host)
