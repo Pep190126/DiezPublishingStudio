@@ -46,12 +46,12 @@ public sealed class App : Application
                         await SingleWindowV5UiContractProbe.RunAsync(mainWindow);
                         File.WriteAllText(resultFile,
                             "OK\nSW-FLOW-5\nstartup=guided\nbook-type=visible\nquantity-field=visible\nprompt-editors=3\nundo=ctrl-z\nredo=ctrl-y");
-                        desktop.Shutdown(0);
+                        Environment.Exit(0);
                     }
                     catch (Exception ex)
                     {
                         try { File.WriteAllText(resultFile, ex.ToString()); } catch { }
-                        desktop.Shutdown(2);
+                        Environment.Exit(2);
                     }
                 };
             }
