@@ -7,8 +7,8 @@ using Avalonia.Layout;
 namespace DiezPublishingStudio;
 
 /// <summary>
-/// Production controls for image-based books. The UI is added to the logical
-/// Quantity page and the resulting block is injected into every generated prompt.
+/// Production controls shared by all image workflows. Physical dimensions, aspect ratio,
+/// resolution and print settings are common; color policy remains specific to the Book Type.
 /// </summary>
 internal static class SingleWindowImageSpecsUi
 {
@@ -30,11 +30,9 @@ internal static class SingleWindowImageSpecsUi
         var host = SingleWindowEntryPointUi.GetHost(window);
         var pageHost = host.GetType().GetField("_pageHost", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(host) as ContentControl;
         if (pageHost is null) return;
-
         pageHost.PropertyChanged += (_, e) =>
         {
-            if (e.Property == ContentControl.ContentProperty)
-                EnsureCurrentPage(window);
+            if (e.Property == ContentControl.ContentProperty) EnsureCurrentPage(window);
         };
         EnsureCurrentPage(window);
     }
@@ -44,6 +42,7 @@ internal static class SingleWindowImageSpecsUi
         var host = SingleWindowEntryPointUi.GetHost(window);
         var pageHost = host.GetType().GetField("_pageHost", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(host) as ContentControl;
         if (pageHost?.Content is not Control page || !TrySession(window, out var project, out var path)) return;
+        if (!BookTypeProfileService.IsImageCollection(project)) return;
 
         var texts = Descendants(page).OfType<TextBlock>().Select(t => t.Text ?? string.Empty).ToList();
         if (texts.Any(t => t.Contains("Quante immagini vuoi creare?", StringComparison.Ordinal)))
@@ -55,8 +54,11 @@ internal static class SingleWindowImageSpecsUi
     internal static string BuildPromptBlock(PreviewProject project)
     {
         var s = Load(project);
+        var type = BookTypeProfileService.Get(project);
+        var coloring = string.Equals(type, BookTypeProfileService.ColoringBook, StringComparison.OrdinalIgnoreCase);
         var sb = new StringBuilder();
         sb.AppendLine("SPECIFICHE TECNICHE:");
+        sb.AppendLine($"- Tipo libro / uso immagini: {type}.");
         sb.AppendLine($"- Formato pagina: {PresetLabel(s.PresetId)}.");
         sb.AppendLine($"- Dimensioni finali: {s.Width} × {s.Height} {s.Unit}.");
         sb.AppendLine($"- Orientamento: {s.Orientation}.");
@@ -64,15 +66,24 @@ internal static class SingleWindowImageSpecsUi
         sb.AppendLine($"- Risoluzione target: {s.PixelWidth} × {s.PixelHeight} px.");
         sb.AppendLine($"- DPI di destinazione per stampa: {s.Dpi} DPI.");
         sb.AppendLine($"- Qualità: {s.Quality}.");
-        sb.AppendLine($"- Tratto / dettaglio: {s.LineDetail}.");
+        sb.AppendLine($"- Livello tecnico di dettaglio: {s.LineDetail}.");
         sb.AppendLine($"- Margine di sicurezza: {s.SafeMargin} {s.Unit}.");
         if (s.Bleed)
             sb.AppendLine($"- Bleed / abbondanza: {s.BleedAmount} {s.Unit} per lato.");
         else
             sb.AppendLine("- Bleed / abbondanza: nessuno.");
-        sb.AppendLine("- Output Coloring Book: line art binaria con ESATTAMENTE due colori: nero puro #000000 su fondo bianco puro #FFFFFF.");
-        sb.AppendLine("- Vietati senza eccezioni: grigi, mezzetinte, colori, ombre, sfumature, gradienti e qualunque valore cromatico intermedio.");
-        sb.AppendLine("- Senza testo, watermark, numeri, cornici tecniche o nomi file nell'immagine.");
+
+        if (coloring)
+        {
+            sb.AppendLine("- Output Coloring Book: line art binaria con ESATTAMENTE due colori: nero puro #000000 su fondo bianco puro #FFFFFF.");
+            sb.AppendLine("- Vietati senza eccezioni: grigi, mezzetinte, colori, ombre, sfumature, gradienti e qualunque valore cromatico intermedio.");
+        }
+        else
+        {
+            sb.AppendLine("- Resa cromatica: applica la modalità scelta nel profilo illustrazioni (colore, scala di grigi, B/N puro, monocromatico o automatico). Non sovrascriverla con regole del Coloring Book.");
+        }
+
+        sb.AppendLine("- Evita testo tecnico, watermark, ID e nomi file dentro l'immagine salvo richiesta editoriale esplicita.");
         sb.AppendLine("- Mantieni gli elementi importanti entro il margine di sicurezza; il DPI è un requisito di output/stampa, non testo da disegnare nell'immagine.");
         return sb.ToString().Trim();
     }
@@ -81,22 +92,27 @@ internal static class SingleWindowImageSpecsUi
     {
         if (Descendants(page).Any(c => string.Equals(c.Name, PanelName, StringComparison.Ordinal))) return;
         var root = Descendants(page).OfType<StackPanel>().FirstOrDefault(p =>
-            p.Children.OfType<TextBlock>().Any(t => (t.Text ?? string.Empty).Contains("Coloring Book — quantità", StringComparison.Ordinal)));
+            p.Children.OfType<TextBlock>().Any(t => (t.Text ?? string.Empty).Contains("quantità", StringComparison.OrdinalIgnoreCase)));
         if (root is null) return;
 
+        var coloring = string.Equals(BookTypeProfileService.Get(project), BookTypeProfileService.ColoringBook, StringComparison.OrdinalIgnoreCase);
         var s = Load(project);
         var preset = new ComboBox { Name = "ImageSpecPreset", ItemsSource = Presets, Width = 310, HorizontalAlignment = HorizontalAlignment.Left };
         preset.SelectedItem = Presets.FirstOrDefault(p => p.Id == s.PresetId) ?? Presets[0];
-        var width = SmallEditor(s.Width, 90);
-        var height = SmallEditor(s.Height, 90);
-        var unit = new ComboBox { ItemsSource = new[] { "in", "mm" }, SelectedItem = s.Unit, Width = 80 };
+        var width = SmallEditor(s.Width, 90); width.Name = "ImageSpecWidth";
+        var height = SmallEditor(s.Height, 90); height.Name = "ImageSpecHeight";
+        var unit = new ComboBox { Name = "ImageSpecUnit", ItemsSource = new[] { "in", "mm" }, SelectedItem = s.Unit, Width = 80 };
         var orientation = new ComboBox { Name = "ImageSpecOrientation", ItemsSource = new[] { "Verticale", "Orizzontale", "Quadrata" }, SelectedItem = s.Orientation, Width = 160 };
         var ratio = SmallEditor(s.AspectRatio, 110); ratio.Name = "ImageSpecAspectRatio";
         var pxW = SmallEditor(s.PixelWidth, 105); pxW.Name = "ImageSpecPixelWidth";
         var pxH = SmallEditor(s.PixelHeight, 105); pxH.Name = "ImageSpecPixelHeight";
         var dpi = SmallEditor(s.Dpi, 90); dpi.Name = "ImageSpecDpi";
         var quality = new ComboBox { Name = "ImageSpecQuality", ItemsSource = new[] { "Standard", "Alta", "Massima / stampa" }, SelectedItem = s.Quality, Width = 190 };
-        var line = new ComboBox { Name = "ImageSpecLineDetail", ItemsSource = new[] { "Linee semplici e pulite", "Dettaglio medio", "Dettaglio alto ma colorabile" }, SelectedItem = s.LineDetail, Width = 260 };
+        var detailChoices = coloring
+            ? new[] { "Linee semplici e pulite", "Dettaglio medio", "Dettaglio alto ma colorabile" }
+            : new[] { "Molto schematico", "Dettaglio basso", "Dettaglio medio", "Dettaglio alto", "Dettaglio massimo" };
+        if (!detailChoices.Contains(s.LineDetail, StringComparer.Ordinal)) s.LineDetail = "Dettaglio medio";
+        var line = new ComboBox { Name = "ImageSpecLineDetail", ItemsSource = detailChoices, SelectedItem = s.LineDetail, Width = 260 };
         var safe = SmallEditor(s.SafeMargin, 90); safe.Name = "ImageSpecSafeMargin";
         var bleed = new CheckBox { Name = "ImageSpecBleed", Content = "Bleed / abbondanza", IsChecked = s.Bleed };
         var bleedAmount = SmallEditor(s.BleedAmount, 90); bleedAmount.Name = "ImageSpecBleedAmount"; bleedAmount.IsVisible = s.Bleed;
@@ -123,8 +139,12 @@ internal static class SingleWindowImageSpecsUi
         void ApplyPreset(PagePreset p)
         {
             if (p.Id == "custom") return;
-            width.Text = p.Width; height.Text = p.Height; unit.SelectedItem = p.Unit;
-            ratio.Text = p.Ratio; pxW.Text = p.PixelWidth; pxH.Text = p.PixelHeight;
+            width.Text = p.Width;
+            height.Text = p.Height;
+            unit.SelectedItem = p.Unit;
+            ratio.Text = p.Ratio;
+            pxW.Text = p.PixelWidth;
+            pxH.Text = p.PixelHeight;
             orientation.SelectedItem = p.Width == p.Height ? "Quadrata" : "Verticale";
             FromControls();
         }
@@ -152,12 +172,16 @@ internal static class SingleWindowImageSpecsUi
             {
                 new Separator(),
                 new TextBlock { Text = "Specifiche immagine / stampa", FontSize = 19 },
-                new TextBlock { Text = "Questi valori entrano automaticamente nel prompt e nel Prompt Pack.", TextWrapping = Avalonia.Media.TextWrapping.Wrap },
+                new TextBlock
+                {
+                    Text = "Formato, aspect ratio, pixel, DPI, qualità e margini entrano automaticamente nel prompt e nel Prompt Pack. La resa cromatica resta nel profilo del Tipo libro.",
+                    TextWrapping = Avalonia.Media.TextWrapping.Wrap
+                },
                 Labeled("Formato pagina", preset),
                 new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { Labeled("Larghezza", width), Labeled("Altezza", height), Labeled("Unità", unit) } },
                 new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { Labeled("Orientamento", orientation), Labeled("Aspect ratio", ratio) } },
                 new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { Labeled("Larghezza px", pxW), Labeled("Altezza px", pxH), Labeled("DPI", dpi) } },
-                new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { Labeled("Qualità", quality), Labeled("Tratto / dettaglio", line) } },
+                new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { Labeled("Qualità", quality), Labeled("Dettaglio tecnico", line) } },
                 new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { Labeled("Margine sicurezza", safe), bleed, bleedAmount } }
             }
         };
@@ -187,15 +211,14 @@ internal static class SingleWindowImageSpecsUi
             if (internalChange) return;
             var text = prompt.Text ?? string.Empty;
             if (string.IsNullOrWhiteSpace(text) || text.Contains("SPECIFICHE TECNICHE:", StringComparison.Ordinal)) return;
-            if (!text.Contains("Coloring Book", StringComparison.OrdinalIgnoreCase)) return;
             internalChange = true;
             prompt.Text = text.TrimEnd() + Environment.NewLine + Environment.NewLine + BuildPromptBlock(project);
             internalChange = false;
         }
 
         prompt.TextChanged += (_, _) => EnsureBlock();
-        var buttons = Descendants(page).OfType<Button>().ToList();
-        foreach (var button in buttons.Where(b => (b.Content?.ToString() ?? string.Empty).StartsWith("Prepara prompt", StringComparison.OrdinalIgnoreCase)))
+        foreach (var button in Descendants(page).OfType<Button>().Where(b =>
+                     (b.Content?.ToString() ?? string.Empty).StartsWith("Prepara prompt", StringComparison.OrdinalIgnoreCase)))
             button.Click += (_, _) => EnsureBlock();
 
         var root = Descendants(page).OfType<StackPanel>().FirstOrDefault(p => p.Children.Contains(prompt));
@@ -240,7 +263,12 @@ internal static class SingleWindowImageSpecsUi
 
     private static TextBox SmallEditor(string value, double width) => new()
     {
-        Text = value, Width = width, Height = 36, IsReadOnly = false, IsEnabled = true, IsUndoEnabled = true,
+        Text = value,
+        Width = width,
+        Height = 36,
+        IsReadOnly = false,
+        IsEnabled = true,
+        IsUndoEnabled = true,
         HorizontalAlignment = HorizontalAlignment.Left
     };
 
