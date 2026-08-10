@@ -54,7 +54,7 @@ jobs:
           }
           Stop-Process -Id $process.Id -Force
 
-      - name: Rasterize real quantity and prompt screens
+      - name: Rasterize real editable screens
         shell: powershell
         run: |
           $exe = (Resolve-Path "artifacts\publish\DiezPublishingStudio.exe").Path
@@ -64,7 +64,11 @@ jobs:
             if (Test-Path $errorFile) { Get-Content $errorFile }
             throw "UI raster probe failed with exit code $($probe.ExitCode)"
           }
-          foreach ($file in @("artifacts\publish\ui-quantity.png", "artifacts\publish\ui-prompt.png")) {
+          foreach ($file in @(
+            "artifacts\publish\ui-quantity.png",
+            "artifacts\publish\ui-consistent.png",
+            "artifacts\publish\ui-prompt.png"
+          )) {
             if (!(Test-Path $file)) { throw "Missing raster screenshot: $file" }
             $item = Get-Item $file
             if ($item.Length -lt 10000) { throw "Raster screenshot unexpectedly small: $file ($($item.Length) bytes)" }
@@ -76,6 +80,7 @@ jobs:
           name: DiezPublishingStudio-SW-FLOW-11-Raster-Evidence
           path: |
             artifacts/publish/ui-quantity.png
+            artifacts/publish/ui-consistent.png
             artifacts/publish/ui-prompt.png
           if-no-files-found: error
           retention-days: 30
@@ -114,14 +119,14 @@ jobs:
           if (!(Test-Path $result)) { throw "UI flow contract did not produce a result file" }
           $text = Get-Content $result -Raw
           foreach ($required in @(
-            "OK", "SW-FLOW-10", "startup=guided", "book-type=visible", "quantity-field=visible",
-            "coloring-style=visible", "coloring-profile=rich", "coloring-binary-bw=fixed", "line-thickness=dropdown",
-            "subject-environment=visible", "image-specs=visible", "image-resolution-classes=HD,FHD,2K,4K,8K,PRINT,CUSTOM",
-            "image-resolution-preserves-aspect=yes", "image-specs-in-prompt=yes", "image-collection-color-modes=visible",
-            "illustrated-book-shares-illustration-profile=yes", "illustrated-book-not-coloring=yes",
-            "resolution-classes-all-visual-book-types=yes", "consistent-off=criteria-hidden", "consistent-on=criteria-visible",
-            "consistency-levels=3", "prompt-target-ai=visible", "prompt-target-catalog=central", "prompt-editors=3",
-            "undo=ctrl-z", "redo=ctrl-y"
+            "OK", "SW-FLOW-11", "book-type=visible", "book-type-back=works", "quantity-change-type=absent",
+            "quantity-field=native-numeric", "visual-subject-environment=native-visible", "coloring-style=native-visible",
+            "coloring-binary-bw=fixed", "line-thickness=dropdown", "image-specs=visible", "kdp-trim-presets=yes",
+            "editable-inputs=avaloniaedit-raster", "active-project=kept-until-replace-or-exit", "home-resume=book-type",
+            "consistent-on=criteria-native-visible", "consistency-notes=native-visible", "consistency-levels=3",
+            "consistency-free-strategies=USER,AI,MIXED", "consistency-free-user=description-required",
+            "consistency-free-ai=description-optional", "consistency-free-mixed=description-required",
+            "bleed=image-generation-removed", "prompt-editors=native-3", "undo=ctrl-z", "redo=ctrl-y"
           )) {
             if ($text -notmatch [regex]::Escape($required)) { throw "UI flow contract missing: $required" }
           }
