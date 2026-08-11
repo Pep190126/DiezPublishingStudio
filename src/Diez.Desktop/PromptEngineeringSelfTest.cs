@@ -38,7 +38,7 @@ internal static class PromptEngineeringSelfTest
                 "pure white #FFFFFF",
                 "No photorealism",
                 "recognizable anatomy",
-                "random floating symbols",
+                "random floating diamonds",
                 "clipart",
                 "PROFESSIONAL QUALITY GATE",
                 "FAIL-SAFE / SELF-CHECK",
