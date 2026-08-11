@@ -106,9 +106,11 @@ internal static class BookTypePromptProfileService
     public static string BuildBookTypeBlock(PreviewProject project)
     {
         var type = BookTypeProfileService.Get(project);
-        if (string.Equals(type, BookTypeProfileService.ColoringBook, StringComparison.OrdinalIgnoreCase) ||
-            BookTypeProfileService.IsImageCollection(project))
+        if (string.Equals(type, BookTypeProfileService.ColoringBook, StringComparison.OrdinalIgnoreCase))
             return BuildColoringBlock(LoadColoring(project));
+        if (string.Equals(type, BookTypeProfileService.ImageCollection, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(type, BookTypeProfileService.IllustratedBook, StringComparison.OrdinalIgnoreCase))
+            return ImageCollectionPromptProfileService.BuildPromptBlock(project);
 
         return $"PROFILO EDITORIALE DEL TIPO LIBRO:\n- Tipo libro: {type}.\n- Mantieni struttura, tono, output e vincoli coerenti con questo Tipo libro.\n- Non omettere requisiti editoriali o tecnici impliciti nel formato scelto.";
     }
@@ -155,7 +157,7 @@ internal static class BookTypePromptProfileService
         if (!string.IsNullOrWhiteSpace(p.CustomStyleNotes)) sb.AppendLine("- Note stile personalizzate: " + p.CustomStyleNotes.Trim());
 
         sb.AppendLine("- Ogni tavola deve avere un soggetto/composizione distinta ma restare coerente con eventuali regole Consistent e paradigmi assegnati.");
-        sb.AppendLine("- Non ritagliare parti importanti del soggetto e non posizionare dettagli essenziali troppo vicino ai bordi o al margine di sicurezza.");
+        sb.AppendLine("- Non ritagliare parti importanti del soggetto; il posizionamento editoriale finale viene gestito dall'impaginazione.");
         return sb.ToString().Trim();
     }
 
