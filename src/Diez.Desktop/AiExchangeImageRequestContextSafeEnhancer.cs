@@ -4,15 +4,15 @@ using System.Text;
 namespace DiezPublishingStudio;
 
 /// <summary>
-/// Safe wrapper around the V2 enhancer. It preserves core instructions, enriches the
-/// package with real visual assets/context, adds normalized effective presets, strips
-/// layout-only fields, then recomposes instructions without deleting an open ZIP entry.
+/// ZIP-safety wrapper for the visual context layer. It preserves core instructions while the
+/// context service adds real files/context and the explicit-preset layer normalizes important
+/// visual values. Layout sanitization and final prompt compilation belong to AiVisualPromptPackService.
 /// </summary>
 internal static class AiExchangeImageRequestContextSafeEnhancer
 {
     private const string InstructionsName = "instructions.md";
     private const string AuthoritativeImageRule =
-        "REGOLA AUTORITATIVA IMMAGINI: le descrizioni utente e le descrizioni correnti accompagnano e guidano il lavoro, ma non sostituiscono il file immagine reale. Per una correzione/modifica, usa sempre base_version.file come sorgente visiva autoritativa e applica su quella immagine preserve/change/add/remove e tutti i preset presenti in request-context.json.";
+        "REGOLA AUTORITATIVA IMMAGINI: le descrizioni utente e correnti accompagnano e guidano il lavoro, ma non sostituiscono il file immagine reale. Per una correzione/modifica, usa base_version.file come sorgente visiva autoritativa e applica preserve/change/add/remove sul file reale.";
 
     public static async Task<AiExchangeImageRequestContextService.EnhanceResult> EnhancePromptPackAsync(
         PreviewProject project,
@@ -31,10 +31,7 @@ internal static class AiExchangeImageRequestContextSafeEnhancer
             result = await AiExchangeImageRequestContextService.EnhancePromptPackAsync(
                 project, projectPath, exchangeState, workUnitIds, promptPackPath);
             if (result.Success)
-            {
                 AiExchangeExplicitVisualPresetContext.Ensure(promptPackPath, project);
-                AiExchangeVisualLayoutSanitizer.Sanitize(promptPackPath);
-            }
         }
         catch
         {
@@ -49,8 +46,7 @@ internal static class AiExchangeImageRequestContextSafeEnhancer
         }
 
         var visualInstructions = ReadAndDeleteInstructions(promptPackPath);
-        var merged = MergeInstructions(originalInstructions, visualInstructions);
-        RestoreInstructions(promptPackPath, merged);
+        RestoreInstructions(promptPackPath, MergeInstructions(originalInstructions, visualInstructions));
         return result;
     }
 
@@ -61,7 +57,7 @@ internal static class AiExchangeImageRequestContextSafeEnhancer
         if (entry is null) return string.Empty;
         string text;
         using (var stream = entry.Open())
-        using (var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true))
+        using (var reader = new StreamReader(stream, Encoding.UTF8, true))
             text = reader.ReadToEnd();
         entry.Delete();
         return text;
@@ -83,9 +79,13 @@ internal static class AiExchangeImageRequestContextSafeEnhancer
         var a = (original ?? string.Empty).Trim();
         var b = (visual ?? string.Empty).Trim();
         if (a.Length > 0) parts.Add(a);
-        if (b.Length > 0 && !a.Contains("Contesto visuale Diez V2", StringComparison.Ordinal)) parts.Add(b);
+        if (b.Length > 0 &&
+            !a.Contains("Contesto visuale Diez V2", StringComparison.Ordinal) &&
+            !a.Contains("Contesto visuale Diez V3", StringComparison.Ordinal))
+            parts.Add(b);
         var merged = string.Join(Environment.NewLine + Environment.NewLine, parts);
-        if (!merged.Contains("non sostituiscono il file immagine reale", StringComparison.OrdinalIgnoreCase))
+        if (!merged.Contains("non sostituiscono il file immagine reale", StringComparison.OrdinalIgnoreCase) &&
+            !merged.Contains("non sostituisce mai l'immagine", StringComparison.OrdinalIgnoreCase))
             merged = merged.TrimEnd() + Environment.NewLine + Environment.NewLine + AuthoritativeImageRule;
         return merged.Trim();
     }
