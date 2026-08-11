@@ -8,7 +8,10 @@ internal sealed class AiExchangeApiCapabilities
     public bool MultiImageReference { get; init; }
     public bool StructuredOutput { get; init; }
     public bool FileInput { get; init; }
-    public bool Vision { get; init; }
+    public bool VisionAnalysis { get; init; }
+
+    // Backward-compatible semantic alias. New code should use VisionAnalysis.
+    public bool Vision => VisionAnalysis;
 }
 
 internal interface IAiExchangeApiAdapter
@@ -37,7 +40,7 @@ internal sealed class AiExchangeMockApiAdapter : IAiExchangeApiAdapter
         MultiImageReference = true,
         StructuredOutput = true,
         FileInput = true,
-        Vision = true
+        VisionAnalysis = true
     };
 
     public int Attempts { get; private set; }
