@@ -6,8 +6,8 @@ namespace DiezPublishingStudio;
 
 /// <summary>
 /// Provider-target UI for the canonical prompt-engineering pipeline.
-/// The GUI collects parameters; PromptEngineeringEngine owns prompt quality and provider rendering.
-/// No provider is implemented as a thin header/prepend over a weak generic prompt.
+/// Legacy host text is never mistaken for a user override: a prompt is trusted only when it has
+/// current engine metadata/fingerprint. Genuine manual edits are preserved explicitly.
 /// </summary>
 internal static class SingleWindowPromptTargetAiUi
 {
@@ -43,8 +43,6 @@ internal static class SingleWindowPromptTargetAiUi
             p.Children.OfType<Button>().Any(b => string.Equals(b.Content?.ToString(), "Prepara prompt", StringComparison.Ordinal)));
         if (actionRow is null) return;
 
-        // The historical generic builder is intentionally no longer part of the visible workflow.
-        // Prompt quality now comes from one canonical compiler for Generic/OpenAI/Gemini/Other.
         var oldPrepare = actionRow.Children.OfType<Button>().FirstOrDefault(b =>
             string.Equals(b.Content?.ToString(), "Prepara prompt", StringComparison.Ordinal));
         if (oldPrepare is not null) oldPrepare.IsVisible = false;
@@ -85,12 +83,14 @@ internal static class SingleWindowPromptTargetAiUi
         };
         var info = new TextBlock
         {
-            Text = "Il motore Diez genera un brief tecnico completo in inglese. I parametri della GUI lo arricchiscono, ma il nucleo professionale e i quality gate restano sempre presenti.",
+            Text = "Diez compila un brief tecnico in inglese da un modello canonico. I parametri GUI possono cambiare senza impoverire il nucleo professionale; una modifica manuale del PROMPT viene invece marcata e preservata.",
             TextWrapping = Avalonia.Media.TextWrapping.Wrap,
             MaxWidth = 760
         };
 
-        var preparedProvider = PromptMasterStateStore.LoadForCurrentBook(project)?.ProviderId ?? string.Empty;
+        var suppressPromptEvents = true;
+        var initialized = false;
+        var preparedProvider = string.Empty;
 
         int Count()
         {
@@ -98,70 +98,96 @@ internal static class SingleWindowPromptTargetAiUi
             return int.TryParse(value, out var parsed) ? Math.Clamp(parsed, 1, 500) : 1;
         }
 
+        TargetChoice Selected() => provider.SelectedItem as TargetChoice ?? choices[0];
+
+        void SaveMaster(bool manual)
+        {
+            var selected = Selected();
+            PromptMasterStateStore.SaveDraft(project, Count(), mustDo.Text, mustNotDo.Text, prompt.Text);
+            if (manual)
+                PromptMasterMetadataStore.MarkManual(project, Count(), mustDo.Text, mustNotDo.Text, selected.Id, advanced.IsChecked == true);
+            else
+                PromptMasterMetadataStore.MarkGenerated(project, Count(), mustDo.Text, mustNotDo.Text, selected.Id, advanced.IsChecked == true);
+        }
+
+        string CompileCurrent()
+        {
+            var selected = Selected();
+            return PromptEngineeringEngine.BuildSeriesPrompt(
+                project,
+                Count(),
+                mustDo.Text,
+                mustNotDo.Text,
+                selected.Id,
+                advanced.IsChecked == true);
+        }
+
+        void SetCompiledPrompt(string value)
+        {
+            suppressPromptEvents = true;
+            try { prompt.Text = value; }
+            finally { suppressPromptEvents = false; }
+            preparedProvider = Selected().Id;
+            SaveMaster(manual: false);
+        }
+
         async Task PersistSettingsAsync()
         {
-            var selected = provider.SelectedItem as TargetChoice ?? choices[0];
+            var selected = Selected();
             settings.ProviderId = selected.Id;
             settings.PreferAdvancedModel = advanced.IsChecked == true;
             PromptPreparationSettingsStore.Save(project, settings);
             await ProjectFileStore.SaveAsync(path, project);
         }
 
-        void StoreDraft()
-        {
-            PromptMasterStateStore.SaveDraft(project, Count(), mustDo.Text, mustNotDo.Text, prompt.Text);
-        }
-
         void RefreshNext()
         {
             if (next is null) return;
-            var selected = provider.SelectedItem as TargetChoice ?? choices[0];
-            // A manually edited non-empty prompt may always continue. If the box is empty,
-            // the selected provider must be explicitly prepared first.
-            next.IsEnabled = !string.IsNullOrWhiteSpace(prompt.Text) ||
-                             string.Equals(preparedProvider, selected.Id, StringComparison.OrdinalIgnoreCase);
+            next.IsEnabled = !string.IsNullOrWhiteSpace(prompt.Text);
         }
 
         provider.SelectionChanged += async (_, _) =>
         {
-            var selected = provider.SelectedItem as TargetChoice ?? choices[0];
+            var selected = Selected();
             advanced.IsVisible = !string.Equals(selected.Id, PromptEngineeringProviderIds.Generic, StringComparison.OrdinalIgnoreCase);
             preparedProvider = string.Empty;
+            if (!initialized) return;
             await PersistSettingsAsync();
             RefreshNext();
         };
         advanced.IsCheckedChanged += async (_, _) =>
         {
             preparedProvider = string.Empty;
+            if (!initialized) return;
             await PersistSettingsAsync();
             RefreshNext();
         };
 
         prompt.TextChanged += (_, _) =>
         {
-            StoreDraft();
+            if (!initialized || suppressPromptEvents) return;
+            SaveMaster(manual: true);
             RefreshNext();
         };
-        mustDo.TextChanged += (_, _) => StoreDraft();
-        mustNotDo.TextChanged += (_, _) => StoreDraft();
+        mustDo.TextChanged += (_, _) =>
+        {
+            if (!initialized) return;
+            // Do not overwrite a manually edited prompt while the user types. The fingerprint
+            // becomes stale and the explicit Prepare button recompiles when requested.
+            RefreshNext();
+        };
+        mustNotDo.TextChanged += (_, _) =>
+        {
+            if (!initialized) return;
+            RefreshNext();
+        };
 
         prepare.Click += async (_, _) =>
         {
-            var selected = provider.SelectedItem as TargetChoice ?? choices[0];
-            settings.ProviderId = selected.Id;
+            settings.ProviderId = Selected().Id;
             settings.PreferAdvancedModel = advanced.IsChecked == true;
             PromptPreparationSettingsStore.Save(project, settings);
-
-            var engineered = PromptEngineeringEngine.BuildSeriesPrompt(
-                project,
-                Count(),
-                mustDo.Text,
-                mustNotDo.Text,
-                selected.Id,
-                settings.PreferAdvancedModel);
-            prompt.Text = engineered;
-            preparedProvider = selected.Id;
-            PromptMasterStateStore.SaveDraft(project, Count(), mustDo.Text, mustNotDo.Text, engineered);
+            SetCompiledPrompt(CompileCurrent());
             await ProjectFileStore.SaveAsync(path, project);
             RefreshNext();
         };
@@ -187,21 +213,31 @@ internal static class SingleWindowPromptTargetAiUi
         }
         else actionRow.Children.Insert(0, panel);
 
-        if (string.IsNullOrWhiteSpace(prompt.Text))
+        // At this point prompt.Text may contain the legacy host-generated prompt. It is trusted only
+        // when Diez has current metadata proving that it came from this engine/parameter fingerprint.
+        var existing = PromptMasterStateStore.LoadForCurrentBook(project);
+        var metadata = PromptMasterMetadataStore.Load(project);
+        var selectedNow = Selected();
+        var currentMatches = existing is not null &&
+                             PromptMasterMetadataStore.MatchesCurrent(
+                                 project, metadata, Count(), existing.MustDo, existing.MustNotDo,
+                                 selectedNow.Id, advanced.IsChecked == true);
+        if (currentMatches && !string.IsNullOrWhiteSpace(existing!.Prompt))
         {
-            var selected = provider.SelectedItem as TargetChoice ?? choices[0];
-            var engineered = PromptEngineeringEngine.BuildSeriesPrompt(
-                project,
-                Count(),
-                mustDo.Text,
-                mustNotDo.Text,
-                selected.Id,
-                settings.PreferAdvancedModel);
-            prompt.Text = engineered;
-            preparedProvider = selected.Id;
-            PromptMasterStateStore.SaveDraft(project, Count(), mustDo.Text, mustNotDo.Text, engineered);
+            mustDo.Text = existing.MustDo;
+            mustNotDo.Text = existing.MustNotDo;
+            suppressPromptEvents = true;
+            try { prompt.Text = existing.Prompt; }
+            finally { suppressPromptEvents = false; }
+            preparedProvider = selectedNow.Id;
         }
-        else StoreDraft();
+        else
+        {
+            SetCompiledPrompt(CompileCurrent());
+        }
+
+        initialized = true;
+        suppressPromptEvents = false;
         RefreshNext();
     }
 
