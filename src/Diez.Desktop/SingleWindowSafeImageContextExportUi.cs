@@ -6,9 +6,8 @@ using Avalonia.Platform.Storage;
 namespace DiezPublishingStudio;
 
 /// <summary>
-/// Authoritative Prompt Pack / response transport controls for the guided visual workflow.
-/// Export uses the enriched context plus the canonical prompt-engineering finalizer;
-/// import uses the audited V2 importer with per-item asset verification.
+/// Guided visual transport UI. It selects the active Work Units and delegates the complete ZIP
+/// pipeline to AiVisualPromptPackService; response import delegates to the audited V2 importer.
 /// </summary>
 internal static class SingleWindowSafeImageContextExportUi
 {
@@ -79,28 +78,13 @@ internal static class SingleWindowSafeImageContextExportUi
                 });
                 if (file is null) return;
 
-                var target = EnsureZip(file.Path.LocalPath);
-                var built = await AiExchangePromptPackBuilder.BuildAsync(
-                    project, path, state, units.Select(u => u.WorkUnitId), target);
-                if (!built.Success)
-                {
-                    SetStatus(window, built.Message);
-                    return;
-                }
-
-                var enhanced = await AiExchangeImageRequestContextSafeEnhancer.EnhancePromptPackAsync(
-                    project, path, state, units.Select(u => u.WorkUnitId), target);
-                if (!enhanced.Success)
-                {
-                    SetStatus(window, "Prompt Pack core creato, ma il contesto immagini completo non è stato aggiunto: " + enhanced.Message);
-                    return;
-                }
-
-                PromptPackPromptEngineeringFinalizer.Finalize(
-                    target, project, state, units.Select(u => u.WorkUnitId));
-                await ProjectFileStore.SaveAsync(path, project);
-                SetStatus(window,
-                    $"Prompt Pack pronto: {units.Count} Work Unit · 1 immagine per Work Unit · profilo {BookTypeProfileService.Get(project)} isolato · prompt engine v{PromptEngineeringEngine.EngineVersion}.");
+                var result = await AiVisualPromptPackService.BuildAsync(
+                    project,
+                    path,
+                    state,
+                    units.Select(u => u.WorkUnitId),
+                    EnsureZip(file.Path.LocalPath));
+                SetStatus(window, result.Message);
             };
 
             var index = row.Children.IndexOf(oldExport);
