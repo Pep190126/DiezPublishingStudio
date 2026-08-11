@@ -8,6 +8,8 @@ namespace DiezPublishingStudio;
 /// </summary>
 internal static class PromptEngineeringCompiler
 {
+    public const string Version = "3.1";
+
     public static string BuildSeriesPrompt(
         PreviewProject project,
         int count,
@@ -19,7 +21,8 @@ internal static class PromptEngineeringCompiler
         var request = PromptEngineeringEngine.BuildRequest(
             project, count, mustDo, mustNotDo, providerId, preferAdvancedModel);
         var canonical = PromptEngineeringEngine.RenderSeries(request);
-        return ProviderProfile(request) + Environment.NewLine + Environment.NewLine +
+        return $"DIEZ PROVIDER COMPILER v{Version}" + Environment.NewLine +
+               ProviderProfile(request) + Environment.NewLine + Environment.NewLine +
                "=== CANONICAL DIEZ PRODUCTION SPECIFICATION ===" + Environment.NewLine + canonical.Trim();
     }
 
