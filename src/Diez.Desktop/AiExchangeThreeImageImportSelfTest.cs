@@ -6,8 +6,10 @@ namespace DiezPublishingStudio;
 
 internal static class AiExchangeThreeImageImportSelfTest
 {
+    // 32x32 pure black/white line-art-like raster: enough ink + white space to pass the deterministic
+    // Coloring validator while keeping this importer regression tiny and self contained.
     private static readonly byte[] Png = Convert.FromBase64String(
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZK1sAAAAASUVORK5CYII=");
+        "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAaklEQVR42u2XwRIAEAhE+/+f5uRGZKOYbcbF1OzLUJESbEIAAnQ3RY4sE4B7pl8BWI/ZDWAmovnAACvimi8EYBEfxcAA6MXbBkBfRIsnAAEI8G4dSFEJw3tBim6YYh64OhGFDqX8FxDgplV2O053240oowAAAABJRU5ErkJggg==");
 
     public static async Task RunAsync()
     {
@@ -87,6 +89,9 @@ internal static class AiExchangeThreeImageImportSelfTest
                 var expected = snapshot.Items.Single(s => s.WorkUnitId == unit.WorkUnitId).TargetCandidateVersion;
                 var version = state.Versions.SingleOrDefault(v => v.WorkUnitId == unit.WorkUnitId && v.VersionNumber == expected);
                 Require(version?.MaterialId.HasValue == true, $"{unit.Code}: Candidate/asset realmente mancante dopo l'import.");
+                var validation = version is null ? null : VisualAssetValidationStore.Get(project, version.VersionId);
+                Require(validation?.Status == VisualAssetValidationStatuses.Passed,
+                    $"{unit.Code}: la regressione tre immagini non supera la validazione asset reale. {validation?.Message}");
             }
         }
         finally
