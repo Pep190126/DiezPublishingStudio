@@ -6,13 +6,14 @@ using Avalonia.Platform.Storage;
 namespace DiezPublishingStudio;
 
 /// <summary>
-/// Replaces the visible V2 Prompt Pack export button with the safe enhancer path.
-/// Intake/paradigm/correction controls remain owned by SingleWindowAiImageContextUi.
-/// Also keeps visible copy aligned with the current contract: layout-only settings are not AI presets.
+/// Authoritative Prompt Pack / response transport controls for the guided visual workflow.
+/// Export uses the enriched context plus the canonical prompt-engineering finalizer;
+/// import uses the audited V2 importer with per-item asset verification.
 /// </summary>
 internal static class SingleWindowSafeImageContextExportUi
 {
     private const string SafeButtonName = "DiezSafeImageContextExport";
+    private const string SafeImportName = "DiezSafeImageContextImport";
 
     public static void Attach(MainWindow window)
     {
@@ -34,63 +35,110 @@ internal static class SingleWindowSafeImageContextExportUi
         if (pageHost?.Content is not Control page) return;
 
         CleanLayoutOnlyCopy(page);
-        if (Descendants(page).Any(c => string.Equals(c.Name, SafeButtonName, StringComparison.Ordinal))) return;
-
-        var candidate = Descendants(page).OfType<Button>().FirstOrDefault(b =>
+        var oldExport = Descendants(page).OfType<Button>().FirstOrDefault(b =>
             b.IsVisible && string.Equals(b.Content?.ToString(), "Crea Prompt Pack ZIP", StringComparison.Ordinal));
-        if (candidate?.Parent is not StackPanel row) return;
-        candidate.IsVisible = false;
+        var oldImport = Descendants(page).OfType<Button>().FirstOrDefault(b =>
+            b.IsVisible && string.Equals(b.Content?.ToString(), "Importa risultati AI", StringComparison.Ordinal));
+        var row = oldExport?.Parent as StackPanel ?? oldImport?.Parent as StackPanel;
+        if (row is null) return;
 
-        var safe = new Button
+        if (oldExport is not null && !Descendants(page).Any(c => string.Equals(c.Name, SafeButtonName, StringComparison.Ordinal)))
         {
-            Name = SafeButtonName,
-            Content = "Crea Prompt Pack ZIP",
-            Width = 190,
-            HorizontalContentAlignment = HorizontalAlignment.Center
-        };
-        ToolTip.SetTip(safe,
-            "Esporta file reali di base/intake/paradigmi, descrizioni, preserve/change e tutti i preset effettivi di generazione in request-context.json. I parametri d'impaginazione restano fuori.");
-        safe.Click += async (_, _) =>
+            oldExport.IsVisible = false;
+            var safe = new Button
+            {
+                Name = SafeButtonName,
+                Content = "Crea Prompt Pack ZIP",
+                Width = 190,
+                HorizontalContentAlignment = HorizontalAlignment.Center
+            };
+            ToolTip.SetTip(safe,
+                "Esporta il solo profilo attivo, prompt professionali provider-specific, un'immagine per Work Unit, file reali e request-context.json.");
+            safe.Click += async (_, _) =>
+            {
+                var state = AiExchangeStateStore.Load(project);
+                var activeLegacyIds = VisualPromptSessionService.ActiveLegacyJobIds(project);
+                var units = state.WorkUnits
+                    .Where(u => string.Equals(u.ContentType, AiExchangeContentTypes.Image, StringComparison.OrdinalIgnoreCase) &&
+                                u.LegacyAiJobId.HasValue && activeLegacyIds.Contains(u.LegacyAiJobId.Value))
+                    .OrderBy(u => u.Position)
+                    .ThenBy(u => u.Code)
+                    .ToList();
+                if (units.Count == 0)
+                {
+                    SetStatus(window, "Non ci sono immagini della sessione visuale attiva da esportare.");
+                    return;
+                }
+
+                var file = await window.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+                {
+                    Title = "Salva Prompt Pack Diez con prompt engineering completo",
+                    SuggestedFileName = "diez-prompt-pack.zip",
+                    DefaultExtension = "zip",
+                    FileTypeChoices = [new FilePickerFileType("Prompt Pack Diez") { Patterns = ["*.zip"] }]
+                });
+                if (file is null) return;
+
+                var target = EnsureZip(file.Path.LocalPath);
+                var built = await AiExchangePromptPackBuilder.BuildAsync(
+                    project, path, state, units.Select(u => u.WorkUnitId), target);
+                if (!built.Success)
+                {
+                    SetStatus(window, built.Message);
+                    return;
+                }
+
+                var enhanced = await AiExchangeImageRequestContextSafeEnhancer.EnhancePromptPackAsync(
+                    project, path, state, units.Select(u => u.WorkUnitId), target);
+                if (!enhanced.Success)
+                {
+                    SetStatus(window, "Prompt Pack core creato, ma il contesto immagini completo non è stato aggiunto: " + enhanced.Message);
+                    return;
+                }
+
+                PromptPackPromptEngineeringFinalizer.Finalize(
+                    target, project, state, units.Select(u => u.WorkUnitId));
+                await ProjectFileStore.SaveAsync(path, project);
+                SetStatus(window,
+                    $"Prompt Pack pronto: {units.Count} Work Unit · 1 immagine per Work Unit · profilo {BookTypeProfileService.Get(project)} isolato · prompt engine v{PromptEngineeringEngine.EngineVersion}.");
+            };
+
+            var index = row.Children.IndexOf(oldExport);
+            row.Children.Insert(index < 0 ? row.Children.Count : index + 1, safe);
+        }
+
+        if (oldImport is not null && !Descendants(page).Any(c => string.Equals(c.Name, SafeImportName, StringComparison.Ordinal)))
         {
-            var state = AiExchangeStateStore.Load(project);
-            var units = state.WorkUnits
-                .Where(u => string.Equals(u.ContentType, AiExchangeContentTypes.Image, StringComparison.OrdinalIgnoreCase))
-                .OrderBy(u => u.Position)
-                .ThenBy(u => u.Code)
-                .ToList();
-            if (units.Count == 0)
+            oldImport.IsVisible = false;
+            var safeImport = new Button
             {
-                SetStatus(window, "Non ci sono immagini / Work Unit da esportare nel Prompt Pack.");
-                return;
-            }
-
-            var file = await window.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+                Name = SafeImportName,
+                Content = "Importa risultati AI",
+                Width = 180,
+                HorizontalContentAlignment = HorizontalAlignment.Center
+            };
+            ToolTip.SetTip(safeImport,
+                "Verifica manifest e asset di ogni Work Unit prima dell'import e controlla la Candidate risultante dopo l'ingest.");
+            safeImport.Click += async (_, _) =>
             {
-                Title = "Salva Prompt Pack Diez con contesto immagini completo",
-                SuggestedFileName = "diez-prompt-pack.zip",
-                DefaultExtension = "zip",
-                FileTypeChoices = [new FilePickerFileType("Prompt Pack Diez") { Patterns = ["*.zip"] }]
-            });
-            if (file is null) return;
+                var files = await window.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+                {
+                    Title = "Importa uno o più ZIP restituiti dall'AI",
+                    AllowMultiple = true,
+                    FileTypeFilter = [new FilePickerFileType("Risultati AI Diez") { Patterns = ["*.zip"] }]
+                });
+                if (files.Count == 0) return;
 
-            var target = file.Path.LocalPath;
-            var built = await AiExchangePromptPackBuilder.BuildAsync(
-                project, path, state, units.Select(u => u.WorkUnitId), target);
-            if (!built.Success)
-            {
-                SetStatus(window, built.Message);
-                return;
-            }
+                var state = AiExchangeStateStore.Load(project);
+                var result = await AiExchangeResponseImportV2.ImportAsync(
+                    project, path, state, files.Select(f => f.Path.LocalPath));
+                SetStatus(window, result.Message);
+                SingleWindowEntryPointUi.Invoke(host, "OpenReview");
+            };
 
-            var enhanced = await AiExchangeImageRequestContextSafeEnhancer.EnhancePromptPackAsync(
-                project, path, state, units.Select(u => u.WorkUnitId), target);
-            SetStatus(window, enhanced.Success
-                ? built.Message + " · " + enhanced.Message
-                : "Prompt Pack core creato, ma il contesto immagini completo non è stato aggiunto: " + enhanced.Message);
-        };
-
-        var index = row.Children.IndexOf(candidate);
-        row.Children.Insert(index < 0 ? row.Children.Count : index + 1, safe);
+            var index = row.Children.IndexOf(oldImport);
+            row.Children.Insert(index < 0 ? row.Children.Count : index + 1, safeImport);
+        }
     }
 
     private static void CleanLayoutOnlyCopy(Control page)
@@ -104,6 +152,9 @@ internal static class SingleWindowSafeImageContextExportUi
                 text.Text = value.Replace("margini e bleed", "parametri d'impaginazione", StringComparison.OrdinalIgnoreCase);
         }
     }
+
+    private static string EnsureZip(string path) =>
+        path.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) ? path : path + ".zip";
 
     private static bool TrySession(MainWindow window, out PreviewProject project, out string path)
     {
