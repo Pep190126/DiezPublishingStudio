@@ -76,10 +76,29 @@ internal static class PromptEngineeringSelfTest
 
         var sparse = ProjectFileStore.Create("Sparse Prompt Test");
         BookTypeProfileService.Set(sparse, BookTypeProfileService.ColoringBook);
+        var sparseProfile = BookTypePromptProfileService.LoadColoring(sparse);
+        sparseProfile.Style = "Personalizzato";
+        sparseProfile.CustomStyleNotes = string.Empty;
+        sparseProfile.SubjectDescription = "animali della jungla";
+        sparseProfile.EnvironmentDescription = "jungla";
+        sparseProfile.TargetAudience = "Tutte le età";
+        sparseProfile.Difficulty = "Facile";
+        sparseProfile.LineWeight = "Spesso — Bold";
+        sparseProfile.Complexity = "Bassa";
+        sparseProfile.ElementDensity = "Bassa";
+        sparseProfile.Background = "Nessuno / bianco";
+        BookTypePromptProfileService.SaveColoring(sparse, sparseProfile);
+
         var sparsePrompt = PromptEngineeringEngine.BuildSeriesPrompt(
-            sparse, 1, string.Empty, string.Empty, PromptEngineeringProviderIds.Other, true);
-        Require(sparsePrompt.Length >= 4000, "Con parametri opzionali vuoti il prompt perde potenza.");
-        Require(sparsePrompt.Contains("PROFESSIONAL QUALITY GATE", StringComparison.Ordinal), "Quality gate assente nel prompt minimale.");
+            sparse, 3, "animali della jungla", string.Empty, PromptEngineeringProviderIds.Other, true);
+        Require(sparsePrompt.Length >= 4000, "Con profilo Personalizzato e pochi parametri il prompt perde potenza.");
+        foreach (var required in new[]
+        {
+            "PROFESSIONAL QUALITY GATE", "recognizable anatomy", "clipart", "random floating diamonds",
+            "pure black #000000", "pure white #FFFFFF", "FAIL-SAFE / SELF-CHECK", "animali della jungla"
+        })
+            Require(sparsePrompt.Contains(required, StringComparison.OrdinalIgnoreCase),
+                "Profilo Personalizzato minimale ha perso il vincolo: " + required);
     }
 
     private static void Require(bool condition, string message)
