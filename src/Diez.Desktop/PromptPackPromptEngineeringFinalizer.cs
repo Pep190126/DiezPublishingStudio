@@ -24,6 +24,7 @@ internal static class PromptPackPromptEngineeringFinalizer
     private sealed record ResolvedMaster(
         string ExportPrompt,
         string CanonicalPrompt,
+        string ManualDelta,
         bool ManualPresent,
         bool ManualCurrent,
         bool Recompiled);
@@ -84,6 +85,7 @@ internal static class PromptPackPromptEngineeringFinalizer
             return new ResolvedMaster(
                 storedPrompt,
                 canonical,
+                string.Empty,
                 metadata?.ManualOverride == true,
                 metadata?.ManualOverride == true,
                 false);
@@ -91,15 +93,18 @@ internal static class PromptPackPromptEngineeringFinalizer
 
         if (metadata?.ManualOverride == true && !string.IsNullOrWhiteSpace(storedPrompt))
         {
+            var delta = PromptMasterMetadataStore.ExtractManualDelta(metadata, storedPrompt).Trim();
+            if (delta.Length == 0)
+                return new ResolvedMaster(canonical, canonical, string.Empty, true, false, true);
+
             var merged = new StringBuilder(canonical.Trim());
             merged.AppendLine();
             merged.AppendLine();
-            merged.AppendLine("=== USER MANUAL PROMPT LAYER — PRESERVED VERBATIM ===");
-            merged.AppendLine("This text was manually edited before one or more structured Diez parameters changed. Preserve its creative/editorial intent, but CURRENT hard Book-Type rules, technical settings, item overrides and Consistent rules above take priority where values conflict.");
-            merged.AppendLine("Do not reuse obsolete counts, dimensions, provider names or technical values from this preserved layer when they differ from the current canonical specification.");
+            merged.AppendLine("=== USER MANUAL DELTA — PRESERVED FROM THE EDITOR ===");
+            merged.AppendLine("These are the user-added/changed lines detected against the previous generated baseline. Preserve their creative/editorial intent. CURRENT structured parameters, hard Book-Type rules, technical values, item overrides and Consistent rules above take priority on conflict.");
             merged.AppendLine();
-            merged.AppendLine(storedPrompt);
-            return new ResolvedMaster(merged.ToString().Trim(), canonical, true, false, true);
+            merged.AppendLine(delta);
+            return new ResolvedMaster(merged.ToString().Trim(), canonical, delta, true, false, true);
         }
 
         PromptMasterStateStore.Save(project, new PromptMasterState
@@ -115,7 +120,7 @@ internal static class PromptPackPromptEngineeringFinalizer
         });
         PromptMasterMetadataStore.MarkGenerated(
             project, count, mustDo, mustNotDo, settings.ProviderId, settings.PreferAdvancedModel);
-        return new ResolvedMaster(canonical, canonical, false, false, true);
+        return new ResolvedMaster(canonical, canonical, string.Empty, false, false, true);
     }
 
     private static void RewriteManifest(
@@ -156,6 +161,7 @@ internal static class PromptPackPromptEngineeringFinalizer
             ["active_book_type"] = BookTypeProfileService.Get(project),
             ["master_prompt"] = master.ExportPrompt,
             ["canonical_prompt"] = master.CanonicalPrompt,
+            ["manual_delta"] = master.ManualDelta,
             ["manual_prompt_present"] = master.ManualPresent,
             ["manual_prompt_current"] = master.ManualCurrent,
             ["recompiled_for_current_parameters"] = master.Recompiled,
@@ -250,7 +256,8 @@ internal static class PromptPackPromptEngineeringFinalizer
             ["profile_isolation"] = true,
             ["manual_prompt_present"] = master.ManualPresent,
             ["manual_prompt_current"] = master.ManualCurrent,
-            ["rule"] = "Only this active Book Type profile may influence the current request. Historical/inactive profiles are excluded. Current hard constraints override stale manual technical values without deleting manual text."
+            ["manual_delta"] = master.ManualDelta,
+            ["rule"] = "Only this active Book Type profile may influence the current request. Historical/inactive profiles are excluded. Current hard constraints override stale manual technical values; only actual user-added/changed lines are carried forward as manual delta."
         };
         ReplaceObject(archive, ContextName, root);
     }
@@ -273,7 +280,7 @@ internal static class PromptPackPromptEngineeringFinalizer
 - Every `work_units[].instruction` requests EXACTLY ONE image. `series_count` is context only and never authorizes a grid, collage or multiple alternatives.
 - `output_count_for_this_work_unit = 1` is a hard execution contract.
 - Professional quality gates remain mandatory even with very few optional GUI parameters.
-- Manual prompt text is preserved; when its parameter fingerprint is stale, current canonical hard constraints take priority while manual text remains an additive intent layer.
+- Manual prompt text is preserved exactly while parameters are unchanged. After structured parameters change, only user-added/changed lines are carried into the current canonical prompt as an additive manual delta.
 - For corrections, the real base/input image plus preserve/change/add/remove are authoritative; descriptions assist but never replace image files.
 """;
         ReplaceText(archive, InstructionsName, existing.TrimEnd() + section);
