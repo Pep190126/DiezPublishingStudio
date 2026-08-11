@@ -42,6 +42,7 @@ internal static class Program
                 AiExchangeThreeImageImportSelfTest.RunAsync().GetAwaiter().GetResult();
                 VisualAssetValidationSelfTest.RunAsync().GetAwaiter().GetResult();
                 VisionValidationSelfTest.RunAsync().GetAwaiter().GetResult();
+                VisionProviderAdapterSelfTest.RunAsync().GetAwaiter().GetResult();
                 ImageCollectionLayoutSelfTest.RunAsync().GetAwaiter().GetResult();
                 WordSearchWorkspaceSelfTest.RunAsync().GetAwaiter().GetResult();
                 WordSearchReplacementSelfTest.Run();
