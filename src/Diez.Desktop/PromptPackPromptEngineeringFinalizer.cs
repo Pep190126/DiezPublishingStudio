@@ -12,7 +12,8 @@ namespace DiezPublishingStudio;
 /// - one active Book Type profile only (no Coloring/Illustration cross-contamination);
 /// - provider-specific professional master prompt;
 /// - exactly one generated image per Work Unit;
-/// - exact manual master-prompt edits preserved as the common specification.
+/// - exact manual master-prompt edits preserved as the common specification;
+/// - correction/edit grammar preserved at item level.
 /// </summary>
 internal static class PromptPackPromptEngineeringFinalizer
 {
@@ -78,14 +79,7 @@ internal static class PromptPackPromptEngineeringFinalizer
             var unit = units.FirstOrDefault(u => u.WorkUnitId == id);
             if (unit is null) continue;
             var index = units.IndexOf(unit) + 1;
-            node["instruction"] = PromptEngineeringEngine.BuildItemPrompt(
-                project,
-                masterPrompt,
-                units.Count,
-                index,
-                unit.Code,
-                settings.ProviderId,
-                settings.PreferAdvancedModel);
+            node["instruction"] = BuildUnitInstruction(project, unit, masterPrompt, units.Count, index, settings);
             node["prompt_engine_version"] = PromptEngineeringEngine.EngineVersion;
             node["provider_target"] = settings.ProviderId;
             node["series_position"] = index;
@@ -104,6 +98,61 @@ internal static class PromptPackPromptEngineeringFinalizer
             ["work_unit_output_count"] = 1
         };
         ReplaceObject(archive, ManifestName, root);
+    }
+
+    private static string BuildUnitInstruction(
+        PreviewProject project,
+        AiExchangeWorkUnit unit,
+        string masterPrompt,
+        int total,
+        int index,
+        PromptPreparationSettings settings)
+    {
+        var sb = new StringBuilder(PromptEngineeringEngine.BuildItemPrompt(
+            project,
+            masterPrompt,
+            total,
+            index,
+            unit.Code,
+            settings.ProviderId,
+            settings.PreferAdvancedModel));
+
+        var hasMutation = unit.Preserve.Count > 0 || unit.Change.Count > 0 || unit.Add.Count > 0 || unit.Remove.Count > 0 ||
+                          !string.IsNullOrWhiteSpace(unit.Instruction) ||
+                          string.Equals(unit.Mode, AiExchangeModes.AiWithInputAsReference, StringComparison.OrdinalIgnoreCase) ||
+                          string.Equals(unit.Mode, AiExchangeModes.InputTransformedByAi, StringComparison.OrdinalIgnoreCase);
+        if (!hasMutation) return sb.ToString().Trim();
+
+        sb.AppendLine();
+        sb.AppendLine();
+        sb.AppendLine("=== DIEZ SOURCE-IMAGE / MODIFICATION CONTRACT — HIGHEST PRIORITY ===");
+        sb.AppendLine($"Generation mode: {unit.Mode}.");
+        if (string.Equals(unit.Mode, AiExchangeModes.AiWithInputAsReference, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(unit.Mode, AiExchangeModes.InputTransformedByAi, StringComparison.OrdinalIgnoreCase))
+        {
+            sb.AppendLine("Use the actual base/input image file supplied by Diez as the authoritative visual source. Do NOT recreate it from the textual description alone.");
+            sb.AppendLine("For a local correction, modify the supplied source image rather than inventing a replacement composition unless the instruction explicitly requests regeneration.");
+        }
+        AppendList(sb, "PRESERVE — keep visually unchanged unless physically impossible", unit.Preserve);
+        AppendList(sb, "CHANGE — modify exactly these elements", unit.Change);
+        AppendList(sb, "ADD — introduce these elements", unit.Add);
+        AppendList(sb, "REMOVE — eliminate these elements", unit.Remove);
+        if (!string.IsNullOrWhiteSpace(unit.Instruction))
+        {
+            sb.AppendLine("EXPLICIT WORK-UNIT INSTRUCTION:");
+            sb.AppendLine(unit.Instruction.Trim());
+        }
+        sb.AppendLine("Priority inside this Work Unit: explicit item constraint > preserve/change/add/remove > local exception > LOCKED consistency > PREFERRED consistency > shared master prompt > creative freedom.");
+        sb.AppendLine("After editing, the returned description must describe the actual final image, including the requested change; never copy a stale description of the base image.");
+        return sb.ToString().Trim();
+    }
+
+    private static void AppendList(StringBuilder sb, string title, IReadOnlyCollection<string> values)
+    {
+        var clean = values.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()).ToList();
+        if (clean.Count == 0) return;
+        sb.AppendLine(title + ":");
+        foreach (var value in clean) sb.AppendLine("- " + value);
     }
 
     private static void RewriteContext(
@@ -153,6 +202,7 @@ internal static class PromptPackPromptEngineeringFinalizer
         PromptPreparationSettings settings)
     {
         var existing = ReadText(archive, InstructionsName);
+        if (existing.Contains("## Diez Prompt Engineering v", StringComparison.Ordinal)) return;
         var section = $"""
 
 ## Diez Prompt Engineering v{PromptEngineeringEngine.EngineVersion} — AUTHORITATIVE
@@ -163,7 +213,7 @@ internal static class PromptPackPromptEngineeringFinalizer
 - `series_count` is context only; it never authorizes a single Work Unit to render the whole series, a collage, a grid or multiple alternatives.
 - Treat `output_count_for_this_work_unit = 1` as a hard execution contract.
 - Professional quality gates are mandatory even when the user provided only a few optional GUI parameters.
-- Never replace an actual image asset with its textual description.
+- For corrections, the real base/input image plus preserve/change/add/remove are authoritative; descriptions assist but never replace image files.
 """;
         ReplaceText(archive, InstructionsName, existing.TrimEnd() + section);
     }
