@@ -23,8 +23,13 @@ internal static class AiExchangeImageContextSelfTest
             coloring.Style = "Line Art dettagliata";
             coloring.LineWeight = "Sottile — Fine";
             BookTypePromptProfileService.SaveColoring(project, coloring);
+            PromptPreparationSettingsStore.Save(project, new PromptPreparationSettings
+            {
+                ProviderId = PromptEngineeringProviderIds.OpenAi,
+                PreferAdvancedModel = true
+            });
 
-            // Include legacy layout-only fields on purpose. The safe export must strip them.
+            // Legacy layout-only fields are deliberately present. The unified export must strip them.
             project.Entities.Add(new GraphEntity
             {
                 Kind = "DiezImageGenerationSpecs",
@@ -77,9 +82,9 @@ internal static class AiExchangeImageContextSelfTest
             state.Paradigms.Add(paradigm);
             unit.ParadigmIds.Add(paradigm.ParadigmId);
 
-            var context = AiExchangeStateStore.EnsureVisualConsistencyContext(project, state, true,
+            var consistency = AiExchangeStateStore.EnsureVisualConsistencyContext(project, state, true,
                 "Personaggio / soggetto ricorrente: Da mantenere\nStile: Da mantenere\nPalette / colori: Da mantenere — fisso nero puro #000000 e bianco puro #FFFFFF\nTratto / dettaglio: Da mantenere");
-            Require(context.ConsistentEnabled, "Consistent non attivo nel test.");
+            Require(consistency.ConsistentEnabled, "Consistent non attivo nel test.");
 
             AiExchangeImageRequestContextService.Add(
                 project,
@@ -92,14 +97,11 @@ internal static class AiExchangeImageContextSelfTest
             await ProjectFileStore.SaveAsync(projectPath, project);
 
             var packPath = Path.Combine(root, "correction-pack.zip");
-            var built = await AiExchangePromptPackBuilder.BuildAsync(project, projectPath, state, [unit.WorkUnitId], packPath);
-            Require(built.Success, "Il core Prompt Pack non è stato creato.");
-
-            var enhanced = await AiExchangeImageRequestContextSafeEnhancer.EnhancePromptPackAsync(
+            var built = await AiVisualPromptPackService.BuildAsync(
                 project, projectPath, state, [unit.WorkUnitId], packPath);
-            Require(enhanced.Success, "L'enrichment visuale V2 è fallito: " + enhanced.Message);
-            Require(enhanced.IntakeImages == 1, "La foto intake reale non è stata inclusa.");
-            Require(enhanced.BaseImages == 1, "L'immagine base reale non è stata riconosciuta.");
+            Require(built.Success, "La pipeline visuale centrale è fallita: " + built.Message);
+            Require(built.IntakeImages == 1, "La foto intake reale non è stata inclusa.");
+            Require(built.BaseImages == 1, "L'immagine base reale non è stata riconosciuta.");
 
             using var zip = ZipFile.OpenRead(packPath);
             Require(zip.GetEntry("request-context.json") is not null, "request-context.json mancante.");
@@ -112,27 +114,37 @@ internal static class AiExchangeImageContextSelfTest
                 "Il paradigma reale non è nel ZIP.");
 
             var manifest = await ReadEntryAsync(zip, "prompt-manifest.json");
-            Require(manifest.Contains("Orso in piedi sul tappetino", StringComparison.Ordinal), "La descrizione corrente della base non è nel manifest.");
-            Require(manifest.Contains("authoritative_visual_source", StringComparison.Ordinal), "La base non è marcata come sorgente visuale autoritativa.");
-            Require(manifest.Contains("all unspecified elements", StringComparison.Ordinal), "preserve non è nel manifest.");
-            Require(manifest.Contains("posizione del braccio destro", StringComparison.Ordinal), "change non è nel manifest.");
+            foreach (var required in new[]
+            {
+                "Orso in piedi sul tappetino", "authoritative_visual_source", "all unspecified elements",
+                "posizione del braccio destro", "Generate EXACTLY ONE image",
+                "DIEZ SOURCE-IMAGE / MODIFICATION CONTRACT", "PROVIDER EXECUTION PROFILE — OPENAI",
+                $"\"prompt_compiler_version\": \"{PromptEngineeringCompiler.Version}\""
+            })
+                Require(manifest.Contains(required, StringComparison.OrdinalIgnoreCase), "Manifest correzione incompleto: " + required);
 
             var requestContext = await ReadEntryAsync(zip, "request-context.json");
             foreach (var required in new[]
             {
                 "Foto utente: usa la postura delle gambe", "Riferimento per tratto e stile",
                 "Line Art dettagliata", "Sottile — Fine", "4K UHD", "2967", "3840", "17:22", "300",
-                "Massima / stampa", "Consistent", "#000000", "#FFFFFF"
+                "Massima / stampa", "Consistent", "#000000", "#FFFFFF", "COLORING_BOOK",
+                $"\"provider_compiler_version\": \"{PromptEngineeringCompiler.Version}\""
             })
                 Require(requestContext.Contains(required, StringComparison.OrdinalIgnoreCase), "Preset/contesto mancante: " + required);
 
-            foreach (var forbidden in new[] { "safe_margin", "SafeMargin", "bleed_amount", "BleedAmount", "\"bleed\"", "\"Bleed\"", "\"orientation\"", "\"Orientation\"" })
-                Require(!requestContext.Contains(forbidden, StringComparison.Ordinal), "Parametro di impaginazione ancora nel request-context: " + forbidden);
+            foreach (var forbidden in new[]
+            {
+                "safe_margin", "SafeMargin", "bleed_amount", "BleedAmount",
+                "\"bleed\"", "\"Bleed\"", "\"orientation\"", "\"Orientation\"", "illustration_profile"
+            })
+                Require(!requestContext.Contains(forbidden, StringComparison.Ordinal), "Dato non attivo ancora nel request-context: " + forbidden);
 
             var instructions = await ReadEntryAsync(zip, "instructions.md");
-            Require(instructions.Contains("Diez Publishing Studio — Prompt Pack v1", StringComparison.Ordinal), "Le istruzioni core sono state perse durante l'enrichment.");
+            Require(instructions.Contains("Diez Publishing Studio — Prompt Pack v1", StringComparison.Ordinal), "Le istruzioni core sono state perse.");
             Require(instructions.Contains("base_version.file", StringComparison.Ordinal), "Le istruzioni non impongono l'uso della base reale.");
             Require(instructions.Contains("non sostituiscono il file immagine", StringComparison.OrdinalIgnoreCase), "Le descrizioni possono ancora sostituire impropriamente l'immagine.");
+            Require(instructions.Contains("EXACTLY ONE image", StringComparison.OrdinalIgnoreCase), "Contratto one-image non propagato alle istruzioni.");
             Require(!instructions.Contains("margini, bleed", StringComparison.OrdinalIgnoreCase), "Le istruzioni AI contengono ancora margini/bleed.");
         }
         finally
