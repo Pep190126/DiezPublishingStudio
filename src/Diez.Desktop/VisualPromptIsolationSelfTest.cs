@@ -38,42 +38,30 @@ internal static class VisualPromptIsolationSelfTest
             coloring.SubjectDescription = "jungle animals";
             coloring.Style = "Bold & Easy";
             BookTypePromptProfileService.SaveColoring(project, coloring);
-            var jobs = AiImageBatchService.CreateImageSeries(project, 3, "jungle animals", "Coloring").ToList();
+            _ = AiImageBatchService.CreateImageSeries(project, 3, "jungle animals", "Coloring").ToList();
             VisualPromptSessionService.EnsureActive(project);
             Require(VisualPromptSessionService.ActiveImageJobs(project).Count == 3,
                 "I nuovi job Coloring non vengono adottati nella sessione attiva.");
 
-            var master = PromptEngineeringEngine.BuildSeriesPrompt(
-                project, 3, "jungle animals", string.Empty, PromptEngineeringProviderIds.OpenAi, true);
             PromptPreparationSettingsStore.Save(project, new PromptPreparationSettings
             {
                 ProviderId = PromptEngineeringProviderIds.OpenAi,
                 PreferAdvancedModel = true
             });
-            PromptMasterStateStore.Save(project, new PromptMasterState
-            {
-                BookType = BookTypeProfileService.ColoringBook,
-                ProviderId = PromptEngineeringProviderIds.OpenAi,
-                PreferAdvancedModel = true,
-                SeriesCount = 3,
-                MustDo = "jungle animals",
-                Prompt = master
-            });
-            for (var i = 0; i < jobs.Count; i++)
-                jobs[i].Prompt = PromptEngineeringEngine.BuildItemPrompt(project, master, 3, i + 1, jobs[i].Code, PromptEngineeringProviderIds.OpenAi, true);
-
             await ProjectFileStore.SaveAsync(projectPath, project);
+
             var state = AiExchangeStateStore.Load(project);
             var activeIds = VisualPromptSessionService.ActiveLegacyJobIds(project);
-            var units = state.WorkUnits.Where(u => u.LegacyAiJobId.HasValue && activeIds.Contains(u.LegacyAiJobId.Value)).ToList();
+            var units = state.WorkUnits
+                .Where(u => u.LegacyAiJobId.HasValue && activeIds.Contains(u.LegacyAiJobId.Value))
+                .OrderBy(u => u.Position)
+                .ToList();
             Require(units.Count == 3, "Le Work Unit attive non corrispondono ai soli job Coloring.");
 
             var packPath = Path.Combine(root, "isolated.zip");
-            var built = await AiExchangePromptPackBuilder.BuildAsync(project, projectPath, state, units.Select(u => u.WorkUnitId), packPath);
-            Require(built.Success, "Prompt Pack core non creato.");
-            var enhanced = await AiExchangeImageRequestContextSafeEnhancer.EnhancePromptPackAsync(project, projectPath, state, units.Select(u => u.WorkUnitId), packPath);
-            Require(enhanced.Success, "Enrichment immagini fallito.");
-            PromptPackPromptEngineeringFinalizer.Finalize(packPath, project, state, units.Select(u => u.WorkUnitId));
+            var built = await AiVisualPromptPackService.BuildAsync(
+                project, projectPath, state, units.Select(u => u.WorkUnitId), packPath);
+            Require(built.Success, "Pipeline visuale centrale non crea il Prompt Pack: " + built.Message);
 
             using var zip = ZipFile.OpenRead(packPath);
             var context = await ReadAsync(zip, "request-context.json");
@@ -85,9 +73,18 @@ internal static class VisualPromptIsolationSelfTest
                 "Il profilo Raccolta immagini viene ancora esportato nel request-context Coloring.");
             Require(!context.Contains("OLD COLLECTION SUNSET LANDSCAPES", StringComparison.OrdinalIgnoreCase),
                 "Testo del profilo Raccolta immagini contaminato nel Prompt Pack Coloring.");
+            Require(context.Contains($"provider_compiler_version\": \"{PromptEngineeringCompiler.Version}", StringComparison.OrdinalIgnoreCase),
+                "Il request-context non usa il compiler provider-specific corrente.");
 
             var manifestRoot = JsonNode.Parse(manifest)?.AsObject()
                 ?? throw new InvalidOperationException("Manifest finale non leggibile.");
+            var engine = manifestRoot["prompt_engine"]?.AsObject()
+                ?? throw new InvalidOperationException("prompt_engine finale mancante.");
+            Require(engine["provider_compiler_version"]?.ToString() == PromptEngineeringCompiler.Version,
+                "Versione provider compiler errata nel manifest.");
+            Require((engine["master_prompt"]?.ToString() ?? string.Empty).Contains("PROVIDER EXECUTION PROFILE — OPENAI", StringComparison.Ordinal),
+                "Il Prompt Pack non contiene la strategia OpenAI provider-specific.");
+
             var manifestUnits = manifestRoot["work_units"]?.AsArray()
                 ?? throw new InvalidOperationException("work_units mancanti nel manifest finale.");
             Require(manifestUnits.Count == 3, $"Manifest finale atteso 3 Work Unit, trovate {manifestUnits.Count}.");
@@ -96,8 +93,11 @@ internal static class VisualPromptIsolationSelfTest
                 var code = node["code"]?.ToString() ?? "?";
                 Require(node["output_count_for_this_work_unit"]?.GetValue<int>() == 1,
                     $"{code}: output_count_for_this_work_unit non è 1.");
-                Require((node["instruction"]?.ToString() ?? string.Empty).Contains("Generate EXACTLY ONE image", StringComparison.Ordinal),
+                var instruction = node["instruction"]?.ToString() ?? string.Empty;
+                Require(instruction.Contains("Generate EXACTLY ONE image", StringComparison.Ordinal),
                     $"{code}: contratto EXACTLY ONE assente dall'istruzione finale.");
+                Require(instruction.Contains("PROVIDER EXECUTION PROFILE — OPENAI", StringComparison.Ordinal),
+                    $"{code}: strategia OpenAI assente dall'istruzione finale.");
             }
         }
         finally
