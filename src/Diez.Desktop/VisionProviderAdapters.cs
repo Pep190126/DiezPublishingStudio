@@ -1,4 +1,3 @@
-using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
@@ -228,6 +227,7 @@ internal sealed class OpenAiVisionValidationAdapter : HttpVisionValidationAdapte
         var payload = new
         {
             model = _model,
+            store = false,
             input = new object[]
             {
                 new
@@ -300,7 +300,7 @@ internal sealed class GeminiVisionValidationAdapter : HttpVisionValidationAdapte
     {
         if (string.IsNullOrWhiteSpace(apiKey)) throw new ArgumentException("GEMINI_API_KEY mancante.", nameof(apiKey));
         _apiKey = apiKey;
-        _model = string.IsNullOrWhiteSpace(model) ? "gemini-3.6-flash" : model.Trim();
+        _model = string.IsNullOrWhiteSpace(model) ? "gemini-3.5-flash" : model.Trim();
     }
 
     public override string ProviderId => "gemini:" + _model;
@@ -392,9 +392,16 @@ internal static class VisionValidationDirectService
             throw new InvalidOperationException("Il file immagine reale della Candidate non è leggibile dal progetto.");
 
         var actualSha = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
-        if (string.IsNullOrWhiteSpace(version.ContentSha256) ||
-            !string.Equals(actualSha, version.ContentSha256, StringComparison.OrdinalIgnoreCase))
+        if (string.IsNullOrWhiteSpace(version.ContentSha256))
+        {
+            version.ContentSha256 = actualSha;
+            AiExchangeStateStore.Save(project, exchange);
+            await ProjectFileStore.SaveAsync(projectPath, project);
+        }
+        else if (!string.Equals(actualSha, version.ContentSha256, StringComparison.OrdinalIgnoreCase))
+        {
             throw new InvalidOperationException("Hash della Candidate non coerente con i byte reali: Vision non eseguita su un'identità non certa.");
+        }
 
         var activeLegacy = VisualPromptSessionService.ActiveLegacyJobIds(project);
         var seriesCount = Math.Max(1, exchange.WorkUnits.Count(u =>
