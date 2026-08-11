@@ -81,8 +81,9 @@ internal static class VisionValidationSelfTest
                     "Il contratto di generazione canonico non arriva al controllo Vision.");
                 Require(instructions.Contains("inspect the REAL candidate image", StringComparison.OrdinalIgnoreCase),
                     "La Vision non viene obbligata a guardare il file reale.");
-                Require(instructions.Contains("provider's description", StringComparison.OrdinalIgnoreCase),
-                    "La descrizione del generatore non è dichiarata non affidabile.");
+                Require(instructions.Contains("generator's description", StringComparison.OrdinalIgnoreCase) &&
+                        instructions.Contains("Never infer compliance", StringComparison.OrdinalIgnoreCase),
+                    "La descrizione dichiarata dal generatore non è esplicitamente esclusa come prova di conformità.");
             }
 
             var passZip = Path.Combine(root, "vision-pass.zip");
@@ -166,8 +167,8 @@ internal static class VisionValidationSelfTest
                 "Un esito Vision riferito a un hash diverso è stato applicato alla Candidate corrente.");
 
             IAiExchangeApiAdapter api = new AiExchangeMockApiAdapter();
-            Require(api.Capabilities.Vision,
-                "La capability Vision non è dichiarata dall'adapter che può fare analisi multimodale.");
+            Require(api.Capabilities.VisionAnalysis && api.Capabilities.Vision,
+                "La capability VisionAnalysis non è dichiarata dall'adapter che può fare analisi multimodale.");
         }
         finally
         {
