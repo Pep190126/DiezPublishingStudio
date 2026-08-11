@@ -8,7 +8,7 @@ namespace DiezPublishingStudio;
 /// <summary>
 /// First-class semantic QA controls for the active single-window Review page.
 /// The old direct approval button is hidden so every visible approval passes through
-/// deterministic raster gates plus any imported Vision hard-fail result.
+/// deterministic raster gates plus any imported or direct Vision hard-fail result.
 /// </summary>
 internal static class SingleWindowVisionValidationUi
 {
@@ -58,6 +58,8 @@ internal static class SingleWindowVisionValidationUi
             MinHeight = 92,
             MaxHeight = 170
         };
+        var direct = Button("Esegui Vision via API", 205);
+        direct.Name = "DiezDirectVisionValidation";
         var export = Button("Crea controllo Vision ZIP", 210);
         var import = Button("Importa esito Vision", 185);
         var safeApprove = Button("Approva", 115);
@@ -67,7 +69,7 @@ internal static class SingleWindowVisionValidationUi
         {
             var selected = list.SelectedItem;
             if (selected is null) return null;
-            if (selected is AiExchangeWorkUnit direct) return direct;
+            if (selected is AiExchangeWorkUnit directUnit) return directUnit;
             return selected.GetType().GetProperty("Unit", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)?.GetValue(selected) as AiExchangeWorkUnit;
         }
 
@@ -90,9 +92,14 @@ internal static class SingleWindowVisionValidationUi
             {
                 status.Text = "Vision: seleziona una Candidate con immagine.";
                 details.Text = string.Empty;
+                direct.IsEnabled = false;
                 safeApprove.IsEnabled = false;
                 return;
             }
+
+            direct.IsEnabled = version.MaterialId.HasValue &&
+                (string.Equals(provider, PromptEngineeringProviderIds.OpenAi, StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(provider, PromptEngineeringProviderIds.Gemini, StringComparison.OrdinalIgnoreCase));
 
             var deterministic = VisualAssetValidationStore.Get(project, version.VersionId);
             var vision = VisionValidationStore.Get(project, version.VersionId);
@@ -119,6 +126,46 @@ internal static class SingleWindowVisionValidationUi
             safeApprove.IsEnabled = can && version.Status != AiExchangeVersionStatuses.Approved;
             status.Text = gate;
         }
+
+        direct.Click += async (_, _) =>
+        {
+            var state = AiExchangeStateStore.Load(project);
+            var version = SelectedVersion(state);
+            if (version is null) return;
+            if (!VisionProviderAdapterFactory.TryCreate(provider, out var adapter, out var setupMessage) || adapter is null)
+            {
+                status.Text = setupMessage;
+                SetMainStatus(window, setupMessage);
+                return;
+            }
+
+            direct.IsEnabled = false;
+            safeApprove.IsEnabled = false;
+            status.Text = $"Controllo Vision via {ProviderLabel(provider)} in corso sulla Candidate reale…";
+            SetMainStatus(window, status.Text);
+            try
+            {
+                var record = await VisionValidationDirectService.ValidateAsync(
+                    project, path, state, version.VersionId, adapter);
+                var resultMessage = record.BlocksApproval
+                    ? $"Vision API: FAIL · Candidate bloccata. {record.Summary}"
+                    : record.OverallStatus == VisionValidationStatuses.Pass
+                        ? $"Vision API: PASS · {record.Summary}"
+                        : $"Vision API: REVIEW · decisione umana richiesta. {record.Summary}";
+                status.Text = resultMessage;
+                SetMainStatus(window, resultMessage);
+            }
+            catch (Exception ex)
+            {
+                var error = "Vision API non completata: " + ex.GetBaseException().Message + " Nessun nuovo PASS/FAIL è stato registrato.";
+                status.Text = error;
+                SetMainStatus(window, error);
+            }
+            finally
+            {
+                Refresh();
+            }
+        };
 
         export.Click += async (_, _) =>
         {
@@ -207,11 +254,11 @@ internal static class SingleWindowVisionValidationUi
                 new TextBlock { Text = "Controllo qualità Vision", FontSize = 18 },
                 new TextBlock
                 {
-                    Text = $"Secondo passaggio semantico indipendente · destinatario: {ProviderLabel(provider)}. Il modello deve guardare i file reali e confrontarli con la stessa specifica canonica usata per generarli. Un FAIL HARD blocca l'approvazione; REVIEW resta alla decisione umana.",
+                    Text = $"Secondo passaggio semantico indipendente · destinatario: {ProviderLabel(provider)}. Il modello deve guardare i file reali e confrontarli con la stessa specifica canonica usata per generarli. Un FAIL HARD blocca l'approvazione; REVIEW resta alla decisione umana. OpenAI/Gemini possono essere eseguiti direttamente con chiavi lette dall'ambiente; nessuna chiave viene salvata nel progetto. Il flusso ZIP resta sempre disponibile.",
                     TextWrapping = Avalonia.Media.TextWrapping.Wrap,
                     MaxWidth = 820
                 },
-                new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { export, import } },
+                new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { direct, export, import } },
                 status,
                 details
             }
