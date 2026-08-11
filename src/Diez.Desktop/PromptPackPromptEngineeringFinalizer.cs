@@ -7,13 +7,10 @@ using System.Text.Json.Nodes;
 namespace DiezPublishingStudio;
 
 /// <summary>
-/// Final authoritative prompt stage for visual Prompt Packs.
-/// The core builder owns IDs/snapshots/assets; this finalizer owns prompt engineering:
-/// - one active Book Type profile only (no Coloring/Illustration cross-contamination);
-/// - provider-specific professional master prompt;
-/// - exactly one generated image per Work Unit;
-/// - exact manual master-prompt edits preserved as the common specification;
-/// - correction/edit grammar preserved at item level.
+/// Final authoritative prompt compiler for visual Prompt Packs.
+/// The transport builder owns IDs/snapshots/assets; this compiler owns prompt semantics:
+/// one active Book Type, current parameter fingerprint, provider rendering, one output per Work Unit,
+/// manual-edit preservation and source-image mutation grammar.
 /// </summary>
 internal static class PromptPackPromptEngineeringFinalizer
 {
@@ -25,6 +22,13 @@ internal static class PromptPackPromptEngineeringFinalizer
         WriteIndented = true,
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
     };
+
+    private sealed record ResolvedMasterPrompt(
+        string ExportPrompt,
+        string CanonicalPrompt,
+        bool ManualPromptPresent,
+        bool ManualPromptCurrent,
+        bool RegeneratedForCurrentParameters);
 
     public static void Finalize(
         string promptPackPath,
@@ -41,31 +45,105 @@ internal static class PromptPackPromptEngineeringFinalizer
         if (units.Count == 0 || !File.Exists(promptPackPath)) return;
 
         var settings = PromptPreparationSettingsStore.Load(project);
-        var masterState = PromptMasterStateStore.LoadForCurrentBook(project);
-        var masterPrompt = masterState?.Prompt?.Trim() ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(masterPrompt))
-        {
-            masterPrompt = PromptEngineeringEngine.BuildSeriesPrompt(
-                project,
-                units.Count,
-                masterState?.MustDo ?? string.Empty,
-                masterState?.MustNotDo ?? string.Empty,
-                settings.ProviderId,
-                settings.PreferAdvancedModel);
-            PromptMasterStateStore.SaveDraft(project, units.Count, masterState?.MustDo, masterState?.MustNotDo, masterPrompt);
-        }
+        var resolved = ResolveMasterPrompt(project, units.Count, settings);
 
         using var archive = ZipFile.Open(promptPackPath, ZipArchiveMode.Update);
-        RewriteManifest(archive, project, units, masterPrompt, settings);
-        RewriteContext(archive, project, masterPrompt, settings);
-        RewriteInstructions(archive, project, settings);
+        RewriteManifest(archive, project, units, resolved, settings);
+        RewriteContext(archive, project, resolved, settings);
+        RewriteInstructions(archive, project, resolved, settings);
+    }
+
+    private static ResolvedMasterPrompt ResolveMasterPrompt(
+        PreviewProject project,
+        int count,
+        PromptPreparationSettings settings)
+    {
+        var stored = PromptMasterStateStore.LoadForCurrentBook(project);
+        var mustDo = stored?.MustDo ?? string.Empty;
+        var mustNotDo = stored?.MustNotDo ?? string.Empty;
+        var canonical = PromptEngineeringEngine.BuildSeriesPrompt(
+            project,
+            count,
+            mustDo,
+            mustNotDo,
+            settings.ProviderId,
+            settings.PreferAdvancedModel);
+
+        var metadata = PromptMasterMetadataStore.Load(project);
+        var current = PromptMasterMetadataStore.MatchesCurrent(
+            project,
+            metadata,
+            count,
+            mustDo,
+            mustNotDo,
+            settings.ProviderId,
+            settings.PreferAdvancedModel);
+        var storedPrompt = stored?.Prompt?.Trim() ?? string.Empty;
+
+        if (current && !string.IsNullOrWhiteSpace(storedPrompt))
+        {
+            return new ResolvedMasterPrompt(
+                storedPrompt,
+                canonical,
+                metadata?.ManualOverride == true,
+                metadata?.ManualOverride == true,
+                false);
+        }
+
+        if (metadata?.ManualOverride == true && !string.IsNullOrWhiteSpace(storedPrompt))
+        {
+            // Parameters changed after an explicit manual prompt edit. Never erase the user's text,
+            // but never let stale technical/book constraints override the current GUI either.
+            // Export the freshly compiled canonical specification first, then preserve the old manual
+            // text verbatim as an additive intent layer subordinate to current hard constraints.
+            var merged = new StringBuilder(canonical.Trim());
+            merged.AppendLine();
+            merged.AppendLine();
+            merged.AppendLine("=== USER MANUAL PROMPT LAYER — PRESERVED VERBATIM ===");
+            merged.AppendLine("The following text was manually edited by the user before one or more structured Diez parameters changed. Preserve its creative/editorial intent, but CURRENT hard Book-Type constraints, current technical output settings, current item overrides and current Consistent rules above have priority wherever the texts conflict.");
+            merged.AppendLine("Do not copy obsolete counts, dimensions, provider names or technical values from this preserved layer when they differ from the current canonical specification.");
+            merged.AppendLine();
+            merged.AppendLine(storedPrompt);
+
+            PromptMasterStateStore.Save(project, new PromptMasterState
+            {
+                BookType = BookTypeProfileService.Get(project),
+                ProviderId = settings.ProviderId,
+                PreferAdvancedModel = settings.PreferAdvancedModel,
+                SeriesCount = count,
+                MustDo = mustDo,
+                MustNotDo = mustNotDo,
+                Prompt = storedPrompt,
+                UpdatedAtLocal = DateTimeOffset.Now.ToString("O")
+            });
+            // Keep metadata manual/stale on purpose: the editor still contains the user's original
+            // manual text and must not be silently replaced when the page is reopened.
+            return new ResolvedMasterPrompt(merged.ToString().Trim(), canonical, true, false, true);
+        }
+
+        // No trusted current manual edit: legacy/obsolete/generated text is replaced by the current
+        // canonical compiler output. This is the migration path that removes weak legacy prompts.
+        PromptMasterStateStore.Save(project, new PromptMasterState
+        {
+            BookType = BookTypeProfileService.Get(project),
+            ProviderId = settings.ProviderId,
+            PreferAdvancedModel = settings.PreferAdvancedModel,
+            SeriesCount = count,
+            MustDo = mustDo,
+            MustNotDo = mustNotDo,
+            Prompt = canonical,
+            UpdatedAtLocal = DateTimeOffset.Now.ToString("O")
+        });
+        PromptMasterMetadataStore.MarkGenerated(
+            project, count, mustDo, mustNotDo, settings.ProviderId, settings.PreferAdvancedModel);
+        return new ResolvedMasterPrompt(canonical, canonical, false, false, true);
     }
 
     private static void RewriteManifest(
         ZipArchive archive,
         PreviewProject project,
         IReadOnlyList<AiExchangeWorkUnit> units,
-        string masterPrompt,
+        ResolvedMasterPrompt resolved,
         PromptPreparationSettings settings)
     {
         var root = ReadObject(archive, ManifestName);
@@ -79,7 +157,7 @@ internal static class PromptPackPromptEngineeringFinalizer
             var unit = units.FirstOrDefault(u => u.WorkUnitId == id);
             if (unit is null) continue;
             var index = units.IndexOf(unit) + 1;
-            node["instruction"] = BuildUnitInstruction(project, unit, masterPrompt, units.Count, index, settings);
+            node["instruction"] = BuildUnitInstruction(project, unit, resolved.ExportPrompt, units.Count, index, settings);
             node["prompt_engine_version"] = PromptEngineeringEngine.EngineVersion;
             node["provider_target"] = settings.ProviderId;
             node["series_position"] = index;
@@ -94,7 +172,11 @@ internal static class PromptPackPromptEngineeringFinalizer
             ["provider_target"] = settings.ProviderId,
             ["prefer_advanced_model"] = settings.PreferAdvancedModel,
             ["active_book_type"] = BookTypeProfileService.Get(project),
-            ["master_prompt"] = masterPrompt,
+            ["master_prompt"] = resolved.ExportPrompt,
+            ["canonical_prompt"] = resolved.CanonicalPrompt,
+            ["manual_prompt_present"] = resolved.ManualPromptPresent,
+            ["manual_prompt_current"] = resolved.ManualPromptCurrent,
+            ["regenerated_for_current_parameters"] = resolved.RegeneratedForCurrentParameters,
             ["work_unit_output_count"] = 1
         };
         ReplaceObject(archive, ManifestName, root);
@@ -142,7 +224,7 @@ internal static class PromptPackPromptEngineeringFinalizer
             sb.AppendLine("EXPLICIT WORK-UNIT INSTRUCTION:");
             sb.AppendLine(unit.Instruction.Trim());
         }
-        sb.AppendLine("Priority inside this Work Unit: explicit item constraint > preserve/change/add/remove > local exception > LOCKED consistency > PREFERRED consistency > shared master prompt > creative freedom.");
+        sb.AppendLine("Priority inside this Work Unit: explicit item constraint > preserve/change/add/remove > local exception > CURRENT hard Book-Type rules > LOCKED consistency > PREFERRED consistency > manual/shared intent > creative freedom.");
         sb.AppendLine("After editing, the returned description must describe the actual final image, including the requested change; never copy a stale description of the base image.");
         return sb.ToString().Trim();
     }
@@ -158,7 +240,7 @@ internal static class PromptPackPromptEngineeringFinalizer
     private static void RewriteContext(
         ZipArchive archive,
         PreviewProject project,
-        string masterPrompt,
+        ResolvedMasterPrompt resolved,
         PromptPreparationSettings settings)
     {
         var root = ReadObject(archive, ContextName);
@@ -166,8 +248,6 @@ internal static class PromptPackPromptEngineeringFinalizer
         var bookType = BookTypeProfileService.Get(project);
         var presets = root["image_presets"] as JsonObject ?? new JsonObject();
 
-        // Only one semantic profile is active. Historical profiles may remain in .diez,
-        // but they must never be exported together to the provider.
         if (string.Equals(bookType, BookTypeProfileService.ColoringBook, StringComparison.OrdinalIgnoreCase))
         {
             presets.Remove("illustration_profile");
@@ -181,7 +261,8 @@ internal static class PromptPackPromptEngineeringFinalizer
                 : "IMAGE_COLLECTION";
         }
 
-        presets["effective_visual_prompt"] = masterPrompt;
+        presets["effective_visual_prompt"] = resolved.ExportPrompt;
+        presets["canonical_visual_prompt"] = resolved.CanonicalPrompt;
         presets["provider_target"] = settings.ProviderId;
         presets["prompt_engine_version"] = PromptEngineeringEngine.EngineVersion;
         root["image_presets"] = presets;
@@ -191,7 +272,9 @@ internal static class PromptPackPromptEngineeringFinalizer
             ["provider_target"] = settings.ProviderId,
             ["engine_version"] = PromptEngineeringEngine.EngineVersion,
             ["profile_isolation"] = true,
-            ["rule"] = "Only this active Book Type profile may influence the current request. Historical/inactive visual profiles are excluded."
+            ["manual_prompt_present"] = resolved.ManualPromptPresent,
+            ["manual_prompt_current"] = resolved.ManualPromptCurrent,
+            ["rule"] = "Only this active Book Type profile may influence the current request. Historical/inactive visual profiles are excluded. Current hard constraints override stale manual technical values without deleting the user's manual text."
         };
         ReplaceObject(archive, ContextName, root);
     }
@@ -199,6 +282,7 @@ internal static class PromptPackPromptEngineeringFinalizer
     private static void RewriteInstructions(
         ZipArchive archive,
         PreviewProject project,
+        ResolvedMasterPrompt resolved,
         PromptPreparationSettings settings)
     {
         var existing = ReadText(archive, InstructionsName);
@@ -213,6 +297,8 @@ internal static class PromptPackPromptEngineeringFinalizer
 - `series_count` is context only; it never authorizes a single Work Unit to render the whole series, a collage, a grid or multiple alternatives.
 - Treat `output_count_for_this_work_unit = 1` as a hard execution contract.
 - Professional quality gates are mandatory even when the user provided only a few optional GUI parameters.
+- Manual prompt text is preserved. If its parameter fingerprint is stale, current canonical Book-Type/technical constraints take priority while the manual text remains an additive creative/editorial layer.
+- Manual prompt present: {resolved.ManualPromptPresent}; current fingerprint: {resolved.ManualPromptCurrent}.
 - For corrections, the real base/input image plus preserve/change/add/remove are authoritative; descriptions assist but never replace image files.
 """;
         ReplaceText(archive, InstructionsName, existing.TrimEnd() + section);
