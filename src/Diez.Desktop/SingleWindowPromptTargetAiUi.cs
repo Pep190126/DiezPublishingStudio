@@ -109,6 +109,9 @@ internal static class SingleWindowPromptTargetAiUi
                 PromptMasterMetadataStore.MarkGenerated(project, Count(), mustDo.Text, mustNotDo.Text, selected.Id, advanced.IsChecked == true);
         }
 
+        void SaveParametersWithoutRefreshingFingerprint() =>
+            PromptMasterStateStore.SaveDraft(project, Count(), mustDo.Text, mustNotDo.Text, prompt.Text);
+
         string CompileCurrent()
         {
             var selected = Selected();
@@ -149,12 +152,14 @@ internal static class SingleWindowPromptTargetAiUi
             var selected = Selected();
             advanced.IsVisible = !string.Equals(selected.Id, PromptEngineeringProviderIds.Generic, StringComparison.OrdinalIgnoreCase);
             if (!initialized) return;
+            SaveParametersWithoutRefreshingFingerprint();
             await PersistSettingsAsync();
             RefreshNext();
         };
         advanced.IsCheckedChanged += async (_, _) =>
         {
             if (!initialized) return;
+            SaveParametersWithoutRefreshingFingerprint();
             await PersistSettingsAsync();
             RefreshNext();
         };
@@ -165,8 +170,18 @@ internal static class SingleWindowPromptTargetAiUi
             SaveMaster(manual: true);
             RefreshNext();
         };
-        mustDo.TextChanged += (_, _) => { if (initialized) RefreshNext(); };
-        mustNotDo.TextChanged += (_, _) => { if (initialized) RefreshNext(); };
+        mustDo.TextChanged += (_, _) =>
+        {
+            if (!initialized) return;
+            SaveParametersWithoutRefreshingFingerprint();
+            RefreshNext();
+        };
+        mustNotDo.TextChanged += (_, _) =>
+        {
+            if (!initialized) return;
+            SaveParametersWithoutRefreshingFingerprint();
+            RefreshNext();
+        };
 
         prepare.Click += async (_, _) =>
         {
@@ -199,8 +214,6 @@ internal static class SingleWindowPromptTargetAiUi
         }
         else actionRow.Children.Insert(0, panel);
 
-        // prompt.Text may contain the legacy host-generated prompt. Trust it only if current metadata
-        // matches the CURRENT GUI values; never restore stale MustDo/MustNotDo from an older prompt.
         var existing = PromptMasterStateStore.LoadForCurrentBook(project);
         var metadata = PromptMasterMetadataStore.Load(project);
         var selectedNow = Selected();
