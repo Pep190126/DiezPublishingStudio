@@ -78,7 +78,7 @@ jobs:
       - name: Upload raster UI evidence
         uses: actions/upload-artifact@v4
         with:
-          name: DiezPublishingStudio-SW-FLOW-11-Raster-Evidence
+          name: DiezPublishingStudio-SW-FLOW-12-Raster-Evidence
           path: |
             artifacts/publish/ui-quantity.png
             artifacts/publish/ui-consistent-variation.png
@@ -87,7 +87,7 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Real GUI contract visual books prompt consistency and quality
+      - name: Real GUI contract SW-FLOW-12 prompt compiler and visual books
         shell: powershell
         run: |
           $exe = (Resolve-Path "artifacts\publish\DiezPublishingStudio.exe").Path
@@ -121,19 +121,22 @@ jobs:
           if (!(Test-Path $result)) { throw "UI flow contract did not produce a result file" }
           $text = Get-Content $result -Raw
           foreach ($required in @(
-            "OK", "SW-FLOW-11", "book-type=visible", "book-type-back=works", "quantity-change-type=absent",
+            "OK", "SW-FLOW-12", "book-type=visible", "book-type-back=works", "quantity-change-type=absent",
             "quantity-field=native-numeric", "visual-subject-environment=native-visible", "coloring-style=native-visible",
             "coloring-binary-bw=fixed", "line-thickness=dropdown", "image-specs=visible", "kdp-trim-presets=yes",
             "editable-inputs=avaloniaedit-raster", "active-project=kept-until-replace-or-exit", "home-resume=book-type",
             "consistent-on=criteria-native-visible", "consistency-notes=native-visible", "consistency-levels=3",
             "consistency-free-strategies=USER,AI,MIXED", "consistency-free-user=description-required",
             "consistency-free-ai=description-optional", "consistency-free-mixed=description-required",
-            "bleed=image-generation-removed", "prompt-editors=native-3", "undo=ctrl-z", "redo=ctrl-y"
+            "bleed=image-generation-removed", "prompt-editors=native-3", "undo=ctrl-z", "redo=ctrl-y",
+            "prompt-semantic-engine=3.0", "prompt-provider-compiler=3.1", "prompt-profile-isolation=yes",
+            "prompt-work-unit-output=1", "visual-context=V3", "response-import=audited-v2",
+            "visual-prompt-pipeline=single-source"
           )) {
             if ($text -notmatch [regex]::Escape($required)) { throw "UI flow contract missing: $required" }
           }
 
-      - name: Self-test lifecycle AI batch reconstruction and handoff
+      - name: Self-test prompt compiler isolation import correction and lifecycle
         shell: powershell
         run: |
           $exe = (Resolve-Path "artifacts\publish\DiezPublishingStudio.exe").Path
@@ -217,7 +220,7 @@ jobs:
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
-          name: DiezPublishingStudio-Setup-1.0.0-rc8-SW-FLOW-11
+          name: DiezPublishingStudio-Setup-1.0.0-rc8-SW-FLOW-12-PromptCompiler31
           path: artifacts/installer/DiezPublishingStudio-Setup.exe
           if-no-files-found: error
           retention-days: 90
