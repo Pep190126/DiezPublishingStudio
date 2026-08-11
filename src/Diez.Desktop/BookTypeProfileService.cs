@@ -33,6 +33,10 @@ internal static class BookTypeProfileService
     {
         var normalized = Normalize(value);
         if (string.IsNullOrWhiteSpace(normalized)) return;
+        var previous = Get(project);
+        if (!string.Equals(previous, normalized, StringComparison.OrdinalIgnoreCase))
+            VisualPromptSessionService.OnBookTypeChanging(project, previous, normalized);
+
         var matches = project.Entities
             .Where(e => string.Equals(e.Kind, EntityKind, StringComparison.OrdinalIgnoreCase))
             .ToList();
