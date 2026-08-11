@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Reflection;
 using Avalonia.Controls;
+using Avalonia.Interactivity;
 using Avalonia.Threading;
 
 namespace DiezPublishingStudio;
@@ -12,10 +13,10 @@ internal static class SingleWindowV11ContractProbe
         var host = SingleWindowEntryPointUi.GetHost(window);
         var pageHost = Field<ContentControl>(host, "_pageHost")
             ?? throw new InvalidOperationException("PageHost V11 non disponibile.");
-        var tempPath = Path.Combine(Path.GetTempPath(), "diez-v11-ui-contract-" + Guid.NewGuid().ToString("N") + ".diez");
+        var tempPath = Path.Combine(Path.GetTempPath(), "diez-v12-ui-contract-" + Guid.NewGuid().ToString("N") + ".diez");
         try
         {
-            var project = ProjectFileStore.Create("V11 Native UI Contract");
+            var project = ProjectFileStore.Create("V12 Native UI Contract");
             BookTypeProfileService.Set(project, BookTypeProfileService.ColoringBook);
             await ProjectFileStore.SaveAsync(tempPath, project);
             SetSession(window, project, tempPath);
@@ -23,10 +24,10 @@ internal static class SingleWindowV11ContractProbe
             SingleWindowNativeV11Ui.ShowStart(window);
             await WaitForLayoutAsync();
 
-            var typePage = pageHost.Content as Control ?? throw new InvalidOperationException("Pagina Tipo libro V11 assente.");
+            var typePage = pageHost.Content as Control ?? throw new InvalidOperationException("Pagina Tipo libro assente.");
             AssertText(typePage, "Quale libro stai preparando?");
             var back = Field<Button>(host, "_back") ?? throw new InvalidOperationException("Pulsante Indietro host assente.");
-            if (!back.IsEnabled) throw new InvalidOperationException("Indietro è disabilitato nella pagina Tipo libro V11.");
+            if (!back.IsEnabled) throw new InvalidOperationException("Indietro è disabilitato nella pagina Tipo libro.");
 
             SingleWindowEntryPointUi.Invoke(host, "Back");
             await WaitForLayoutAsync();
@@ -38,7 +39,7 @@ internal static class SingleWindowV11ContractProbe
 
             SingleWindowNativeV11Ui.ShowQuantity(window, host);
             await WaitForLayoutAsync();
-            var quantity = pageHost.Content as Control ?? throw new InvalidOperationException("Pagina Quantità V11 assente.");
+            var quantity = pageHost.Content as Control ?? throw new InvalidOperationException("Pagina Quantità assente.");
             AssertText(quantity, "Quante immagini vuoi creare?");
             AssertNoButton(quantity, "Cambia Tipo libro");
 
@@ -56,12 +57,12 @@ internal static class SingleWindowV11ContractProbe
 
             var consistent = Descendants(quantity).OfType<CheckBox>().FirstOrDefault(c =>
                 (c.Content?.ToString() ?? string.Empty).StartsWith("Consistent", StringComparison.OrdinalIgnoreCase))
-                ?? throw new InvalidOperationException("Consistent V11 non visibile.");
+                ?? throw new InvalidOperationException("Consistent non visibile.");
             consistent.IsChecked = true;
             await WaitForLayoutAsync();
             var criteria = Descendants(quantity).FirstOrDefault(c => c.Name == "DiezConsistencyCriteriaPanel")
                 ?? throw new InvalidOperationException("Pannello Consistent nativo assente.");
-            if (!criteria.IsVisible) throw new InvalidOperationException("Pannello Consistent nativo non visibile con Consistent ON.");
+            if (!criteria.IsVisible) throw new InvalidOperationException("Pannello Consistent non visibile con Consistent ON.");
 
             var notes = RequireEditor(quantity, "ConsistencyNotes");
             RequireNativeEditor(notes, "Note Consistent");
@@ -80,8 +81,8 @@ internal static class SingleWindowV11ContractProbe
             await WaitForLayoutAsync();
             var next = Descendants(quantity).OfType<Button>().FirstOrDefault(b =>
                 (b.Content?.ToString() ?? string.Empty).Contains("Avanti", StringComparison.OrdinalIgnoreCase))
-                ?? throw new InvalidOperationException("Avanti V11 assente.");
-            if (!next.IsEnabled) throw new InvalidOperationException("La decide l’AI deve permettere di lasciare vuota la descrizione.");
+                ?? throw new InvalidOperationException("Avanti assente.");
+            if (!next.IsEnabled) throw new InvalidOperationException("La decide l’AI deve permettere descrizione vuota.");
 
             SelectByText(strategy, "La definisco io");
             await WaitForLayoutAsync();
@@ -90,12 +91,11 @@ internal static class SingleWindowV11ContractProbe
             await WaitForLayoutAsync();
             if (!next.IsEnabled) throw new InvalidOperationException("La descrizione della variazione non riabilita Avanti.");
 
-            // Only after native essentials have passed, verify optional image specifications.
             SingleWindowImageSpecsUi.EnsureCurrentPage(window);
             SingleWindowCustomDimensionsUi.EnsureCurrentPage(window);
             await WaitForLayoutAsync();
             if (Descendants(quantity).OfType<ComboBox>().All(c => c.Name != "ImageSpecPreset"))
-                throw new InvalidOperationException("Specifiche immagine non collegate alla pagina V11.");
+                throw new InvalidOperationException("Specifiche immagine non collegate alla pagina.");
 
             if (Descendants(quantity).Any(c => c.Name == "ImageSpecOrientation"))
                 throw new InvalidOperationException("Orientamento è ancora presente come controllo indipendente.");
@@ -129,13 +129,55 @@ internal static class SingleWindowV11ContractProbe
 
             SingleWindowNativeV11Ui.ShowPrompt(window, host, 12);
             await WaitForLayoutAsync();
-            var prompt = pageHost.Content as Control ?? throw new InvalidOperationException("Pagina Istruzioni V11 assente.");
-            AssertText(prompt, "DEVE FARE");
-            AssertText(prompt, "NON DEVE FARE");
-            AssertText(prompt, "PROMPT — modificabile");
-            RequireNativeEditor(RequireEditor(prompt, "MustDoEditor"), "DEVE FARE");
-            RequireNativeEditor(RequireEditor(prompt, "MustNotDoEditor"), "NON DEVE FARE");
-            RequireNativeEditor(RequireEditor(prompt, "PromptEditor"), "PROMPT");
+            var promptPage = pageHost.Content as Control ?? throw new InvalidOperationException("Pagina Istruzioni assente.");
+            AssertText(promptPage, "DEVE FARE");
+            AssertText(promptPage, "NON DEVE FARE");
+            AssertText(promptPage, "PROMPT — modificabile");
+            RequireNativeEditor(RequireEditor(promptPage, "MustDoEditor"), "DEVE FARE");
+            RequireNativeEditor(RequireEditor(promptPage, "MustNotDoEditor"), "NON DEVE FARE");
+            var promptEditor = RequireEditor(promptPage, "PromptEditor");
+            RequireNativeEditor(promptEditor, "PROMPT");
+
+            // Exercise the actual provider UI path, not only the compiler self-test.
+            SingleWindowPromptTargetAiUi.EnsureCurrentPage(window);
+            await WaitForLayoutAsync();
+            var provider = RequireCombo(promptPage, "PromptTargetAi");
+            var prepare = Descendants(promptPage).OfType<Button>().FirstOrDefault(b => b.Name == "PrepareProviderSpecificPrompt")
+                ?? throw new InvalidOperationException("Pulsante compiler provider-specific assente.");
+
+            SelectByText(provider, "ChatGPT / OpenAI");
+            await WaitForLayoutAsync();
+            prepare.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await WaitForLayoutAsync(260);
+            var openAiPrompt = promptEditor.Text ?? string.Empty;
+            foreach (var required in new[]
+                     {
+                         $"DIEZ PROVIDER COMPILER v{PromptEngineeringCompiler.Version}",
+                         "PROVIDER EXECUTION PROFILE — OPENAI IMAGE GENERATION",
+                         "COMMERCIAL COLORING BOOK",
+                         "PROFESSIONAL QUALITY GATE",
+                         "pure black #000000",
+                         "pure white #FFFFFF"
+                     })
+                if (!openAiPrompt.Contains(required, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException("Prompt OpenAI GUI incompleto: " + required);
+
+            SelectByText(provider, "Gemini");
+            await WaitForLayoutAsync();
+            prepare.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await WaitForLayoutAsync(260);
+            var geminiPrompt = promptEditor.Text ?? string.Empty;
+            foreach (var required in new[]
+                     {
+                         "PROVIDER EXECUTION PROFILE — GEMINI NATIVE IMAGE GENERATION",
+                         "ONE coherent scene concept",
+                         "COMMERCIAL COLORING BOOK",
+                         "PROFESSIONAL QUALITY GATE"
+                     })
+                if (!geminiPrompt.Contains(required, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException("Prompt Gemini GUI incompleto: " + required);
+            if (string.Equals(openAiPrompt, geminiPrompt, StringComparison.Ordinal))
+                throw new InvalidOperationException("La GUI produce lo stesso prompt per OpenAI e Gemini.");
 
             var title = Field<TextBlock>(host, "_title")?.Text ?? string.Empty;
             if (!title.Contains("12 immagini", StringComparison.Ordinal))
@@ -207,10 +249,10 @@ internal static class SingleWindowV11ContractProbe
             throw new InvalidOperationException("Pulsante non ammesso nella pagina: " + forbidden);
     }
 
-    private static async Task WaitForLayoutAsync()
+    private static async Task WaitForLayoutAsync(int delayMs = 120)
     {
         await Task.Yield();
-        await Task.Delay(120);
+        await Task.Delay(delayMs);
         await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
     }
 
