@@ -6,8 +6,9 @@ namespace DiezPublishingStudio;
 
 internal sealed class PromptMasterMetadata
 {
-    public int SchemaVersion { get; set; } = 1;
+    public int SchemaVersion { get; set; } = 2;
     public string EngineVersion { get; set; } = string.Empty;
+    public string CompilerVersion { get; set; } = string.Empty;
     public string ProviderId { get; set; } = PromptEngineeringProviderIds.Generic;
     public string SourceFingerprint { get; set; } = string.Empty;
     public bool ManualOverride { get; set; }
@@ -16,8 +17,7 @@ internal sealed class PromptMasterMetadata
 
 /// <summary>
 /// Distinguishes an actual user-edited master prompt from legacy/generated text and detects when
-/// GUI parameters changed after prompt compilation. This lets Diez preserve manual edits without
-/// accidentally treating an obsolete legacy prompt as authoritative.
+/// GUI parameters or either compiler layer changed after prompt compilation.
 /// </summary>
 internal static class PromptMasterMetadataStore
 {
@@ -46,7 +46,13 @@ internal static class PromptMasterMetadataStore
     {
         var request = PromptEngineeringEngine.BuildRequest(
             project, count, mustDo, mustNotDo, providerId, preferAdvancedModel);
-        var json = JsonSerializer.Serialize(request, JsonOptions);
+        var envelope = new
+        {
+            semantic_engine = PromptEngineeringEngine.EngineVersion,
+            provider_compiler = PromptEngineeringCompiler.Version,
+            request
+        };
+        var json = JsonSerializer.Serialize(envelope, JsonOptions);
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(json)));
     }
 
@@ -59,8 +65,9 @@ internal static class PromptMasterMetadataStore
         string? providerId,
         bool preferAdvancedModel)
     {
-        if (metadata is null) return false;
+        if (metadata is null || metadata.SchemaVersion < 2) return false;
         if (!string.Equals(metadata.EngineVersion, PromptEngineeringEngine.EngineVersion, StringComparison.Ordinal)) return false;
+        if (!string.Equals(metadata.CompilerVersion, PromptEngineeringCompiler.Version, StringComparison.Ordinal)) return false;
         var normalized = PromptPreparationSettingsStore.NormalizeProvider(providerId);
         if (!string.Equals(metadata.ProviderId, normalized, StringComparison.OrdinalIgnoreCase)) return false;
         var fingerprint = Fingerprint(project, count, mustDo, mustNotDo, normalized, preferAdvancedModel);
@@ -97,7 +104,9 @@ internal static class PromptMasterMetadataStore
         var normalized = PromptPreparationSettingsStore.NormalizeProvider(providerId);
         return new PromptMasterMetadata
         {
+            SchemaVersion = 2,
             EngineVersion = PromptEngineeringEngine.EngineVersion,
+            CompilerVersion = PromptEngineeringCompiler.Version,
             ProviderId = normalized,
             SourceFingerprint = Fingerprint(project, count, mustDo, mustNotDo, normalized, preferAdvancedModel),
             ManualOverride = manual,
