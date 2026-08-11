@@ -14,8 +14,9 @@ internal sealed class AiExchangeImportV2Report
 
 /// <summary>
 /// Audited response importer used by the guided visual workflow.
-/// It validates manifest/file identity before ingestion and verifies the resulting Candidate afterwards,
-/// preventing false "image N missing" messages when the asset is actually present in the ZIP.
+/// It validates manifest/file identity before ingestion, validates the REAL returned image pixels
+/// against deterministic Book-Type constraints, and verifies the resulting Candidate afterwards.
+/// A provider description can never override a pixel-level validation failure.
 /// </summary>
 internal static class AiExchangeResponseImportV2
 {
@@ -132,6 +133,13 @@ internal static class AiExchangeResponseImportV2
                         continue;
                     }
 
+                    var image = string.Equals(unit.ContentType, AiExchangeContentTypes.Image, StringComparison.OrdinalIgnoreCase);
+                    var validation = image
+                        ? VisualAssetValidationService.Validate(project, unit, localAssetPath)
+                        : new VisualAssetValidationResult(
+                            VisualAssetValidationStatuses.NotRequired, false,
+                            "Validazione raster non richiesta.", 0, 0, 0, 0, 0, 0, 0);
+
                     var ingest = await AiExchangeResultIngestor.IngestAsync(project, state, new AiExchangeNormalizedResultItem
                     {
                         WorkUnitId = item.WorkUnitId,
@@ -145,6 +153,37 @@ internal static class AiExchangeResponseImportV2
                     });
                     changed |= ingest.Status is "IMPORTED" or "UPDATED" or "INCOMPLETE";
 
+                    var version = state.Versions.FirstOrDefault(v =>
+                        v.WorkUnitId == item.WorkUnitId && v.VersionNumber == item.CandidateVersion);
+                    if (version is null)
+                    {
+                        failed++;
+                        details.Add($"{code}: ingest terminato ma Candidate v{item.CandidateVersion} non presente nello stato Diez.");
+                        continue;
+                    }
+                    if (image && !version.MaterialId.HasValue)
+                    {
+                        incomplete++;
+                        details.Add($"{code}: Candidate v{item.CandidateVersion} creata ma senza asset immagine associato.");
+                        continue;
+                    }
+
+                    if (image)
+                    {
+                        VisualAssetValidationStore.Save(project, version.VersionId, unit.WorkUnitId, validation);
+                        if (validation.BlocksApproval)
+                        {
+                            version.Status = AiExchangeVersionStatuses.Incomplete;
+                            version.DescriptionStatus = AiExchangeDescriptionStatuses.NeedsVerification;
+                            changed = true;
+                            incomplete++;
+                            details.Add($"{code}: {validation.Message}");
+                            details.Add($"{code}: asset conservato per la revisione, ma Candidate v{item.CandidateVersion} bloccata finché non viene sostituita/corretta.");
+                            continue;
+                        }
+                        details.Add($"{code}: {validation.Message}");
+                    }
+
                     switch (ingest.Status)
                     {
                         case "IMPORTED":
@@ -154,24 +193,7 @@ internal static class AiExchangeResponseImportV2
                         case "CONFLICT": conflicts++; break;
                         default: failed++; break;
                     }
-
-                    var version = state.Versions.FirstOrDefault(v =>
-                        v.WorkUnitId == item.WorkUnitId && v.VersionNumber == item.CandidateVersion);
-                    var image = string.Equals(unit.ContentType, AiExchangeContentTypes.Image, StringComparison.OrdinalIgnoreCase);
-                    if (version is null)
-                    {
-                        failed++;
-                        details.Add($"{code}: ingest terminato ma Candidate v{item.CandidateVersion} non presente nello stato Diez.");
-                    }
-                    else if (image && !version.MaterialId.HasValue)
-                    {
-                        incomplete++;
-                        details.Add($"{code}: Candidate v{item.CandidateVersion} creata ma senza asset immagine associato.");
-                    }
-                    else
-                    {
-                        details.Add($"{code}: asset presente e Candidate v{item.CandidateVersion} verificata ({version.Status}).");
-                    }
+                    details.Add($"{code}: asset presente e Candidate v{item.CandidateVersion} verificata ({version.Status}).");
                 }
 
                 // A complete response should normally cover every requested item. A partial response is legal,
@@ -207,10 +229,28 @@ internal static class AiExchangeResponseImportV2
         var promoted = AiExchangeImportPipeline.ReconcileCompletedCandidates(state);
         if (promoted > 0)
         {
-            imported += promoted;
-            incomplete = Math.Max(0, incomplete - promoted);
+            // Never re-promote an item that deterministic asset validation deliberately blocked.
+            var blocked = state.Versions.Count(v =>
+                v.Status == AiExchangeVersionStatuses.Candidate &&
+                VisualAssetValidationStore.Get(project, v.VersionId)?.BlocksApproval == true);
+            if (blocked > 0)
+            {
+                foreach (var version in state.Versions.Where(v =>
+                             v.Status == AiExchangeVersionStatuses.Candidate &&
+                             VisualAssetValidationStore.Get(project, v.VersionId)?.BlocksApproval == true))
+                {
+                    version.Status = AiExchangeVersionStatuses.Incomplete;
+                    version.DescriptionStatus = AiExchangeDescriptionStatuses.NeedsVerification;
+                }
+                promoted = Math.Max(0, promoted - blocked);
+            }
+            if (promoted > 0)
+            {
+                imported += promoted;
+                incomplete = Math.Max(0, incomplete - promoted);
+                details.Add($"Riconciliate {promoted} Candidate completate da package parziali.");
+            }
             changed = true;
-            details.Add($"Riconciliate {promoted} Candidate completate da package parziali.");
         }
 
         if (changed)
@@ -227,7 +267,7 @@ internal static class AiExchangeResponseImportV2
             duplicates,
             conflicts,
             failed,
-            $"Import AI verificato: {imported} pronti/aggiornati · {incomplete} incompleti · {duplicates} duplicati · {conflicts} conflitti · {failed} errori.");
+            $"Import AI verificato: {imported} pronti/aggiornati · {incomplete} incompleti/da correggere · {duplicates} duplicati · {conflicts} conflitti · {failed} errori.");
         return new AiExchangeImportV2Report { Summary = summary, Details = details };
     }
 
