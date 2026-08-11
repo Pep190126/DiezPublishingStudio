@@ -37,6 +37,7 @@ internal static class Program
                 AiExchangeApiSelfTest.RunAsync().GetAwaiter().GetResult();
                 AiExchangeImageContextSelfTest.RunAsync().GetAwaiter().GetResult();
                 PromptEngineeringSelfTest.Run();
+                PromptManualReconciliationSelfTest.Run();
                 VisualPromptIsolationSelfTest.RunAsync().GetAwaiter().GetResult();
                 AiExchangeThreeImageImportSelfTest.RunAsync().GetAwaiter().GetResult();
                 ImageCollectionLayoutSelfTest.RunAsync().GetAwaiter().GetResult();
