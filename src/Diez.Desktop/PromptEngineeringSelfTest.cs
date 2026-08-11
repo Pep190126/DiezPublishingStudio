@@ -15,20 +15,20 @@ internal static class PromptEngineeringSelfTest
         coloring.LineWeight = "Spesso — Bold";
         BookTypePromptProfileService.SaveColoring(project, coloring);
 
-        var openai = PromptEngineeringEngine.BuildSeriesPrompt(
+        var openai = PromptEngineeringCompiler.BuildSeriesPrompt(
             project, 3, "animali della jungla", string.Empty,
             PromptEngineeringProviderIds.OpenAi, true);
-        var gemini = PromptEngineeringEngine.BuildSeriesPrompt(
+        var gemini = PromptEngineeringCompiler.BuildSeriesPrompt(
             project, 3, "animali della jungla", string.Empty,
             PromptEngineeringProviderIds.Gemini, true);
-        var other = PromptEngineeringEngine.BuildSeriesPrompt(
+        var other = PromptEngineeringCompiler.BuildSeriesPrompt(
             project, 3, "animali della jungla", string.Empty,
             PromptEngineeringProviderIds.Other, true);
-        var generic = PromptEngineeringEngine.BuildSeriesPrompt(
+        var generic = PromptEngineeringCompiler.BuildSeriesPrompt(
             project, 3, "animali della jungla", string.Empty,
             PromptEngineeringProviderIds.Generic, true);
 
-        Require(openai.Length >= 4500, $"Prompt OpenAI troppo debole/corto: {openai.Length} caratteri.");
+        Require(openai.Length >= 5000, $"Prompt OpenAI troppo debole/corto: {openai.Length} caratteri.");
         foreach (var prompt in new[] { openai, gemini, other, generic })
         {
             foreach (var required in new[]
@@ -42,16 +42,23 @@ internal static class PromptEngineeringSelfTest
                 "clipart",
                 "PROFESSIONAL QUALITY GATE",
                 "FAIL-SAFE / SELF-CHECK",
-                "animali della jungla"
+                "animali della jungla",
+                "CANONICAL DIEZ PRODUCTION SPECIFICATION"
             })
                 Require(prompt.Contains(required, StringComparison.OrdinalIgnoreCase), "Nucleo professionale mancante: " + required);
         }
 
-        Require(openai.Contains("OPENAI IMAGE GENERATION", StringComparison.Ordinal), "Renderer OpenAI non specifico.");
-        Require(gemini.Contains("GEMINI IMAGE GENERATION", StringComparison.Ordinal), "Renderer Gemini non specifico.");
-        Require(other.Contains("OTHER / USER-SELECTED IMAGE MODEL", StringComparison.Ordinal), "Renderer Altro non specifico.");
-        Require(generic.Contains("MODEL-AGNOSTIC IMAGE GENERATION", StringComparison.Ordinal), "Renderer generico non tecnico.");
-        Require(!string.Equals(openai, gemini, StringComparison.Ordinal), "OpenAI e Gemini producono lo stesso prompt.");
+        Require(openai.Contains("PROVIDER EXECUTION PROFILE — OPENAI", StringComparison.Ordinal), "Renderer OpenAI non specifico.");
+        Require(openai.Contains("GPT Image 2", StringComparison.Ordinal), "Profilo OpenAI avanzato non indirizza la generazione immagini corrente.");
+        Require(gemini.Contains("PROVIDER EXECUTION PROFILE — GEMINI", StringComparison.Ordinal), "Renderer Gemini non specifico.");
+        Require(gemini.Contains("ONE coherent scene concept", StringComparison.Ordinal), "Gemini non usa strategia scene-first.");
+        Require(other.Contains("PROVIDER EXECUTION PROFILE — OTHER", StringComparison.Ordinal), "Renderer Altro non specifico.");
+        Require(other.Contains("native aspect-ratio", StringComparison.OrdinalIgnoreCase), "Altro non spiega il mapping dei controlli nativi.");
+        Require(generic.Contains("MODEL-AGNOSTIC / GENERIC", StringComparison.Ordinal), "Renderer generico non tecnico.");
+        Require(!string.Equals(openai, gemini, StringComparison.Ordinal) &&
+                !string.Equals(openai, other, StringComparison.Ordinal) &&
+                !string.Equals(gemini, other, StringComparison.Ordinal),
+            "Le strategie provider-specific collassano nello stesso prompt.");
 
         PromptMasterStateStore.Save(project, new PromptMasterState
         {
@@ -89,13 +96,14 @@ internal static class PromptEngineeringSelfTest
         sparseProfile.Background = "Nessuno / bianco";
         BookTypePromptProfileService.SaveColoring(sparse, sparseProfile);
 
-        var sparsePrompt = PromptEngineeringEngine.BuildSeriesPrompt(
+        var sparsePrompt = PromptEngineeringCompiler.BuildSeriesPrompt(
             sparse, 3, "animali della jungla", string.Empty, PromptEngineeringProviderIds.Other, true);
-        Require(sparsePrompt.Length >= 4000, "Con profilo Personalizzato e pochi parametri il prompt perde potenza.");
+        Require(sparsePrompt.Length >= 4500, "Con profilo Personalizzato e pochi parametri il prompt perde potenza.");
         foreach (var required in new[]
         {
             "PROFESSIONAL QUALITY GATE", "recognizable anatomy", "clipart", "random floating diamonds",
-            "pure black #000000", "pure white #FFFFFF", "FAIL-SAFE / SELF-CHECK", "animali della jungla"
+            "pure black #000000", "pure white #FFFFFF", "FAIL-SAFE / SELF-CHECK", "animali della jungla",
+            "PROVIDER EXECUTION PROFILE — OTHER"
         })
             Require(sparsePrompt.Contains(required, StringComparison.OrdinalIgnoreCase),
                 "Profilo Personalizzato minimale ha perso il vincolo: " + required);
