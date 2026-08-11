@@ -90,7 +90,6 @@ internal static class SingleWindowPromptTargetAiUi
 
         var suppressPromptEvents = true;
         var initialized = false;
-        var preparedProvider = string.Empty;
 
         int Count()
         {
@@ -127,7 +126,6 @@ internal static class SingleWindowPromptTargetAiUi
             suppressPromptEvents = true;
             try { prompt.Text = value; }
             finally { suppressPromptEvents = false; }
-            preparedProvider = Selected().Id;
             SaveMaster(manual: false);
         }
 
@@ -150,14 +148,12 @@ internal static class SingleWindowPromptTargetAiUi
         {
             var selected = Selected();
             advanced.IsVisible = !string.Equals(selected.Id, PromptEngineeringProviderIds.Generic, StringComparison.OrdinalIgnoreCase);
-            preparedProvider = string.Empty;
             if (!initialized) return;
             await PersistSettingsAsync();
             RefreshNext();
         };
         advanced.IsCheckedChanged += async (_, _) =>
         {
-            preparedProvider = string.Empty;
             if (!initialized) return;
             await PersistSettingsAsync();
             RefreshNext();
@@ -169,18 +165,8 @@ internal static class SingleWindowPromptTargetAiUi
             SaveMaster(manual: true);
             RefreshNext();
         };
-        mustDo.TextChanged += (_, _) =>
-        {
-            if (!initialized) return;
-            // Do not overwrite a manually edited prompt while the user types. The fingerprint
-            // becomes stale and the explicit Prepare button recompiles when requested.
-            RefreshNext();
-        };
-        mustNotDo.TextChanged += (_, _) =>
-        {
-            if (!initialized) return;
-            RefreshNext();
-        };
+        mustDo.TextChanged += (_, _) => { if (initialized) RefreshNext(); };
+        mustNotDo.TextChanged += (_, _) => { if (initialized) RefreshNext(); };
 
         prepare.Click += async (_, _) =>
         {
@@ -213,23 +199,20 @@ internal static class SingleWindowPromptTargetAiUi
         }
         else actionRow.Children.Insert(0, panel);
 
-        // At this point prompt.Text may contain the legacy host-generated prompt. It is trusted only
-        // when Diez has current metadata proving that it came from this engine/parameter fingerprint.
+        // prompt.Text may contain the legacy host-generated prompt. Trust it only if current metadata
+        // matches the CURRENT GUI values; never restore stale MustDo/MustNotDo from an older prompt.
         var existing = PromptMasterStateStore.LoadForCurrentBook(project);
         var metadata = PromptMasterMetadataStore.Load(project);
         var selectedNow = Selected();
         var currentMatches = existing is not null &&
                              PromptMasterMetadataStore.MatchesCurrent(
-                                 project, metadata, Count(), existing.MustDo, existing.MustNotDo,
+                                 project, metadata, Count(), mustDo.Text, mustNotDo.Text,
                                  selectedNow.Id, advanced.IsChecked == true);
         if (currentMatches && !string.IsNullOrWhiteSpace(existing!.Prompt))
         {
-            mustDo.Text = existing.MustDo;
-            mustNotDo.Text = existing.MustNotDo;
             suppressPromptEvents = true;
             try { prompt.Text = existing.Prompt; }
             finally { suppressPromptEvents = false; }
-            preparedProvider = selectedNow.Id;
         }
         else
         {
