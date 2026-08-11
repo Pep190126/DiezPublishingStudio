@@ -85,10 +85,20 @@ internal static class VisualPromptIsolationSelfTest
                 "Il profilo Raccolta immagini viene ancora esportato nel request-context Coloring.");
             Require(!context.Contains("OLD COLLECTION SUNSET LANDSCAPES", StringComparison.OrdinalIgnoreCase),
                 "Testo del profilo Raccolta immagini contaminato nel Prompt Pack Coloring.");
-            Require(manifest.Contains("output_count_for_this_work_unit", StringComparison.OrdinalIgnoreCase),
-                "Il manifest non espone il contratto 1 output per Work Unit.");
-            Require(Count(manifest, "Generate EXACTLY ONE image") == 3,
-                "Non tutte le tre Work Unit impongono esattamente un'immagine.");
+
+            var manifestRoot = JsonNode.Parse(manifest)?.AsObject()
+                ?? throw new InvalidOperationException("Manifest finale non leggibile.");
+            var manifestUnits = manifestRoot["work_units"]?.AsArray()
+                ?? throw new InvalidOperationException("work_units mancanti nel manifest finale.");
+            Require(manifestUnits.Count == 3, $"Manifest finale atteso 3 Work Unit, trovate {manifestUnits.Count}.");
+            foreach (var node in manifestUnits.OfType<JsonObject>())
+            {
+                var code = node["code"]?.ToString() ?? "?";
+                Require(node["output_count_for_this_work_unit"]?.GetValue<int>() == 1,
+                    $"{code}: output_count_for_this_work_unit non è 1.");
+                Require((node["instruction"]?.ToString() ?? string.Empty).Contains("Generate EXACTLY ONE image", StringComparison.Ordinal),
+                    $"{code}: contratto EXACTLY ONE assente dall'istruzione finale.");
+            }
         }
         finally
         {
@@ -102,18 +112,6 @@ internal static class VisualPromptIsolationSelfTest
         await using var stream = entry.Open();
         using var reader = new StreamReader(stream);
         return await reader.ReadToEndAsync();
-    }
-
-    private static int Count(string text, string value)
-    {
-        var count = 0;
-        var start = 0;
-        while ((start = text.IndexOf(value, start, StringComparison.Ordinal)) >= 0)
-        {
-            count++;
-            start += value.Length;
-        }
-        return count;
     }
 
     private static void Require(bool condition, string message)
