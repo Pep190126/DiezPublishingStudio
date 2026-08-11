@@ -6,8 +6,9 @@ using System.Text.Json.Nodes;
 namespace DiezPublishingStudio;
 
 /// <summary>
-/// Adds the complete visual request context to a Prompt Pack after the core builder
-/// has created it. Real images remain authoritative; text descriptions are guidance.
+/// Material/context layer for visual Prompt Packs. This layer exports real files and the structured
+/// context that actually belongs to the ACTIVE Book Type. It intentionally does not emit historical
+/// visual profiles or layout-stage fields and does not own final prompt compilation.
 /// </summary>
 internal static class AiExchangeImageRequestContextService
 {
@@ -72,10 +73,7 @@ internal static class AiExchangeImageRequestContextService
             }
             return state;
         }
-        catch
-        {
-            return new IntakeState();
-        }
+        catch { return new IntakeState(); }
     }
 
     public static void Save(PreviewProject project, IntakeState state)
@@ -138,56 +136,28 @@ internal static class AiExchangeImageRequestContextService
             .ToList();
     }
 
+    /// <summary>
+    /// Compatibility entry point used by older callers. It now delegates to the same canonical
+    /// provider compiler used by the prompt page and final Prompt Pack compiler.
+    /// </summary>
     public static string BuildEffectiveVisualPrompt(PreviewProject project)
     {
-        var type = BookTypeProfileService.Get(project);
-        var sb = new StringBuilder();
-
-        if (string.Equals(type, BookTypeProfileService.ColoringBook, StringComparison.OrdinalIgnoreCase))
-        {
-            sb.AppendLine(BookTypePromptProfileService.BuildColoringBlock(BookTypePromptProfileService.LoadColoring(project)));
-        }
-        else if (string.Equals(type, BookTypeProfileService.ImageCollection, StringComparison.OrdinalIgnoreCase) ||
-                 string.Equals(type, BookTypeProfileService.IllustratedBook, StringComparison.OrdinalIgnoreCase))
-        {
-            if (string.Equals(type, BookTypeProfileService.IllustratedBook, StringComparison.OrdinalIgnoreCase))
-            {
-                sb.AppendLine("CONTESTO LIBRO ILLUSTRATO:");
-                sb.AppendLine("- Le immagini sono illustrazioni interne al libro e devono sostenere il contenuto editoriale/narrativo, non comportarsi come una raccolta scollegata.");
-                sb.AppendLine();
-            }
-            sb.AppendLine(ImageCollectionPromptProfileService.BuildPromptBlock(project));
-        }
-        else
-        {
-            sb.AppendLine("PROFILO EDITORIALE DEL TIPO LIBRO:");
-            sb.AppendLine($"- Tipo libro: {type}.");
-            sb.AppendLine("- Le immagini devono essere coerenti con funzione, struttura e tono del libro.");
-        }
-
-        if (BookTypeProfileService.IsImageCollection(project))
-        {
-            sb.AppendLine();
-            sb.AppendLine(SingleWindowImageSpecsUi.BuildPromptBlock(project));
-        }
-
-        var consistency = ImageCollectionWorkspaceService.GetConsistencyRules(project)?.Trim() ?? string.Empty;
-        if (!string.IsNullOrWhiteSpace(consistency))
-        {
-            sb.AppendLine();
-            sb.AppendLine("CONSISTENT / CONTESTO CONDIVISO EFFETTIVO:");
-            sb.AppendLine(consistency);
-        }
-        return sb.ToString().Trim();
+        var settings = PromptPreparationSettingsStore.Load(project);
+        var master = PromptMasterStateStore.LoadForCurrentBook(project);
+        var count = Math.Max(1,
+            master?.SeriesCount ?? VisualPromptSessionService.ActiveImageJobs(project).Count);
+        return PromptEngineeringCompiler.BuildSeriesPrompt(
+            project,
+            count,
+            master?.MustDo ?? string.Empty,
+            master?.MustNotDo ?? string.Empty,
+            settings.ProviderId,
+            settings.PreferAdvancedModel);
     }
 
     /// <summary>
-    /// Reopens a Prompt Pack built by AiExchangePromptPackBuilder and adds:
-    /// - exact real intake images + intake-index.json;
-    /// - exact base image path + current description;
-    /// - paradigms metadata;
-    /// - instruction/preserve/change/add/remove;
-    /// - every effective image preset in structured and human-readable form.
+    /// Adds exact real intake/base images, descriptions, paradigms and structured visual context.
+    /// PromptPackPromptEngineeringFinalizer subsequently compiles the final per-item instructions.
     /// </summary>
     public static async Task<EnhanceResult> EnhancePromptPackAsync(
         PreviewProject project,
@@ -210,10 +180,9 @@ internal static class AiExchangeImageRequestContextService
 
         JsonObject manifest;
         await using (var stream = manifestEntry.Open())
-        using (var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, leaveOpen: false))
+        using (var reader = new StreamReader(stream, Encoding.UTF8, true, leaveOpen: false))
         {
-            var text = await reader.ReadToEndAsync();
-            manifest = JsonNode.Parse(text)?.AsObject()
+            manifest = JsonNode.Parse(await reader.ReadToEndAsync())?.AsObject()
                 ?? throw new InvalidDataException("prompt-manifest.json non leggibile.");
         }
         manifestEntry.Delete();
@@ -250,10 +219,9 @@ internal static class AiExchangeImageRequestContextService
             var unit = exchangeState.WorkUnits.FirstOrDefault(x => x.WorkUnitId == workUnitId);
             if (unit is null) continue;
 
-            var relevantIntakeIds = intake
+            node["intake_ids"] = new JsonArray(intake
                 .Where(x => x.WorkUnitIds.Count == 0 || x.WorkUnitIds.Contains(workUnitId))
-                .Select(x => JsonValue.Create(x.IntakeId.ToString("D"))).ToArray();
-            node["intake_ids"] = new JsonArray(relevantIntakeIds);
+                .Select(x => JsonValue.Create(x.IntakeId.ToString("D"))).ToArray());
             node["request_context_file"] = ContextName;
             node["instruction"] = unit.Instruction;
             node["preserve"] = new JsonArray(unit.Preserve.Select(x => JsonValue.Create(x)).ToArray());
@@ -262,29 +230,26 @@ internal static class AiExchangeImageRequestContextService
             node["remove"] = new JsonArray(unit.Remove.Select(x => JsonValue.Create(x)).ToArray());
 
             var baseVersion = ResolveBaseVersion(exchangeState, unit);
-            if (baseVersion?.MaterialId is Guid materialId)
-            {
-                var material = project.Materials.FirstOrDefault(m => m.MaterialId == materialId);
-                if (material is not null)
-                {
-                    var baseFile = $"inputs/current/{workUnitId:D}/{SafeName(material.FileName)}";
-                    var baseObject = node["base_version"] as JsonObject ?? new JsonObject();
-                    baseObject["version_id"] = baseVersion.VersionId.ToString("D");
-                    baseObject["version_number"] = baseVersion.VersionNumber;
-                    baseObject["file"] = baseFile;
-                    baseObject["description"] = baseVersion.Description ?? string.Empty;
-                    baseObject["description_status"] = baseVersion.DescriptionStatus ?? string.Empty;
-                    baseObject["sha256"] = material.Sha256 ?? baseVersion.ContentSha256 ?? string.Empty;
-                    baseObject["authoritative_visual_source"] = true;
-                    node["base_version"] = baseObject;
-                    baseCount++;
-                }
-            }
+            if (baseVersion?.MaterialId is not Guid materialId) continue;
+            var material = project.Materials.FirstOrDefault(m => m.MaterialId == materialId);
+            if (material is null) continue;
+
+            var baseFile = $"inputs/current/{workUnitId:D}/{SafeName(material.FileName)}";
+            var baseObject = node["base_version"] as JsonObject ?? new JsonObject();
+            baseObject["version_id"] = baseVersion.VersionId.ToString("D");
+            baseObject["version_number"] = baseVersion.VersionNumber;
+            baseObject["file"] = baseFile;
+            baseObject["description"] = baseVersion.Description ?? string.Empty;
+            baseObject["description_status"] = baseVersion.DescriptionStatus ?? string.Empty;
+            baseObject["sha256"] = material.Sha256 ?? baseVersion.ContentSha256 ?? string.Empty;
+            baseObject["authoritative_visual_source"] = true;
+            node["base_version"] = baseObject;
+            baseCount++;
         }
 
         manifest["intake"] = intakeArray.DeepClone();
         manifest["request_context_file"] = ContextName;
-        manifest["visual_context_protocol_version"] = 2;
+        manifest["visual_context_protocol_version"] = 3;
 
         var requestContext = BuildRequestContext(project, exchangeState, selectedIds, intakeArray, workUnitsArray);
         ReplaceTextEntry(archive, ContextName, requestContext.ToJsonString(JsonOptions));
@@ -300,7 +265,7 @@ internal static class AiExchangeImageRequestContextService
 
         return new EnhanceResult(
             true,
-            $"Contesto immagini V2 aggiunto: {intakeArray.Count} foto intake reali, {baseCount} immagini base, preset completi e descrizioni.",
+            $"Contesto immagini V3 aggiunto: {intakeArray.Count} foto intake reali, {baseCount} immagini base, un solo profilo attivo e specifiche tecniche correnti.",
             intakeArray.Count,
             baseCount);
     }
@@ -333,19 +298,24 @@ internal static class AiExchangeImageRequestContextService
         var presets = new JsonObject
         {
             ["book_type"] = type,
-            ["coloring_profile"] = EntityNotesJson(project, "DiezColoringPromptProfile"),
-            ["illustration_profile"] = EntityNotesJson(project, "DiezImageCollectionPromptProfile"),
-            ["technical_image_specs"] = EntityNotesJson(project, "DiezImageGenerationSpecs"),
+            ["active_profile_kind"] = ActiveProfileKind(type),
+            ["technical_image_specs"] = TechnicalImageSpecsJson(project),
             ["consistent_rules"] = ImageCollectionWorkspaceService.GetConsistencyRules(project) ?? string.Empty,
             ["effective_visual_prompt"] = BuildEffectiveVisualPrompt(project)
         };
+        if (string.Equals(type, BookTypeProfileService.ColoringBook, StringComparison.OrdinalIgnoreCase))
+            presets["coloring_profile"] = EntityNotesJson(project, "DiezColoringPromptProfile");
+        else if (string.Equals(type, BookTypeProfileService.ImageCollection, StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(type, BookTypeProfileService.IllustratedBook, StringComparison.OrdinalIgnoreCase))
+            presets["illustration_profile"] = EntityNotesJson(project, "DiezImageCollectionPromptProfile");
 
         return new JsonObject
         {
             ["schema"] = "diez-visual-request-context",
-            ["schema_version"] = 2,
+            ["schema_version"] = 3,
             ["project_id"] = project.ProjectId.ToString("D"),
             ["book_type"] = type,
+            ["active_profile_kind"] = ActiveProfileKind(type),
             ["priority"] = new JsonArray(
                 "explicit_work_unit_instruction",
                 "preserve_change_add_remove",
@@ -353,14 +323,35 @@ internal static class AiExchangeImageRequestContextService
                 "intake_real_files_and_user_descriptions",
                 "paradigms_and_roles",
                 "consistent_shared_context",
-                "image_presets",
+                "current_book_type_profile",
+                "technical_image_specs",
                 "ai_creative_freedom"),
-            ["critical_rule"] = "Per correzioni/modifiche l'immagine base reale è la sorgente visiva autoritativa. Le descrizioni utente e correnti guidano l'AI ma non sostituiscono il file immagine.",
+            ["critical_rule"] = "Per correzioni/modifiche l'immagine base reale è la sorgente visiva autoritativa. Le descrizioni guidano l'AI ma non sostituiscono mai il file immagine.",
+            ["profile_isolation_rule"] = "Solo il profilo del Tipo libro attivo appartiene a questa richiesta; i profili visuali storici o di altri Tipi libro non vengono esportati.",
             ["image_presets"] = presets,
             ["intake"] = intake.DeepClone(),
             ["paradigms"] = paradigms,
             ["work_units"] = workUnits.DeepClone()
         };
+    }
+
+    private static string ActiveProfileKind(string type) =>
+        string.Equals(type, BookTypeProfileService.ColoringBook, StringComparison.OrdinalIgnoreCase) ? "COLORING_BOOK" :
+        string.Equals(type, BookTypeProfileService.IllustratedBook, StringComparison.OrdinalIgnoreCase) ? "ILLUSTRATED_BOOK" :
+        string.Equals(type, BookTypeProfileService.ImageCollection, StringComparison.OrdinalIgnoreCase) ? "IMAGE_COLLECTION" :
+        "GENERIC_VISUAL";
+
+    private static JsonNode TechnicalImageSpecsJson(PreviewProject project)
+    {
+        var node = EntityNotesJson(project, "DiezImageGenerationSpecs");
+        if (node is not JsonObject obj) return node;
+        foreach (var key in new[]
+                 {
+                     "Orientation", "orientation", "SafeMargin", "safe_margin",
+                     "Bleed", "bleed", "BleedAmount", "bleed_amount"
+                 })
+            obj.Remove(key);
+        return obj;
     }
 
     private static JsonNode EntityNotesJson(PreviewProject project, string kind)
@@ -392,21 +383,21 @@ internal static class AiExchangeImageRequestContextService
         if (entry is not null)
         {
             using var stream = entry.Open();
-            using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, leaveOpen: false);
+            using var reader = new StreamReader(stream, Encoding.UTF8, true, leaveOpen: false);
             existing = reader.ReadToEnd();
             entry.Delete();
         }
 
         var addition = """
 
-## Contesto visuale Diez V2 — OBBLIGATORIO
+## Contesto visuale Diez V3 — OBBLIGATORIO
 1. Leggi `request-context.json` prima di generare o correggere qualsiasi immagine.
-2. Le foto sotto `inputs/intake/` sono file reali dell'utente. Usa il file reale insieme a ruolo e descrizione presenti in `inputs/intake/intake-index.json`; non ricostruire la foto dalla sola descrizione.
-3. In una correzione/modifica, `base_version.file` è l'immagine base reale autoritativa. Devi modificarla, non rigenerarla liberamente, salvo istruzione `REGENERATE` esplicita.
-4. Considera insieme: immagine base reale + descrizione corrente + foto intake pertinenti + relative descrizioni + paradigmi e ruoli + istruzione + preserve/change/add/remove + tutti i preset immagini.
-5. I preset immagini in `request-context.json` sono vincoli effettivi della richiesta: Tipo libro, profilo visuale, soggetto/ambiente, colore o B/N/grigi, dettaglio, spessore/contorno, qualità HD/FHD/2K/4K/8K/personalizzata, pixel, aspect ratio, DPI, formato, margini, bleed e Consistent.
-6. `preserve` significa lasciare visivamente invariati gli elementi indicati. Gli elementi non citati vanno preservati quando la richiesta è una modifica locale.
-7. Dopo ogni modifica, restituisci una descrizione aggiornata che corrisponda all'immagine finale effettiva.
+2. Usa esclusivamente il profilo visuale del Tipo libro attivo dichiarato in `active_profile_kind`; non inferire o recuperare profili storici.
+3. Le foto sotto `inputs/intake/` sono file reali dell'utente. Usa il file reale insieme a ruolo e descrizione; non ricostruire una foto dalla sola descrizione.
+4. In una correzione/modifica, `base_version.file` è l'immagine base reale autoritativa. Modifica quella sorgente salvo istruzione `REGENERATE` esplicita.
+5. Considera insieme: base reale + descrizione corrente + intake pertinenti + relative descrizioni + paradigmi/ruoli + preserve/change/add/remove + profilo attivo + Consistent + specifiche immagine correnti.
+6. `preserve` significa lasciare visivamente invariati gli elementi indicati. Gli elementi non citati vanno preservati nelle modifiche locali quando richiesto.
+7. Dopo ogni modifica restituisci una descrizione aggiornata che corrisponda all'immagine finale effettiva.
 """;
         ReplaceTextEntry(archive, InstructionsName, existing.TrimEnd() + addition);
     }
