@@ -53,7 +53,7 @@ internal static class AiVisualPromptPackService
 
         return new BuildResult(
             true,
-            $"Prompt Pack pronto: {units.Count} Work Unit · clean-room queue guidata in {PromptPackCleanRoomQueueService.LauncherFileName} · un Response parziale per Work Unit, importabili insieme · profilo {BookTypeProfileService.Get(project)} isolato · {execution.PromptPackFileName}.",
+            $"Prompt Pack pronto: {units.Count} Work Unit · clean-room queue guidata in {PromptPackCleanRoomQueueService.LauncherFileName} · un partial Response tecnico per Work Unit → un unico Response Bundle finale {execution.ResponseFileName} · profilo {BookTypeProfileService.Get(project)} isolato · {execution.PromptPackFileName}.",
             built.PromptPackId,
             units.Count,
             enhanced.IntakeImages,
