@@ -73,14 +73,20 @@ internal static class SingleWindowVisionValidationUi
             return selected.GetType().GetProperty("Unit", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)?.GetValue(selected) as AiExchangeWorkUnit;
         }
 
-        AiExchangeVersion? SelectedVersion(AiExchangeState state)
+        AiExchangeVersion? LatestUsableVersion(AiExchangeState state, AiExchangeWorkUnit unit)
         {
-            var unit = SelectedUnit();
-            if (unit is null) return null;
-            return state.Versions
+            var version = state.Versions
                 .Where(v => v.WorkUnitId == unit.WorkUnitId && v.Status != AiExchangeVersionStatuses.Rejected)
                 .OrderByDescending(v => v.VersionNumber)
                 .FirstOrDefault();
+            var failure = AiExchangeResponseFailureStore.Latest(project, unit.WorkUnitId);
+            return SingleWindowResponseReviewUi.FailureIsCurrent(version, failure) ? null : version;
+        }
+
+        AiExchangeVersion? SelectedVersion(AiExchangeState state)
+        {
+            var unit = SelectedUnit();
+            return unit is null ? null : LatestUsableVersion(state, unit);
         }
 
         void Refresh()
@@ -88,10 +94,29 @@ internal static class SingleWindowVisionValidationUi
             var state = AiExchangeStateStore.Load(project);
             var unit = SelectedUnit();
             var version = SelectedVersion(state);
-            if (unit is null || version is null)
+            if (unit is null)
             {
                 status.Text = "Vision: seleziona una Candidate con immagine.";
                 details.Text = string.Empty;
+                direct.IsEnabled = false;
+                safeApprove.IsEnabled = false;
+                return;
+            }
+            if (version is null)
+            {
+                var failure = AiExchangeResponseFailureStore.Latest(project, unit.WorkUnitId);
+                if (failure is not null)
+                {
+                    status.Text = $"Vision non eseguibile: {unit.Code} v{failure.CandidateVersion} è FAILED e non contiene un asset corrente.";
+                    details.Text = string.IsNullOrWhiteSpace(failure.FailureReason)
+                        ? "Il Response ha registrato FAILED senza asset da analizzare."
+                        : "FAILED provider: " + failure.FailureReason;
+                }
+                else
+                {
+                    status.Text = "Vision: seleziona una Candidate con immagine.";
+                    details.Text = string.Empty;
+                }
                 direct.IsEnabled = false;
                 safeApprove.IsEnabled = false;
                 return;
@@ -177,16 +202,13 @@ internal static class SingleWindowVisionValidationUi
                 .OrderBy(u => u.Position)
                 .ToList();
             var latestVersions = activeUnits
-                .Select(u => state.Versions
-                    .Where(v => v.WorkUnitId == u.WorkUnitId && v.MaterialId.HasValue && v.Status != AiExchangeVersionStatuses.Rejected)
-                    .OrderByDescending(v => v.VersionNumber)
-                    .FirstOrDefault())
-                .Where(v => v is not null)
+                .Select(u => LatestUsableVersion(state, u))
+                .Where(v => v?.MaterialId.HasValue == true)
                 .Select(v => v!.VersionId)
                 .ToList();
             if (latestVersions.Count == 0)
             {
-                status.Text = "Non ci sono Candidate con file reale da inviare al controllo Vision.";
+                status.Text = "Non ci sono Candidate correnti con file reale da inviare al controllo Vision. I FAILED senza asset restano auditabili ma non sono immagini da analizzare.";
                 return;
             }
 
@@ -199,7 +221,7 @@ internal static class SingleWindowVisionValidationUi
             });
             if (file is null) return;
 
-            var result = await VisionValidationPromptPackService.BuildAsync(
+            var result = await VisionValidationPromptPackHardStyleService.BuildAsync(
                 project, path, state, latestVersions, EnsureZip(file.Path.LocalPath));
             status.Text = result.Message;
             SetMainStatus(window, result.Message);
@@ -254,7 +276,7 @@ internal static class SingleWindowVisionValidationUi
                 new TextBlock { Text = "Controllo qualità Vision", FontSize = 18 },
                 new TextBlock
                 {
-                    Text = $"Secondo passaggio semantico indipendente · destinatario: {ProviderLabel(provider)}. Il modello deve guardare i file reali e confrontarli con la stessa specifica canonica usata per generarli. Un FAIL HARD blocca l'approvazione; REVIEW resta alla decisione umana. OpenAI/Gemini possono essere eseguiti direttamente con chiavi lette dall'ambiente; nessuna chiave viene salvata nel progetto. Il flusso ZIP resta sempre disponibile.",
+                    Text = $"Secondo passaggio semantico indipendente · destinatario: {ProviderLabel(provider)}. Il modello deve guardare i file reali e confrontarli con la stessa specifica canonica usata per generarli. Soggetto atomico, composizione singola e stile esplicitamente selezionato sono vincoli HARD; un FAIL HARD blocca l'approvazione. REVIEW resta alla decisione umana per dubbi o qualità dentro lo stile corretto. OpenAI/Gemini possono essere eseguiti direttamente con chiavi lette dall'ambiente; nessuna chiave viene salvata nel progetto. Il flusso ZIP resta sempre disponibile.",
                     TextWrapping = Avalonia.Media.TextWrapping.Wrap,
                     MaxWidth = 820
                 },
