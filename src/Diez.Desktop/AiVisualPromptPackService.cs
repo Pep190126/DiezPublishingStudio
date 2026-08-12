@@ -31,6 +31,7 @@ internal static class AiVisualPromptPackService
         if (units.Any(u => !string.Equals(u.ContentType, AiExchangeContentTypes.Image, StringComparison.OrdinalIgnoreCase)))
             return new BuildResult(false, "Il Prompt Pack visuale può contenere solo Work Unit immagine.", Guid.Empty, units.Count, 0, 0);
 
+        var packageVersion = BookPackageNamingService.PeekNextVersion(project);
         var built = await AiExchangePromptPackBuilder.BuildAsync(project, projectPath, state, ids, targetPath);
         if (!built.Success)
             return new BuildResult(false, built.Message, built.PromptPackId, units.Count, 0, 0);
@@ -45,12 +46,14 @@ internal static class AiVisualPromptPackService
         PromptPackPromptEngineeringFinalizer.Finalize(targetPath, project, state, ids);
         PromptPackEnglishInstructionService.Rewrite(targetPath, project);
         AiExchangeVisualLayoutSanitizer.Sanitize(targetPath);
+        var execution = PromptPackExecutionPlanService.Apply(targetPath, project, state, ids, packageVersion);
+        BookPackageNamingService.CommitVersion(project, packageVersion);
         AiExchangeStateStore.Save(project, state);
         await ProjectFileStore.SaveAsync(projectPath, project);
 
         return new BuildResult(
             true,
-            $"Prompt Pack pronto: {units.Count} Work Unit · 1 immagine per Work Unit · profilo {BookTypeProfileService.Get(project)} isolato · prompt engine v{PromptEngineeringEngine.EngineVersion}.",
+            $"Prompt Pack pronto: {units.Count} Work Unit · 1 chiamata renderer fresca per Work Unit · profilo {BookTypeProfileService.Get(project)} isolato · {execution.PromptPackFileName} → {execution.ResponseFileName}.",
             built.PromptPackId,
             units.Count,
             enhanced.IntakeImages,
