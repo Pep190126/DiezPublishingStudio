@@ -37,13 +37,11 @@ internal static class BookTypePromptProfileService
     }
 
     /// <summary>
-    /// One visual style per project/profile. Bold & Easy is deliberately NOT a style entry: it is an
-    /// independent bidirectional HARD production parameter so it can be combined with e.g. Kawaii or Cozy,
-    /// or explicitly forbidden when the selected line treatment calls for fine/thin lines.
+    /// Exactly one visual style per profile. Bold & Easy and Cozy are deliberately NOT style entries:
+    /// both are independent bidirectional HARD production parameters and can be combined with any style.
     /// </summary>
     public static readonly string[] ColoringStyles =
     [
-        "Cozy",
         "Kawaii",
         "Cartoon",
         "Chibi",
@@ -118,12 +116,17 @@ internal static class BookTypePromptProfileService
         {
             var profile = JsonSerializer.Deserialize<ColoringProfile>(entity.Notes, JsonOptions) ?? new ColoringProfile();
 
-            // Backward-compatible semantic migration. The old combined style values must not survive as
-            // renderer-facing choices in the new model.
+            // Backward-compatible semantic migration. Old combined/orthogonal values must not survive as
+            // renderer-facing style choices in the new model.
             if (string.Equals(profile.Style, "Bold & Easy", StringComparison.OrdinalIgnoreCase))
             {
                 profile.Style = "Clean Line Art";
                 profile.BoldEasy = true;
+            }
+            else if (string.Equals(profile.Style, "Cozy", StringComparison.OrdinalIgnoreCase))
+            {
+                profile.Style = "Clean Line Art";
+                ColoringCozyPolicyStore.Save(project, true);
             }
             else if (string.Equals(profile.Style, "Kawaii / Cartoon", StringComparison.OrdinalIgnoreCase))
             {
@@ -231,6 +234,7 @@ internal static class BookTypePromptProfileService
             "Personalizzato" => "Custom",
             "Kawaii / Cartoon" => "Kawaii",
             "Bold & Easy" => "Clean Line Art",
+            "Cozy" => "Clean Line Art",
             _ when ColoringStyles.Contains(style, StringComparer.OrdinalIgnoreCase) =>
                 ColoringStyles.First(x => string.Equals(x, style, StringComparison.OrdinalIgnoreCase)),
             _ => "Custom"
@@ -242,7 +246,6 @@ internal static class BookTypePromptProfileService
         var s = NormalizeColoringStyle(style);
         return s switch
         {
-            "Cozy" => "Use a warm, comforting, gentle visual mood with friendly rounded forms and inviting domestic/nature details; avoid harsh, threatening or clinical realism.",
             "Kawaii" => "Use unmistakably cute Kawaii traits: simplified rounded forms, relatively large expressive eyes/head where appropriate, tiny/simple features and friendly charm; reject realistic natural-history rendering.",
             "Cartoon" => "Use unmistakably cartoon construction: simplified stylized anatomy, expressive features, clear shape language and intentionally non-photorealistic proportions; reject documentary/naturalistic rendering.",
             "Chibi" => "Use chibi proportions with an intentionally oversized head, compact simplified body, cute expressive face and reduced anatomical detail.",
@@ -340,9 +343,6 @@ internal static class BookTypePromptProfileService
 
         switch (normalized)
         {
-            case "Cozy":
-                yield return "Cozy: atmosfera rassicurante, forme morbide e dettagli domestici/naturali accoglienti; evitare resa fredda, aggressiva o documentaristica.";
-                break;
             case "Kawaii":
                 yield return "Kawaii: forme arrotondate, occhi/viso espressivi e proporzioni volutamente cute; vietata la deriva naturalistica/realistica.";
                 break;
