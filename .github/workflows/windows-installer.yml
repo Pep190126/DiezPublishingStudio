@@ -127,8 +127,8 @@ jobs:
             "coloring-binary-bw=fixed", "line-thickness=dropdown", "image-specs=visible", "kdp-trim-presets=yes",
             "editable-inputs=avaloniaedit-raster", "active-project=kept-until-replace-or-exit", "home-resume=book-type",
             "consistent-on=criteria-native-visible", "consistency-notes=native-visible", "consistency-levels=3",
-            "consistency-free-strategies=USER,AI,MIXED", "consistency-free-user=description-required",
-            "consistency-free-ai=description-optional", "consistency-free-mixed=description-required",
+            "consistent-free-strategies=USER,AI,MIXED", "consistent-free-user=description-required",
+            "consistent-free-ai=description-optional", "consistent-free-mixed=description-required",
             "bleed=image-generation-removed", "prompt-editors=native-3", "undo=ctrl-z", "redo=ctrl-y",
             "prompt-semantic-engine=3.0", "prompt-provider-compiler=3.5", "prompt-profile-isolation=yes",
             "prompt-work-unit-output=1", "prompt-render-field=image_generation_prompt", "prompt-context-single-source=yes",
@@ -136,6 +136,9 @@ jobs:
             "prompt-composition-hard=yes", "renderer-prompt-scope=visual-only", "manual-render-plan=1.3",
             "manual-render-fresh-per-work-unit=yes", "manual-render-fresh-context-owner=executor",
             "manual-render-call-isolation=no-prior-image-reference", "manual-render-chat-session=conditional-on-provider-visual-state",
+            "manual-clean-room-queue=1.0", "manual-clean-room-launcher=yes",
+            "manual-clean-room-chat=temporary-or-new-blank-per-work-unit", "manual-clean-room-one-attempt=yes",
+            "manual-partial-response=one-per-work-unit", "manual-partial-response-import=multi-select-once",
             "package-naming=diez-title-versioned", "visual-context=V3", "response-import=audited-v2",
             "response-failed-review=scrollable-audited", "visual-prompt-pipeline=single-source",
             "vision-style-match=hard", "vision-bold-easy-match=hard", "vision-cozy-match=hard"
@@ -233,7 +236,7 @@ jobs:
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
-          name: DiezPublishingStudio-Setup-1.0.0-rc8-SW-FLOW-12-PromptCompiler35-VisualOnlyRenderer
+          name: DiezPublishingStudio-Setup-1.0.0-rc8-SW-FLOW-12-PromptCompiler35-CleanRoomQueue10
           path: artifacts/installer/DiezPublishingStudio-Setup.exe
           if-no-files-found: error
           retention-days: 90
