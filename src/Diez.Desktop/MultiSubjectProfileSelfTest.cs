@@ -82,6 +82,16 @@ internal static class MultiSubjectProfileSelfTest
         Require(!prompts[1].Contains("heart-shaped patch", StringComparison.OrdinalIgnoreCase),
             "La descrizione di Milo contamina Luna.");
 
+        // A partial/correction pack that contains only the second Work Unit must still resolve its stable
+        // project Position=2. Its local pack index/count may be 1/1, but it must remain Luna rather than Milo.
+        var partialLuna = PromptPackProviderFacingService.BuildImageGenerationPrompt(project, units[1], 1, 1, settings);
+        Require(partialLuna.Contains("PRIMARY SUBJECT — HARD LOCK: Luna", StringComparison.Ordinal),
+            "Export parziale della Work Unit 2 ha riassegnato il soggetto da Luna a Milo.");
+        Require(partialLuna.Contains("friendly dog with long floppy ears", StringComparison.OrdinalIgnoreCase),
+            "Export parziale della Work Unit 2 non conserva l'identità di Luna.");
+        Require(!partialLuna.Contains("heart-shaped patch", StringComparison.OrdinalIgnoreCase),
+            "Export parziale di Luna è contaminato dal profilo di Milo.");
+
         // Direct Vision uses the same structured subject and per-subject Consistent contract.
         var vision = new VisionValidationRequest { Expected = new VisionExpectedSpecification { ItemSubject = "legacy ambiguous subject" } };
         VisionStructuredSubjectService.Apply(project, units[1], vision);
@@ -98,16 +108,16 @@ internal static class MultiSubjectProfileSelfTest
         var tempZip = Path.Combine(Path.GetTempPath(), "diez-subject-id-selftest-" + Guid.NewGuid().ToString("N") + ".zip");
         try
         {
-            using (var zip = ZipFile.Open(tempZip, ZipArchiveMode.Create))
+            using (var createArchive = ZipFile.Open(tempZip, ZipArchiveMode.Create))
             {
-                WriteWorkUnits(zip, "prompt-manifest.json", units);
-                WriteWorkUnits(zip, "request-context.json", units);
+                WriteWorkUnits(createArchive, "prompt-manifest.json", units);
+                WriteWorkUnits(createArchive, "request-context.json", units);
             }
             PromptPackSubjectIdentityService.Apply(tempZip, project, state, units.Select(x => x.WorkUnitId));
-            using var zip = ZipFile.OpenRead(tempZip);
+            using var readArchive = ZipFile.OpenRead(tempZip);
             foreach (var file in new[] { "prompt-manifest.json", "request-context.json" })
             {
-                using var reader = new StreamReader(zip.GetEntry(file)!.Open(), Encoding.UTF8, true);
+                using var reader = new StreamReader(readArchive.GetEntry(file)!.Open(), Encoding.UTF8, true);
                 using var doc = JsonDocument.Parse(reader.ReadToEnd());
                 var nodes = doc.RootElement.GetProperty("work_units").EnumerateArray().ToList();
                 for (var i = 0; i < 3; i++)
@@ -126,6 +136,35 @@ internal static class MultiSubjectProfileSelfTest
         finally
         {
             try { if (File.Exists(tempZip)) File.Delete(tempZip); } catch { }
+        }
+
+        // Audit metadata for a partial WU2 export must also stay on Luna.
+        var partialZip = Path.Combine(Path.GetTempPath(), "diez-subject-id-partial-selftest-" + Guid.NewGuid().ToString("N") + ".zip");
+        try
+        {
+            using (var createArchive = ZipFile.Open(partialZip, ZipArchiveMode.Create))
+            {
+                WriteWorkUnits(createArchive, "prompt-manifest.json", new[] { units[1] });
+                WriteWorkUnits(createArchive, "request-context.json", new[] { units[1] });
+            }
+            PromptPackSubjectIdentityService.Apply(partialZip, project, state, new[] { units[1].WorkUnitId });
+            using var readArchive = ZipFile.OpenRead(partialZip);
+            foreach (var file in new[] { "prompt-manifest.json", "request-context.json" })
+            {
+                using var reader = new StreamReader(readArchive.GetEntry(file)!.Open(), Encoding.UTF8, true);
+                using var doc = JsonDocument.Parse(reader.ReadToEnd());
+                var node = doc.RootElement.GetProperty("work_units")[0];
+                Require(node.GetProperty("subject_id").GetString() == subjects[1].SubjectId,
+                    file + ": export parziale WU2 ha SubjectId diverso da Luna.");
+                Require(node.GetProperty("subject_name").GetString() == "Luna",
+                    file + ": export parziale WU2 ha subject_name diverso da Luna.");
+                Require(node.GetProperty("subject_series_position").GetInt32() == 2,
+                    file + ": export parziale WU2 perde la posizione stabile 2.");
+            }
+        }
+        finally
+        {
+            try { if (File.Exists(partialZip)) File.Delete(partialZip); } catch { }
         }
 
         // Lowering the requested cast size is non-destructive: IDs/history stay in the model.
@@ -153,13 +192,13 @@ internal static class MultiSubjectProfileSelfTest
             "Selezione Custom dalla libreria non ripristina la definizione HARD nel progetto.");
     }
 
-    private static void WriteWorkUnits(ZipArchive zip, string path, IReadOnlyList<AiExchangeWorkUnit> units)
+    private static void WriteWorkUnits(ZipArchive archive, string path, IReadOnlyList<AiExchangeWorkUnit> units)
     {
         var payload = JsonSerializer.Serialize(new
         {
             work_units = units.Select(x => new { id = x.WorkUnitId.ToString("D"), code = x.Code }).ToArray()
         });
-        var entry = zip.CreateEntry(path, CompressionLevel.Optimal);
+        var entry = archive.CreateEntry(path, CompressionLevel.Optimal);
         using var writer = new StreamWriter(entry.Open(), new UTF8Encoding(false));
         writer.Write(payload);
     }
