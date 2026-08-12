@@ -53,7 +53,7 @@ internal static class SingleWindowV11ContractProbe
                 throw new InvalidOperationException("Titolo del libro non resta disponibile tornando nella pagina Tipo libro.");
 
             SingleWindowNativeV11Ui.ShowQuantity(window, host);
-            await WaitForLayoutAsync();
+            await WaitForLayoutAsync(220);
             var quantity = pageHost.Content as Control ?? throw new InvalidOperationException("Pagina Quantità assente.");
             AssertText(quantity, "Quante immagini vuoi creare?");
             AssertNoButton(quantity, "Cambia Tipo libro");
@@ -69,6 +69,39 @@ internal static class SingleWindowV11ContractProbe
             RequireNativeEditor(environment, "Ambientazione");
             subject.Text = "Bambina con cappello. Immagine 3: compare anche un gatto.";
             environment.Text = "Parco. Immagine 3: cucina.";
+
+            // Real GUI contract for the independent Coloring HARD dimensions.
+            SingleWindowColoringStylePolicyUi.Refresh(window);
+            await WaitForLayoutAsync(180);
+            var style = RequireCombo(quantity, "ColoringStyle");
+            var styleValues = Values(style);
+            foreach (var expected in new[] { "Kawaii", "Cartoon", "Chibi", "Whimsical", "Detailed Line Art", "Manga" })
+                if (!styleValues.Contains(expected, StringComparer.OrdinalIgnoreCase))
+                    throw new InvalidOperationException("Stile Coloring singolo mancante: " + expected);
+            if (styleValues.Contains("Cozy", StringComparer.OrdinalIgnoreCase) ||
+                styleValues.Contains("Bold & Easy", StringComparer.OrdinalIgnoreCase) ||
+                styleValues.Contains("Kawaii / Cartoon", StringComparer.OrdinalIgnoreCase))
+                throw new InvalidOperationException("Stile combinato/parametro indipendente ancora presente nel menu Stile.");
+
+            var lineWeight = RequireCombo(quantity, "ColoringLineWeight");
+            var boldEasy = RequireCombo(quantity, "ColoringBoldEasyHard");
+            var cozy = RequireCombo(quantity, "ColoringCozyHard");
+            SelectByText(style, "Kawaii");
+            SelectByText(lineWeight, "Sottile — Fine");
+            await WaitForLayoutAsync(180);
+            if (boldEasy.IsEnabled)
+                throw new InvalidOperationException("Bold & Easy resta attivabile con linee Sottile/Fine.");
+            if (!string.Equals(boldEasy.SelectedItem?.ToString(), "OFF — No Bold & Easy HARD", StringComparison.Ordinal))
+                throw new InvalidOperationException("Linee Sottile/Fine non forzano Bold & Easy HARD OFF.");
+            if (!cozy.IsEnabled)
+                throw new InvalidOperationException("Cozy non deve essere disabilitato dalle linee sottili.");
+            SelectByText(cozy, "ON — Cozy HARD");
+            await WaitForLayoutAsync(180);
+            var uiHardProfile = ColoringIndependentHardProfileService.Resolve(project);
+            if (!string.Equals(uiHardProfile.Style, "Kawaii", StringComparison.OrdinalIgnoreCase) ||
+                uiHardProfile.BoldEasy || !uiHardProfile.Cozy ||
+                !BookTypePromptProfileService.IsThinLineWeight(uiHardProfile.LineWeight))
+                throw new InvalidOperationException("Stato GUI HARD non persistito come Kawaii + Bold OFF + Cozy ON + Thin/Fine.");
 
             var consistent = Descendants(quantity).OfType<CheckBox>().FirstOrDefault(c =>
                 (c.Content?.ToString() ?? string.Empty).StartsWith("Consistent", StringComparison.OrdinalIgnoreCase))
@@ -173,6 +206,10 @@ internal static class SingleWindowV11ContractProbe
                          "TECHNICAL OUTPUT SPECIFICATION",
                          "Image aspect ratio",
                          "Rendering quality",
+                         "STYLE — HARD LOCK: Kawaii",
+                         "BOLD & EASY — HARD: OFF",
+                         "COZY — HARD: ON",
+                         "LINE WEIGHT — HARD: Thin — Fine",
                          "pure black #000000",
                          "pure white #FFFFFF"
                      })
@@ -181,10 +218,11 @@ internal static class SingleWindowV11ContractProbe
             foreach (var forbidden in new[]
                      {
                          "SPECIFICHE TECNICHE:", "Formato pagina / trim finale", "Qualità rendering",
-                         "Livello tecnico di dettaglio", "Risoluzione target effettiva", "REGOLE COMUNI DEL PROGETTO:"
+                         "Livello tecnico di dettaglio", "Risoluzione target effettiva", "REGOLE COMUNI DEL PROGETTO:",
+                         "Kawaii / Cartoon"
                      })
                 if (openAiPrompt.Contains(forbidden, StringComparison.OrdinalIgnoreCase))
-                    throw new InvalidOperationException("Prompt OpenAI GUI contiene ancora specifiche generate in italiano: " + forbidden);
+                    throw new InvalidOperationException("Prompt OpenAI GUI contiene ancora testo legacy/non ammesso: " + forbidden);
 
             SelectByText(provider, "Gemini");
             await WaitForLayoutAsync();
@@ -197,13 +235,16 @@ internal static class SingleWindowV11ContractProbe
                          "ONE coherent scene concept",
                          "COMMERCIAL COLORING BOOK",
                          "PROFESSIONAL QUALITY GATE",
-                         "TECHNICAL OUTPUT SPECIFICATION"
+                         "TECHNICAL OUTPUT SPECIFICATION",
+                         "STYLE — HARD LOCK: Kawaii",
+                         "BOLD & EASY — HARD: OFF",
+                         "COZY — HARD: ON"
                      })
                 if (!geminiPrompt.Contains(required, StringComparison.OrdinalIgnoreCase))
                     throw new InvalidOperationException("Prompt Gemini GUI incompleto: " + required);
-            foreach (var forbidden in new[] { "SPECIFICHE TECNICHE:", "Qualità rendering", "Risoluzione target effettiva" })
+            foreach (var forbidden in new[] { "SPECIFICHE TECNICHE:", "Qualità rendering", "Risoluzione target effettiva", "Kawaii / Cartoon" })
                 if (geminiPrompt.Contains(forbidden, StringComparison.OrdinalIgnoreCase))
-                    throw new InvalidOperationException("Prompt Gemini GUI contiene ancora specifiche generate in italiano: " + forbidden);
+                    throw new InvalidOperationException("Prompt Gemini GUI contiene ancora testo legacy/non ammesso: " + forbidden);
             if (string.Equals(openAiPrompt, geminiPrompt, StringComparison.Ordinal))
                 throw new InvalidOperationException("La GUI produce lo stesso prompt per OpenAI e Gemini.");
 
