@@ -47,13 +47,14 @@ internal static class AiVisualPromptPackService
         PromptPackEnglishInstructionService.Rewrite(targetPath, project);
         AiExchangeVisualLayoutSanitizer.Sanitize(targetPath);
         var execution = PromptPackExecutionPlanService.Apply(targetPath, project, state, ids, packageVersion);
+        PromptPackLocalImageHandoffService.Apply(targetPath);
         BookPackageNamingService.CommitVersion(project, packageVersion);
         AiExchangeStateStore.Save(project, state);
         await ProjectFileStore.SaveAsync(projectPath, project);
 
         return new BuildResult(
             true,
-            $"Prompt Pack pronto: {units.Count} Work Unit · clean-room queue guidata in {PromptPackCleanRoomQueueService.LauncherFileName} · un partial Response tecnico per Work Unit → un unico Response Bundle finale {execution.ResponseFileName} · profilo {BookTypeProfileService.Get(project)} isolato · {execution.PromptPackFileName}.",
+            $"Prompt Pack pronto: {units.Count} Work Unit · launcher locale in {PromptPackCleanRoomQueueService.LauncherFileName} · ogni nuova chat riceve solo il prompt immagine e restituisce solo l'asset · il launcher costruisce i partial Response e il bundle finale {execution.ResponseFileName} · profilo {BookTypeProfileService.Get(project)} isolato · {execution.PromptPackFileName}.",
             built.PromptPackId,
             units.Count,
             enhanced.IntakeImages,
