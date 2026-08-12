@@ -17,7 +17,8 @@ internal sealed class AiExchangeImportV2Report
 /// It validates manifest/file identity before ingestion, validates the REAL returned image pixels
 /// against deterministic Book-Type constraints, and verifies the resulting Candidate afterwards.
 /// A provider description can never override a pixel-level validation failure.
-/// Provider-declared FAILED items are persisted as audited results even when no Candidate asset exists.
+/// Provider-declared FAILED items are persisted as audited, non-approvable attempted versions even when
+/// no Candidate asset exists.
 /// </summary>
 internal static class AiExchangeResponseImportV2
 {
@@ -116,12 +117,30 @@ internal static class AiExchangeResponseImportV2
                             item.FailureReason,
                             item.RenderRequestId,
                             item.RenderPromptSha256);
+
+                        if (!AiExchangeResponseFailureStore.RecordFailureVersion(
+                                state,
+                                unit,
+                                manifest.PackageId,
+                                manifest.PromptPackId,
+                                item.CandidateVersion,
+                                item.Description,
+                                item.FailureReason,
+                                item.RenderRequestId,
+                                item.RenderPromptSha256,
+                                snapshot.SnapshotId))
+                        {
+                            conflicts++;
+                            details.Add($"{code}: FAILED provider ricevuto per v{item.CandidateVersion}, ma quella versione possiede già un asset reale; il FAILED non sovrascrive l'asset.");
+                            continue;
+                        }
+
                         providerFailed++;
                         changed = true;
                         var reason = string.IsNullOrWhiteSpace(item.FailureReason)
                             ? item.Description
                             : item.FailureReason;
-                        details.Add($"{code}: FAILED provider registrato{(string.IsNullOrWhiteSpace(reason) ? "." : " — " + reason)}");
+                        details.Add($"{code}: FAILED provider registrato come tentativo v{item.CandidateVersion} INCOMPLETE senza asset{(string.IsNullOrWhiteSpace(reason) ? "." : " — " + reason)}");
                         continue;
                     }
 
@@ -184,6 +203,7 @@ internal static class AiExchangeResponseImportV2
                     // or older version. A later FAILED response can still become current again.
                     if (localAssetPath is not null)
                     {
+                        AiExchangeResponseFailureStore.ClearFailureMarker(version);
                         AiExchangeResponseFailureStore.ClearSupersededByAsset(
                             project, item.WorkUnitId, item.CandidateVersion);
                         changed = true;
