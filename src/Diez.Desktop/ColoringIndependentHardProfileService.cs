@@ -7,7 +7,7 @@ internal sealed record ColoringIndependentHardProfile(
     bool Cozy);
 
 /// <summary>
-/// Central resolver for orthogonal Coloring constraints. Visual Style is one single selected style;
+/// Central resolver for orthogonal Coloring constraints. Visual Style is one single selected HARD style;
 /// Bold & Easy and Cozy are independent bidirectional HARD dimensions.
 /// </summary>
 internal static class ColoringIndependentHardProfileService
@@ -17,7 +17,7 @@ internal static class ColoringIndependentHardProfileService
             .Where(x => !string.Equals(x, "Cozy", StringComparison.OrdinalIgnoreCase) &&
                         !string.Equals(x, "Bold & Easy", StringComparison.OrdinalIgnoreCase) &&
                         !string.Equals(x, "Kawaii / Cartoon", StringComparison.OrdinalIgnoreCase))
-            .Select(x => string.Equals(x, "Kawaii / Cartoon", StringComparison.OrdinalIgnoreCase) ? "Kawaii" : x)
+            .Concat(CustomStyleLibraryService.SelectableLabels())
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
@@ -28,14 +28,30 @@ internal static class ColoringIndependentHardProfileService
         var legacyCozy = string.Equals(rawStyle, "Cozy", StringComparison.OrdinalIgnoreCase);
         var legacyBold = string.Equals(rawStyle, "Bold & Easy", StringComparison.OrdinalIgnoreCase);
 
-        var style = rawStyle switch
+        string style;
+        if (string.Equals(rawStyle, "Custom", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(p.CustomStyleNotes))
         {
-            "" => "Clean Line Art",
-            var s when string.Equals(s, "Cozy", StringComparison.OrdinalIgnoreCase) => "Clean Line Art",
-            var s when string.Equals(s, "Bold & Easy", StringComparison.OrdinalIgnoreCase) => "Clean Line Art",
-            var s when string.Equals(s, "Kawaii / Cartoon", StringComparison.OrdinalIgnoreCase) => "Kawaii",
-            _ => BookTypePromptProfileService.NormalizeColoringStyle(rawStyle)
-        };
+            // There is no separate SOFT "style note" layer anymore: the user's Custom text IS the HARD style authority.
+            style = p.CustomStyleNotes.Trim();
+        }
+        else if (CustomStyleLibraryService.TryResolve(rawStyle, out var libraryDefinition))
+        {
+            style = libraryDefinition;
+        }
+        else
+        {
+            style = rawStyle switch
+            {
+                "" => "Clean Line Art",
+                var s when string.Equals(s, "Cozy", StringComparison.OrdinalIgnoreCase) => "Clean Line Art",
+                var s when string.Equals(s, "Bold & Easy", StringComparison.OrdinalIgnoreCase) => "Clean Line Art",
+                var s when string.Equals(s, "Kawaii / Cartoon", StringComparison.OrdinalIgnoreCase) => "Kawaii",
+                _ => BookTypePromptProfileService.NormalizeColoringStyle(rawStyle)
+            };
+        }
+
+        if (string.Equals(style, "Custom", StringComparison.OrdinalIgnoreCase))
+            style = "Clean Line Art"; // Empty Custom cannot become an undefined renderer style.
 
         var bold = ColoringBoldEasyPolicyStore.Resolve(project, p.LineWeight, p.BoldEasy || legacyBold);
         var cozy = ColoringCozyPolicyStore.Resolve(project, legacyCozy);
@@ -54,16 +70,25 @@ internal static class ColoringIndependentHardProfileService
     {
         var p = BookTypePromptProfileService.LoadColoring(project);
         var style = (selectedStyle ?? string.Empty).Trim();
-        if (string.Equals(style, "Cozy", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(style, "Bold & Easy", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(style, "Kawaii / Cartoon", StringComparison.OrdinalIgnoreCase))
+        if (CustomStyleLibraryService.TryResolve(style, out var libraryDefinition))
+        {
+            p.Style = "Custom";
+            p.CustomStyleNotes = libraryDefinition;
+        }
+        else if (string.Equals(style, "Cozy", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(style, "Bold & Easy", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(style, "Kawaii / Cartoon", StringComparison.OrdinalIgnoreCase))
         {
             if (string.Equals(style, "Cozy", StringComparison.OrdinalIgnoreCase)) cozy = true;
             if (string.Equals(style, "Bold & Easy", StringComparison.OrdinalIgnoreCase)) boldEasy = true;
             style = string.Equals(style, "Kawaii / Cartoon", StringComparison.OrdinalIgnoreCase) ? "Kawaii" : "Clean Line Art";
+            p.Style = BookTypePromptProfileService.NormalizeColoringStyle(style);
+        }
+        else
+        {
+            p.Style = BookTypePromptProfileService.NormalizeColoringStyle(style);
         }
 
-        p.Style = BookTypePromptProfileService.NormalizeColoringStyle(style);
         p.LineWeight = string.IsNullOrWhiteSpace(lineWeight) ? p.LineWeight : lineWeight.Trim();
         p.BoldEasy = BookTypePromptProfileService.IsThinLineWeight(p.LineWeight) ? false : boldEasy;
         BookTypePromptProfileService.SaveColoring(project, p);
