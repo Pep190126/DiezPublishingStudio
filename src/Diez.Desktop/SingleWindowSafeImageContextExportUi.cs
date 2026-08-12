@@ -52,7 +52,7 @@ internal static class SingleWindowSafeImageContextExportUi
                 HorizontalContentAlignment = HorizontalAlignment.Center
             };
             ToolTip.SetTip(safe,
-                "Esporta il solo profilo attivo, prompt professionali provider-specific, un'immagine per Work Unit, file reali e request-context.json.");
+                "Esporta il solo profilo attivo, un render prompt isolato per Work Unit, file reali, render-plan.json e nomi leggibili basati sul titolo del libro.");
             safe.Click += async (_, _) =>
             {
                 var state = AiExchangeStateStore.Load(project);
@@ -69,10 +69,13 @@ internal static class SingleWindowSafeImageContextExportUi
                     return;
                 }
 
+                var nextVersion = BookPackageNamingService.PeekNextVersion(project);
+                var suggestedName = BookPackageNamingService.PromptPackFileName(project, nextVersion);
+                var expectedResponse = BookPackageNamingService.ResponseFileName(project, nextVersion);
                 var file = await window.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
                 {
-                    Title = "Salva Prompt Pack Diez con prompt engineering completo",
-                    SuggestedFileName = "diez-prompt-pack.zip",
+                    Title = "Salva Prompt Pack Diez con render plan isolato",
+                    SuggestedFileName = suggestedName,
                     DefaultExtension = "zip",
                     FileTypeChoices = [new FilePickerFileType("Prompt Pack Diez") { Patterns = ["*.zip"] }]
                 });
@@ -84,7 +87,9 @@ internal static class SingleWindowSafeImageContextExportUi
                     state,
                     units.Select(u => u.WorkUnitId),
                     EnsureZip(file.Path.LocalPath));
-                SetStatus(window, result.Message);
+                SetStatus(window, result.Success
+                    ? result.Message + $" · Risposta attesa: {expectedResponse}"
+                    : result.Message);
             };
 
             var index = row.Children.IndexOf(oldExport);
@@ -102,7 +107,7 @@ internal static class SingleWindowSafeImageContextExportUi
                 HorizontalContentAlignment = HorizontalAlignment.Center
             };
             ToolTip.SetTip(safeImport,
-                "Verifica manifest e asset di ogni Work Unit prima dell'import e controlla la Candidate risultante dopo l'ingest.");
+                "Verifica manifest e asset di ogni Work Unit prima dell'import e controlla la Candidate risultante dopo l'ingest. Il nome file è solo leggibile: gli ID interni restano autoritativi.");
             safeImport.Click += async (_, _) =>
             {
                 var files = await window.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
