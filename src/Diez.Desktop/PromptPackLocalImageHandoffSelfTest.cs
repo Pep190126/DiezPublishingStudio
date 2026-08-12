@@ -103,14 +103,13 @@ COZY — HARD: ON.
                 "Packaging locale incompleto.");
             Require(!launcher.Contains("Copia task completo", StringComparison.OrdinalIgnoreCase),
                 "Il vecchio task con trasporto/audit è ancora proposto alla chat.");
-            Require(launcher.Contains("Do not", StringComparison.OrdinalIgnoreCase) == false ||
-                    launcher.Contains("Non caricare l'intero Prompt Pack", StringComparison.OrdinalIgnoreCase),
+            Require(launcher.Contains("Non caricare l'intero Prompt Pack", StringComparison.OrdinalIgnoreCase),
                 "Launcher non impedisce l'esecuzione wholesale del pack.");
 
             var start = await ReadAsync(result, "00-START-HERE.md");
             Require(start.Contains("Do not upload this entire Prompt Pack", StringComparison.OrdinalIgnoreCase),
                 "START HERE non vieta l'upload wholesale in una generation chat.");
-            Require(start.Contains("returns IMAGE ONLY", StringComparison.OrdinalIgnoreCase),
+            Require(start.Contains("generation chats return IMAGE ONLY", StringComparison.OrdinalIgnoreCase),
                 "START HERE non dichiara image-only output.");
 
             var instructions = await ReadAsync(result, "instructions.md");
