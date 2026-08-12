@@ -33,6 +33,11 @@ internal static class AiExchangeImportPipeline
         var promoted = 0;
         foreach (var version in state.Versions.Where(v => v.Status == AiExchangeVersionStatuses.Incomplete))
         {
+            // A provider-declared FAILED attempt is intentionally represented as an INCOMPLETE version
+            // with audit metadata in TextContent and no approvable asset. The audit payload is not primary
+            // content and must never satisfy generic completeness reconciliation.
+            if (AiExchangeResponseFailureStore.IsFailureVersion(version)) continue;
+
             var unit = state.WorkUnits.FirstOrDefault(w => w.WorkUnitId == version.WorkUnitId);
             if (unit is null) continue;
             var hasPrimary = version.MaterialId.HasValue || !string.IsNullOrWhiteSpace(version.TextContent);
