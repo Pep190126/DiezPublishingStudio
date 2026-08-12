@@ -43,6 +43,7 @@ internal static class AiVisualPromptPackService
                 built.PromptPackId, units.Count, enhanced.IntakeImages, enhanced.BaseImages);
 
         PromptPackPromptEngineeringFinalizer.Finalize(targetPath, project, state, ids);
+        PromptPackEnglishInstructionService.Rewrite(targetPath, project);
         AiExchangeVisualLayoutSanitizer.Sanitize(targetPath);
         AiExchangeStateStore.Save(project, state);
         await ProjectFileStore.SaveAsync(projectPath, project);
