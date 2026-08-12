@@ -143,7 +143,13 @@ jobs:
           $test = Start-Process -FilePath $exe -ArgumentList "--self-test" -Wait -PassThru
           if ($test.ExitCode -ne 0) {
             $errorFile = "artifacts\publish\self-test-error.txt"
-            if (Test-Path $errorFile) { Get-Content $errorFile }
+            $detail = "Diez self-test failed with exit code $($test.ExitCode)"
+            if (Test-Path $errorFile) {
+              $detail = Get-Content $errorFile -Raw
+              Write-Host $detail
+            }
+            $annotation = $detail.Replace('%','%25').Replace("`r",'%0D').Replace("`n",'%0A')
+            Write-Host "::error title=Diez self-test::$annotation"
             throw "Diez self-test failed with exit code $($test.ExitCode)"
           }
 
