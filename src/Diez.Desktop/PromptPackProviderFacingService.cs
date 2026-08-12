@@ -95,16 +95,21 @@ internal static class PromptPackProviderFacingService
             master?.MustNotDo ?? string.Empty,
             settings.ProviderId,
             settings.PreferAdvancedModel);
-        var item = request.ItemOverrides.FirstOrDefault(x => x.ItemIndex == index);
+        StructuredSubjectPromptRequestService.Apply(project, request);
+
+        // Work Unit.Position is the stable series position. `index` may be only the position inside a partial
+        // Prompt Pack/correction export and therefore must never reassign a structured identity.
+        var stableIndex = unit.Position > 0 ? unit.Position : Math.Max(1, index);
+        var item = request.ItemOverrides.FirstOrDefault(x => x.ItemIndex == stableIndex);
 
         MultiSubjectDefinition? structuredSubject = null;
         var multi = MultiSubjectProfileService.Load(project);
         if (multi.Enabled && MultiSubjectProfileService.ActiveSubjects(multi).Count > 0)
-            structuredSubject = MultiSubjectProfileService.SubjectForItem(project, index);
+            structuredSubject = MultiSubjectProfileService.SubjectForItem(project, stableIndex);
 
         var subject = structuredSubject is not null
             ? structuredSubject.Name.Trim()
-            : ResolveAtomicSubject(request, index);
+            : ResolveAtomicSubject(request, stableIndex);
         var environment = PromptEnglishNormalizer.NormalizeProviderFacing(
             !string.IsNullOrWhiteSpace(item?.Environment) ? item!.Environment : request.Environment);
 
@@ -161,7 +166,7 @@ internal static class PromptPackProviderFacingService
             sb.AppendLine("USER EXCLUSION — HARD: " + exclusion);
 
         AppendTechnical(sb, request.Technical);
-        sb.AppendLine($"SERIES ROLE: this is item {index} of {Math.Max(1, total)}, but render ONLY this one composition. Do not represent the series count visually.");
+        sb.AppendLine($"SERIES ROLE: this is item {stableIndex} of the project series, but render ONLY this one composition. Do not represent the series count visually.");
         sb.AppendLine(string.Equals(request.BookType, BookTypeProfileService.ColoringBook, StringComparison.OrdinalIgnoreCase)
             ? "FINAL CHECK — HARD: the returned image must visibly match PRIMARY SUBJECT, STYLE, BOLD & EASY ON/OFF, COZY ON/OFF, LINE WEIGHT and single-composition hard locks before any technical compliance is considered. If any one fails, regenerate instead of returning the asset."
             : "FINAL CHECK — HARD: the returned image must visibly match BOTH the PRIMARY SUBJECT and STYLE hard locks and must contain only one unified composition before any technical compliance is considered. If any of these fail, regenerate instead of returning the asset.");
