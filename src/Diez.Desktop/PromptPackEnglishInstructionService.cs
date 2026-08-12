@@ -50,6 +50,13 @@ This package describes a Diez production job. Read `prompt-manifest.json` and us
 9. Do not include executable code, scripts, macros, installers or active content. Return only data and requested content assets.
 10. Do not duplicate original intake/paradigm files unless they are explicitly requested as output.
 
+## IMAGE renderer routing — HARD
+For every IMAGE Work Unit, `image_generation_prompt` is the ONLY prompt text that should be sent to the image-generation renderer. The longer `instruction`, the full manifest, `request-context.json`, transport rules and QA text are orchestration context for the agent and must NOT be pasted wholesale into the renderer prompt.
+
+Process image Work Units independently and sequentially: ONE Work Unit → ONE `image_generation_prompt` → ONE image-generation call → ONE final primary composition. Never combine multiple Work Units into one renderer call, even when they belong to the same series. `series_count` is context only and must never become a triptych, grid, contact sheet, collage or multi-panel image.
+
+Before invoking the renderer, verify that `image_generation_prompt_authoritative = true` and that the concise prompt contains a `PRIMARY SUBJECT — HARD LOCK`. The renderer result is invalid if that subject is not the dominant visible content. Do not try to repair a wrong-subject render merely by changing its description; regenerate the image or return the item as `FAILED`/`INCOMPLETE`.
+
 ## Image-generation integrity — HARD
 For image Work Units, use a genuine image-generation/illustration capability appropriate for publication-quality artwork. Do NOT substitute a crude programmatic drawing, primitive SVG/Canvas/Pillow geometry, placeholder icon, tracing sketch, or assembled circles/rectangles merely because that makes exact dimensions or black/white values easier to satisfy.
 
@@ -85,11 +92,11 @@ The publication-readiness gate in each `work_units[].instruction` is a HARD Book
 Diez reconstructs packages automatically through stable IDs. The user must not have to rename or manually associate returned files.
 
 ## Diez Visual Context V3 — AUTHORITATIVE
-1. Read `request-context.json` before generating or correcting any image.
+1. Read `request-context.json` for orchestration, references and edit context, but use each Work Unit's `image_generation_prompt` as the sole renderer prompt for IMAGE generation.
 2. Use only the visual profile belonging to the active Book Type declared by `active_profile_kind`; never infer or resurrect historical/inactive profiles.
 3. Files under `inputs/intake/` are real user assets. Use the actual file together with its role and description; never reconstruct a supplied image from text alone.
 4. During a correction/edit, `base_version.file` is the authoritative real base image. Modify that source unless `REGENERATE` is explicitly requested.
-5. Resolve together: real base image + current description + relevant intake files/descriptions + paradigms/roles + preserve/change/add/remove + active profile + Consistent rules + current image specifications.
+5. Resolve together: real base image + relevant intake files + paradigms/roles + preserve/change/add/remove + current `image_generation_prompt`.
 6. `preserve` means keep the named elements visually unchanged. In a local edit, unmentioned elements must also remain unchanged when the contract requires preservation.
 7. After every edit, return an updated factual description matching the actual final image.
 
@@ -100,15 +107,16 @@ AUTHORITATIVE IMAGE RULE: user/current descriptions guide the work but never rep
 - Active Book Type: {{BookTypeProfileService.Get(project)}}.
 - Target renderer: {{settings.ProviderId}}.
 - Only the active Book Type prompt profile may influence this request; historical/inactive profiles must be ignored.
-- Provider-facing operational instructions use English. Localized UI/project metadata is secondary and must never override the authoritative Work Unit instruction.
-- Every `work_units[].instruction` requests EXACTLY ONE image. `series_count` is context only and never authorizes a grid, collage, contact sheet or multiple alternatives.
+- Provider-facing operational instructions use English. Localized UI/project metadata is secondary and must never override the authoritative Work Unit renderer brief.
+- For IMAGE Work Units, use `image_generation_prompt` and do not forward the long `instruction` to the renderer.
+- One Work Unit always means one renderer call and one requested image. `series_count` never authorizes a grid, collage, contact sheet, triptych or multiple alternatives.
 - `output_count_for_this_work_unit = 1` is a hard execution contract.
-- Current structured parameters and the current compiler baseline override stale generated prompt text. Only a genuine user-authored manual delta may be carried forward.
+- Current structured parameters and the current compiler baseline override stale generated prompt text. Generated technical blocks are not user-authored manual delta.
 - Professional quality gates remain mandatory even when the GUI contains only a few optional parameters.
 - For corrections, the actual base/input image plus preserve/change/add/remove are authoritative; descriptions assist but never replace image files.
 
 ## Completion check
-Before marking an image `COMPLETE`, inspect the actual returned asset rather than the intention behind it. Confirm subject, item-specific constraints, Book-Type fit, professional illustration craft, composition, anatomy/geometry, prohibited content and the requested technical profile. If a HARD requirement is not satisfied, correct/regenerate the asset or return `INCOMPLETE/FAILED`; never describe a visibly non-compliant asset as compliant.
+Before marking an image `COMPLETE`, inspect the actual returned asset rather than the intention behind it. Confirm that the `PRIMARY SUBJECT — HARD LOCK` is actually dominant and correct, then confirm item-specific constraints, Book-Type fit, professional illustration craft, composition, anatomy/geometry, prohibited content and the requested technical profile. If a HARD requirement is not satisfied, correct/regenerate the asset or return `INCOMPLETE/FAILED`; never describe a visibly non-compliant asset as compliant.
 """.Trim();
     }
 }
