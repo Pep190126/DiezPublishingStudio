@@ -42,7 +42,7 @@ internal static class PromptPackProviderFacingService
         RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     private static readonly Regex SeriesCountDirective = new(
-        @"(?i)(?:\b\d+\s+(?:images?|immagini)\b|\bone\s+per\s+(?:animal|item|subject)\b|\buna\s+per\s+(?:animale|elemento|soggetto)\b)",
+        @"(?i)(?:\b\d+\s+(?:images?|immagini)\b|\bone\s+per\s+(?:animal|item|subject|character)\b|\buna\s+per\s+(?:animale|elemento|soggetto|personaggio)\b)",
         RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     private static readonly Regex NonAtomicSubjectDirective = new(
@@ -97,7 +97,14 @@ internal static class PromptPackProviderFacingService
             settings.PreferAdvancedModel);
         var item = request.ItemOverrides.FirstOrDefault(x => x.ItemIndex == index);
 
-        var subject = ResolveAtomicSubject(request, index);
+        MultiSubjectDefinition? structuredSubject = null;
+        var multi = MultiSubjectProfileService.Load(project);
+        if (multi.Enabled && MultiSubjectProfileService.ActiveSubjects(multi).Count > 0)
+            structuredSubject = MultiSubjectProfileService.SubjectForItem(project, index);
+
+        var subject = structuredSubject is not null
+            ? structuredSubject.Name.Trim()
+            : ResolveAtomicSubject(request, index);
         var environment = PromptEnglishNormalizer.NormalizeProviderFacing(
             !string.IsNullOrWhiteSpace(item?.Environment) ? item!.Environment : request.Environment);
 
@@ -108,6 +115,7 @@ internal static class PromptPackProviderFacingService
             var style = Norm(hardProfile.Style, "Clean Line Art");
             sb.AppendLine("Create ONE finished, publication-quality coloring-book illustration.");
             sb.AppendLine($"PRIMARY SUBJECT — HARD LOCK: {subject}. The subject must be the dominant focal element, large, clearly recognizable, anatomically coherent and more visually important than the background.");
+            AppendStructuredSubject(sb, structuredSubject, !string.IsNullOrWhiteSpace(request.ConsistencyRules));
             sb.AppendLine("COMPOSITION — HARD LOCK: exactly ONE unified composition with exactly ONE primary scene filling the canvas. Keep the canvas as one continuous scene; do not subdivide it into separate framed, side-by-side or stacked regions, and do not show multiple alternative compositions or visually represent the series count.");
             if (!string.IsNullOrWhiteSpace(environment))
                 sb.AppendLine($"SETTING — SUPPORTING ONLY: {environment}. Keep the setting secondary, uncluttered and clearly subordinate to the main subject.");
@@ -125,6 +133,7 @@ internal static class PromptPackProviderFacingService
             var style = Norm(request.RenderingStyle, "professional illustration");
             sb.AppendLine("Create ONE finished, publication-quality editorial image.");
             sb.AppendLine($"PRIMARY SUBJECT — HARD LOCK: {subject}. Make the requested subject immediately readable and dominant in the composition.");
+            AppendStructuredSubject(sb, structuredSubject, !string.IsNullOrWhiteSpace(request.ConsistencyRules));
             sb.AppendLine("COMPOSITION — HARD LOCK: exactly ONE unified composition with one primary scene filling the canvas. Keep the canvas continuous rather than subdividing it into separate framed, side-by-side or stacked regions; do not show multiple alternative compositions unless this exact Work Unit explicitly requests them.");
             if (!string.IsNullOrWhiteSpace(environment))
                 sb.AppendLine($"SETTING — SUPPORTING ONLY: {environment}. The setting must support the subject rather than replace it.");
@@ -160,6 +169,19 @@ internal static class PromptPackProviderFacingService
         var renderer = PromptEnglishNormalizer.NormalizeProviderFacing(sb.ToString()).Trim();
         EnsureRendererPromptReady(renderer, unit.Code);
         return renderer;
+    }
+
+    private static void AppendStructuredSubject(StringBuilder sb, MultiSubjectDefinition? subject, bool consistentEnabled)
+    {
+        if (subject is null) return;
+        if (!string.IsNullOrWhiteSpace(subject.Description))
+            sb.AppendLine("SUBJECT IDENTITY — HARD LOCK: " + subject.Description.Trim() + " Preserve these identifying traits whenever this subject appears.");
+        if (!consistentEnabled) return;
+        var rules = MultiSubjectProfileService.BuildConsistencyRules(subject);
+        if (string.IsNullOrWhiteSpace(rules)) return;
+        sb.AppendLine("SUBJECT-SPECIFIC CONSISTENT — AUTHORITATIVE:");
+        foreach (var line in rules.Replace("\r\n", "\n").Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            sb.AppendLine("- " + line);
     }
 
     /// <summary>
@@ -244,8 +266,6 @@ internal static class PromptPackProviderFacingService
 
         NormalizeStrings(presets);
 
-        // The enhancer creates a human-readable prompt before the final compiler runs. Once the finalizer has
-        // produced effective_visual_prompt, every secondary prompt copy must converge on that exact final text.
         var effective = presets["effective_visual_prompt"]?.ToString() ?? string.Empty;
         if (!string.IsNullOrWhiteSpace(effective))
         {
