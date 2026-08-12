@@ -64,7 +64,7 @@ internal static class VisionValidationSelfTest
             await ProjectFileStore.SaveAsync(projectPath, project);
 
             var packPath = Path.Combine(root, "vision-pack.zip");
-            var pack = await VisionValidationPromptPackService.BuildAsync(
+            var pack = await VisionValidationPromptPackHardStyleService.BuildAsync(
                 project, projectPath, state, [version.VersionId], packPath);
             Require(pack.Success && pack.ValidationPackId != Guid.Empty, "Prompt Pack Vision non creato: " + pack.Message);
             using (var zip = ZipFile.OpenRead(packPath))
@@ -74,16 +74,26 @@ internal static class VisionValidationSelfTest
                 Require(manifest.Contains(version.ContentSha256, StringComparison.OrdinalIgnoreCase),
                     "Il manifest Vision non lega la verifica all'hash reale della Candidate.");
                 Require(manifest.Contains("jungle elephant", StringComparison.OrdinalIgnoreCase),
-                    "La specifica semantica del soggetto non arriva al controllo Vision.");
+                    "La specifica semantica del soggetto di serie non arriva al controllo Vision.");
+                Require(manifest.Contains("PRIMARY SUBJECT — HARD LOCK: one elephant", StringComparison.OrdinalIgnoreCase),
+                    "Vision non riceve il soggetto atomico autorevole della Work Unit.");
+                Require(manifest.Contains("STYLE — HARD LOCK: Bold & Easy", StringComparison.OrdinalIgnoreCase),
+                    "Vision non riceve lo stile selezionato come HARD LOCK.");
+                Require(manifest.Contains("COMPOSITION — HARD LOCK", StringComparison.Ordinal),
+                    "Vision non riceve il vincolo di composizione singola autorevole.");
                 Require(manifest.Contains("no village, no lake", StringComparison.OrdinalIgnoreCase),
                     "MUST NOT DO non arriva al controllo Vision.");
-                Require(manifest.Contains("COMMERCIAL COLORING BOOK", StringComparison.OrdinalIgnoreCase),
-                    "Il contratto di generazione canonico non arriva al controllo Vision.");
+                Require(!manifest.Contains("COMMERCIAL COLORING BOOK", StringComparison.OrdinalIgnoreCase),
+                    "Vision dipende ancora dal vecchio contratto lungo invece del renderer brief per Work Unit.");
                 Require(instructions.Contains("inspect the REAL candidate image", StringComparison.OrdinalIgnoreCase),
                     "La Vision non viene obbligata a guardare il file reale.");
                 Require(instructions.Contains("generator's description", StringComparison.OrdinalIgnoreCase) &&
                         instructions.Contains("Never infer compliance", StringComparison.OrdinalIgnoreCase),
                     "La descrizione dichiarata dal generatore non è esplicitamente esclusa come prova di conformità.");
+                Require(instructions.Contains("style_match", StringComparison.OrdinalIgnoreCase) &&
+                        instructions.Contains("HARD", StringComparison.OrdinalIgnoreCase) &&
+                        instructions.Contains("single_composition", StringComparison.OrdinalIgnoreCase),
+                    "Le istruzioni Vision manuali non classificano stile selezionato/composizione singola come HARD.");
             }
 
             var passZip = Path.Combine(root, "vision-pass.zip");
@@ -96,6 +106,8 @@ internal static class VisionValidationSelfTest
                     Check("subject_match", VisionCheckStatuses.Pass, VisionSeverity.Hard, 0.99, "One elephant is clearly visible."),
                     Check("must_not_do", VisionCheckStatuses.Pass, VisionSeverity.Hard, 0.98, "No village or lake is visible."),
                     Check("book_type_fit", VisionCheckStatuses.Pass, VisionSeverity.Hard, 0.97, "The asset is a coloring-page illustration."),
+                    Check("style_match", VisionCheckStatuses.Pass, VisionSeverity.Hard, 0.95, "The artwork visibly follows the selected Bold & Easy style."),
+                    Check("single_composition", VisionCheckStatuses.Pass, VisionSeverity.Hard, 0.99, "One unified scene is visible."),
                     Check("publication_quality", VisionCheckStatuses.Pass, VisionSeverity.Soft, 0.91, "Clear focal subject and usable composition.")
                 ]);
             var passReport = await VisionValidationPromptPackService.ImportAsync(project, projectPath, state, [passZip]);
@@ -124,7 +136,7 @@ internal static class VisionValidationSelfTest
             await ProjectFileStore.SaveAsync(projectPath, project);
 
             var badPackPath = Path.Combine(root, "vision-bad-pack.zip");
-            var badPack = await VisionValidationPromptPackService.BuildAsync(
+            var badPack = await VisionValidationPromptPackHardStyleService.BuildAsync(
                 project, projectPath, state, [badVersion.VersionId], badPackPath);
             Require(badPack.Success, "Secondo Prompt Pack Vision non creato.");
             var failZip = Path.Combine(root, "vision-fail.zip");
