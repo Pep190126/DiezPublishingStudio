@@ -8,7 +8,7 @@ namespace DiezPublishingStudio;
 /// </summary>
 internal static class PromptEngineeringCompiler
 {
-    public const string Version = "3.1";
+    public const string Version = "3.2";
 
     public static string BuildSeriesPrompt(
         PreviewProject project,
@@ -21,9 +21,38 @@ internal static class PromptEngineeringCompiler
         var request = PromptEngineeringEngine.BuildRequest(
             project, count, mustDo, mustNotDo, providerId, preferAdvancedModel);
         var canonical = PromptEngineeringEngine.RenderSeries(request);
-        return $"DIEZ PROVIDER COMPILER v{Version}" + Environment.NewLine +
-               ProviderProfile(request) + Environment.NewLine + Environment.NewLine +
-               "=== CANONICAL DIEZ PRODUCTION SPECIFICATION ===" + Environment.NewLine + canonical.Trim();
+        var sb = new StringBuilder();
+        sb.AppendLine($"DIEZ PROVIDER COMPILER v{Version}");
+        sb.AppendLine(ProviderProfile(request));
+        sb.AppendLine();
+        var acceptanceGate = PublicationAcceptanceGate(request);
+        if (!string.IsNullOrWhiteSpace(acceptanceGate))
+        {
+            sb.AppendLine(acceptanceGate);
+            sb.AppendLine();
+        }
+        sb.AppendLine("=== CANONICAL DIEZ PRODUCTION SPECIFICATION ===");
+        sb.AppendLine(canonical.Trim());
+        return PromptEnglishNormalizer.NormalizeProviderFacing(sb.ToString());
+    }
+
+    private static string PublicationAcceptanceGate(PromptEngineeringRequest request)
+    {
+        if (!string.Equals(request.BookType, BookTypeProfileService.ColoringBook, StringComparison.OrdinalIgnoreCase))
+            return string.Empty;
+
+        return """
+=== COLORING PUBLICATION ACCEPTANCE GATE — HARD BOOK-TYPE REQUIREMENT ===
+This is a craft/readiness requirement, not a subjective style preference. The final asset is UNACCEPTABLE and must be regenerated if it visibly resembles a rough draft, scribble, tracing exercise, placeholder, preschool doodle, low-effort clipart/icon, or a subject assembled from crude geometric primitives instead of a deliberately resolved professional coloring-book illustration.
+
+HARD rejection conditions include obvious unfinished or amateur execution such as incoherent/malformed anatomy, hesitant or arbitrary contours, primitive body construction, accidental-looking joins/overlaps, meaningless filler marks, unresolved composition, or line work so crude that the page does not look like a finished commercial asset.
+
+Simplicity is NOT a failure. A Preschool or Bold & Easy page may use few elements, large shapes and reduced detail, but that simplicity must look intentional, polished, balanced, expressive and professionally drawn. Child-friendly does not mean child-drawn.
+
+Before returning the asset, perform this publication test: could this plausibly appear as a finished page in a professionally published commercial coloring book for the selected audience without an illustrator having to redraw it? If the answer is no, regenerate before returning.
+
+Independent QA instruction: an obvious failure of this craft/readiness requirement must be reported as book_type_fit = FAIL/HARD even when deterministic raster checks such as dimensions, DPI and pure black/white all pass. Personal taste or preference between two otherwise professional styles remains a SOFT/REVIEW matter.
+""".Trim();
     }
 
     private static string ProviderProfile(PromptEngineeringRequest request) => request.ProviderId switch

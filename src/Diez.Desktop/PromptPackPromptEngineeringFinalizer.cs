@@ -61,13 +61,14 @@ internal static class PromptPackPromptEngineeringFinalizer
         var stored = PromptMasterStateStore.LoadForCurrentBook(project);
         var mustDo = stored?.MustDo ?? string.Empty;
         var mustNotDo = stored?.MustNotDo ?? string.Empty;
-        var canonical = PromptEngineeringCompiler.BuildSeriesPrompt(
-            project,
-            count,
-            mustDo,
-            mustNotDo,
-            settings.ProviderId,
-            settings.PreferAdvancedModel);
+        var canonical = PromptEnglishNormalizer.NormalizeProviderFacing(
+            PromptEngineeringCompiler.BuildSeriesPrompt(
+                project,
+                count,
+                mustDo,
+                mustNotDo,
+                settings.ProviderId,
+                settings.PreferAdvancedModel));
 
         var metadata = PromptMasterMetadataStore.Load(project);
         var current = PromptMasterMetadataStore.MatchesCurrent(
@@ -80,33 +81,33 @@ internal static class PromptPackPromptEngineeringFinalizer
             settings.PreferAdvancedModel);
         var storedPrompt = stored?.Prompt?.Trim() ?? string.Empty;
 
-        if (current && !string.IsNullOrWhiteSpace(storedPrompt))
-        {
-            return new ResolvedMaster(
-                storedPrompt,
-                canonical,
-                string.Empty,
-                metadata?.ManualOverride == true,
-                metadata?.ManualOverride == true,
-                false);
-        }
-
+        // A stored generated prompt is never the authority at export time. The current structured
+        // project state is always recompiled. Only a genuine manual delta may be carried forward.
         if (metadata?.ManualOverride == true && !string.IsNullOrWhiteSpace(storedPrompt))
         {
             var delta = PromptMasterMetadataStore.ExtractManualDelta(metadata, storedPrompt).Trim();
-            if (delta.Length == 0)
-                return new ResolvedMaster(canonical, canonical, string.Empty, true, false, true);
-
-            var merged = new StringBuilder(canonical.Trim());
-            merged.AppendLine();
-            merged.AppendLine();
-            merged.AppendLine("=== USER MANUAL DELTA — PRESERVED FROM THE EDITOR ===");
-            merged.AppendLine("These are the user-added/changed lines detected against the previous generated baseline. Preserve their creative/editorial intent. CURRENT structured parameters, hard Book-Type rules, technical values, item overrides and Consistent rules above take priority on conflict.");
-            merged.AppendLine();
-            merged.AppendLine(delta);
-            return new ResolvedMaster(merged.ToString().Trim(), canonical, delta, true, false, true);
+            delta = PromptEnglishNormalizer.NormalizeProviderFacing(delta);
+            if (delta.Length > 0)
+            {
+                var merged = new StringBuilder(canonical.Trim());
+                merged.AppendLine();
+                merged.AppendLine();
+                merged.AppendLine("=== USER MANUAL DELTA — PRESERVED FROM THE EDITOR ===");
+                merged.AppendLine("These are the user-added/changed lines detected against the previous generated baseline. Preserve their creative/editorial intent. CURRENT structured parameters, hard Book-Type rules, technical values, item overrides and Consistent rules above take priority on conflict.");
+                merged.AppendLine();
+                merged.AppendLine(delta);
+                return new ResolvedMaster(
+                    PromptEnglishNormalizer.NormalizeProviderFacing(merged.ToString()),
+                    canonical,
+                    delta,
+                    true,
+                    current,
+                    true);
+            }
         }
 
+        // This also repairs old projects where a stale generated prompt was accidentally marked as a
+        // manual/current prompt even though ExtractManualDelta returns no actual user-authored delta.
         PromptMasterStateStore.Save(project, new PromptMasterState
         {
             BookType = BookTypeProfileService.Get(project),
@@ -187,11 +188,12 @@ internal static class PromptPackPromptEngineeringFinalizer
             settings.ProviderId,
             settings.PreferAdvancedModel));
 
+        var localInstruction = SanitizeLegacyWorkUnitInstruction(unit.Instruction);
         var mutation = unit.Preserve.Count > 0 || unit.Change.Count > 0 || unit.Add.Count > 0 || unit.Remove.Count > 0 ||
-                       !string.IsNullOrWhiteSpace(unit.Instruction) ||
+                       !string.IsNullOrWhiteSpace(localInstruction) ||
                        string.Equals(unit.Mode, AiExchangeModes.AiWithInputAsReference, StringComparison.OrdinalIgnoreCase) ||
                        string.Equals(unit.Mode, AiExchangeModes.InputTransformedByAi, StringComparison.OrdinalIgnoreCase);
-        if (!mutation) return sb.ToString().Trim();
+        if (!mutation) return PromptEnglishNormalizer.NormalizeProviderFacing(sb.ToString());
 
         sb.AppendLine();
         sb.AppendLine();
@@ -207,14 +209,32 @@ internal static class PromptPackPromptEngineeringFinalizer
         AppendList(sb, "CHANGE — modify exactly these elements", unit.Change);
         AppendList(sb, "ADD — introduce these elements", unit.Add);
         AppendList(sb, "REMOVE — eliminate these elements", unit.Remove);
-        if (!string.IsNullOrWhiteSpace(unit.Instruction))
+        if (!string.IsNullOrWhiteSpace(localInstruction))
         {
             sb.AppendLine("EXPLICIT WORK-UNIT INSTRUCTION:");
-            sb.AppendLine(unit.Instruction.Trim());
+            sb.AppendLine(localInstruction);
         }
         sb.AppendLine("Priority: explicit item constraint > preserve/change/add/remove > local exception > CURRENT hard Book-Type rules > LOCKED consistency > PREFERRED consistency > manual/shared intent > creative freedom.");
         sb.AppendLine("The returned description must match the actual edited result; never reuse a stale description of the base image.");
-        return sb.ToString().Trim();
+        return PromptEnglishNormalizer.NormalizeProviderFacing(sb.ToString());
+    }
+
+    /// <summary>
+    /// Old Work Units may contain a complete generated prompt in Instruction. Re-appending it after the
+    /// current compiler duplicates the contract and can reintroduce stale Italian/technical clauses.
+    /// Only concise, genuine local instructions survive this boundary.
+    /// </summary>
+    internal static string SanitizeLegacyWorkUnitInstruction(string? instruction)
+    {
+        var text = (instruction ?? string.Empty).Trim();
+        if (text.Length == 0) return string.Empty;
+        if (text.Contains("DIEZ PROVIDER COMPILER", StringComparison.OrdinalIgnoreCase) ||
+            text.Contains("DIEZ PROMPT ENGINEERING SPECIFICATION", StringComparison.OrdinalIgnoreCase) ||
+            text.Contains("=== CANONICAL DIEZ PRODUCTION SPECIFICATION ===", StringComparison.OrdinalIgnoreCase) ||
+            text.Contains("PROFILO EDITORIALE COLORING BOOK:", StringComparison.OrdinalIgnoreCase) ||
+            (text.Length > 500 && text.Contains("SPECIFICHE TECNICHE:", StringComparison.OrdinalIgnoreCase)))
+            return string.Empty;
+        return PromptEnglishNormalizer.NormalizeProviderFacing(text);
     }
 
     private static void RewriteContext(
@@ -277,10 +297,12 @@ internal static class PromptPackPromptEngineeringFinalizer
 - Active Book Type: {BookTypeProfileService.Get(project)}.
 - Target renderer: {settings.ProviderId}.
 - Only the active Book Type prompt profile is valid for this request; historical/inactive visual profiles must be ignored.
+- Provider-facing operational prompts are normalized to English; Italian UI labels/values remain only as project metadata and must never override the authoritative Work Unit instruction.
 - Every `work_units[].instruction` requests EXACTLY ONE image. `series_count` is context only and never authorizes a grid, collage or multiple alternatives.
 - `output_count_for_this_work_unit = 1` is a hard execution contract.
 - Professional quality gates remain mandatory even with very few optional GUI parameters.
-- Manual prompt text is preserved exactly while parameters are unchanged. After structured parameters change, only user-added/changed lines are carried into the current canonical prompt as an additive manual delta.
+- For Coloring Book, obvious rough-draft/scribble/placeholder/primitive geometric execution is a HARD Book-Type failure even when size, DPI and black/white raster checks pass. Simple child-friendly art is valid only when intentional, polished and professionally resolved.
+- Manual prompt text is preserved as an additive semantic delta. Current structured parameters and the current compiler baseline always take priority over stale generated text.
 - For corrections, the real base/input image plus preserve/change/add/remove are authoritative; descriptions assist but never replace image files.
 """;
         ReplaceText(archive, InstructionsName, existing.TrimEnd() + section);
