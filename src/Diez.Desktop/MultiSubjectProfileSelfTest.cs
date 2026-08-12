@@ -1,3 +1,7 @@
+using System.IO.Compression;
+using System.Text;
+using System.Text.Json;
+
 namespace DiezPublishingStudio;
 
 internal static class MultiSubjectProfileSelfTest
@@ -46,16 +50,19 @@ internal static class MultiSubjectProfileSelfTest
 
         ImageCollectionWorkspaceService.SetConsistencyRules(project, "Consistent enabled");
         var settings = new PromptPreparationSettings { ProviderId = PromptEngineeringProviderIds.OpenAi, PreferAdvancedModel = true };
+        var units = new List<AiExchangeWorkUnit>();
         var prompts = new List<string>();
         for (var i = 1; i <= 3; i++)
         {
             var unit = new AiExchangeWorkUnit
             {
+                WorkUnitId = Guid.NewGuid(),
                 Code = $"IMG-{i:000}",
                 ContentType = AiExchangeContentTypes.Image,
                 Mode = AiExchangeModes.AiOnly,
                 Position = i
             };
+            units.Add(unit);
             prompts.Add(PromptPackProviderFacingService.BuildImageGenerationPrompt(project, unit, 3, i, settings));
         }
 
@@ -74,6 +81,52 @@ internal static class MultiSubjectProfileSelfTest
             "Regola outfit specifica non viene serializzata.");
         Require(!prompts[1].Contains("heart-shaped patch", StringComparison.OrdinalIgnoreCase),
             "La descrizione di Milo contamina Luna.");
+
+        // Direct Vision uses the same structured subject and per-subject Consistent contract.
+        var vision = new VisionValidationRequest { Expected = new VisionExpectedSpecification { ItemSubject = "legacy ambiguous subject" } };
+        VisionStructuredSubjectService.Apply(project, units[1], vision);
+        Require(string.Equals(vision.Expected.ItemSubject, "Luna", StringComparison.Ordinal),
+            "Vision diretta non risolve lo stesso soggetto strutturato della Work Unit 2.");
+        Require(vision.Expected.ConsistencyRules.Contains("Subject identity [Luna]", StringComparison.Ordinal),
+            "Vision diretta non riceve il Consistent specifico di Luna.");
+        Require(!vision.Expected.ConsistencyRules.Contains("heart-shaped patch", StringComparison.OrdinalIgnoreCase),
+            "Vision di Luna è contaminata dal profilo di Milo.");
+
+        // Prompt Pack audit metadata carries stable SubjectId/name in BOTH manifest and request-context,
+        // while the visual prompt remains free of IDs.
+        var state = new AiExchangeState { WorkUnits = units };
+        var tempZip = Path.Combine(Path.GetTempPath(), "diez-subject-id-selftest-" + Guid.NewGuid().ToString("N") + ".zip");
+        try
+        {
+            using (var zip = ZipFile.Open(tempZip, ZipArchiveMode.Create))
+            {
+                WriteWorkUnits(zip, "prompt-manifest.json", units);
+                WriteWorkUnits(zip, "request-context.json", units);
+            }
+            PromptPackSubjectIdentityService.Apply(tempZip, project, state, units.Select(x => x.WorkUnitId));
+            using var zip = ZipFile.OpenRead(tempZip);
+            foreach (var file in new[] { "prompt-manifest.json", "request-context.json" })
+            {
+                using var reader = new StreamReader(zip.GetEntry(file)!.Open(), Encoding.UTF8, true);
+                using var doc = JsonDocument.Parse(reader.ReadToEnd());
+                var nodes = doc.RootElement.GetProperty("work_units").EnumerateArray().ToList();
+                for (var i = 0; i < 3; i++)
+                {
+                    Require(nodes[i].GetProperty("subject_id").GetString() == subjects[i].SubjectId,
+                        file + ": SubjectId errato per item " + (i + 1));
+                    Require(nodes[i].GetProperty("subject_name").GetString() == subjects[i].Name,
+                        file + ": subject_name errato per item " + (i + 1));
+                    Require(nodes[i].GetProperty("subject_assignment").GetString() == "STRUCTURED_MULTI_SUBJECT",
+                        file + ": subject_assignment mancante.");
+                }
+            }
+            Require(prompts.All(p => subjects.All(s => !p.Contains(s.SubjectId, StringComparison.OrdinalIgnoreCase))),
+                "SubjectId interno è arrivato nel prompt visivo del renderer.");
+        }
+        finally
+        {
+            try { if (File.Exists(tempZip)) File.Delete(tempZip); } catch { }
+        }
 
         // Lowering the requested cast size is non-destructive: IDs/history stay in the model.
         var beforeAllIds = reloaded.Subjects.Select(x => x.SubjectId).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -98,6 +151,17 @@ internal static class MultiSubjectProfileSelfTest
         Require(string.Equals(afterLibrarySelection.Style, "Custom", StringComparison.OrdinalIgnoreCase) &&
                 string.Equals(afterLibrarySelection.CustomStyleNotes, customDefinition, StringComparison.Ordinal),
             "Selezione Custom dalla libreria non ripristina la definizione HARD nel progetto.");
+    }
+
+    private static void WriteWorkUnits(ZipArchive zip, string path, IReadOnlyList<AiExchangeWorkUnit> units)
+    {
+        var payload = JsonSerializer.Serialize(new
+        {
+            work_units = units.Select(x => new { id = x.WorkUnitId.ToString("D"), code = x.Code }).ToArray()
+        });
+        var entry = zip.CreateEntry(path, CompressionLevel.Optimal);
+        using var writer = new StreamWriter(entry.Open(), new UTF8Encoding(false));
+        writer.Write(payload);
     }
 
     private static void Rename(MultiSubjectProfile model, MultiSubjectDefinition subject, string name)
