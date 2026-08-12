@@ -54,13 +54,15 @@ internal static class PromptPackSubjectIdentityService
         foreach (var node in array.OfType<JsonObject>())
         {
             if (!Guid.TryParse(node["id"]?.ToString(), out var id)) continue;
-            var index = units.FindIndex(x => x.WorkUnitId == id);
-            if (index < 0) continue;
-            var subject = subjects[index % subjects.Count];
+            var unit = units.FirstOrDefault(x => x.WorkUnitId == id);
+            if (unit is null) continue;
+            var stablePosition = unit.Position > 0 ? unit.Position : units.IndexOf(unit) + 1;
+            var subject = subjects[(stablePosition - 1) % subjects.Count];
             node["subject_id"] = subject.SubjectId;
             node["subject_name"] = subject.Name;
             node["subject_profile_schema_version"] = 1;
             node["subject_assignment"] = "STRUCTURED_MULTI_SUBJECT";
+            node["subject_series_position"] = stablePosition;
         }
 
         entry.Delete();
@@ -70,9 +72,9 @@ internal static class PromptPackSubjectIdentityService
         writer.Write(root.ToJsonString(JsonOptions));
     }
 
-    private static int FindIndex(this IReadOnlyList<AiExchangeWorkUnit> units, Func<AiExchangeWorkUnit, bool> predicate)
+    private static int IndexOf(this IReadOnlyList<AiExchangeWorkUnit> units, AiExchangeWorkUnit target)
     {
-        for (var i = 0; i < units.Count; i++) if (predicate(units[i])) return i;
+        for (var i = 0; i < units.Count; i++) if (ReferenceEquals(units[i], target) || units[i].WorkUnitId == target.WorkUnitId) return i;
         return -1;
     }
 }
