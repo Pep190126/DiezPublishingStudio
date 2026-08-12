@@ -46,9 +46,35 @@ internal static class PromptEngineeringCompiler
             sb.AppendLine();
         }
 
+        AppendStructuredSubjectContract(sb, project);
+
         sb.AppendLine("=== CANONICAL DIEZ PRODUCTION SPECIFICATION ===");
         sb.AppendLine(canonical.Trim());
         return PromptEnglishNormalizer.NormalizeProviderFacing(sb.ToString());
+    }
+
+    private static void AppendStructuredSubjectContract(StringBuilder sb, PreviewProject project)
+    {
+        var model = MultiSubjectProfileService.Load(project);
+        var subjects = MultiSubjectProfileService.ActiveSubjects(model);
+        if (!model.Enabled || subjects.Count == 0) return;
+
+        sb.AppendLine("=== STRUCTURED SUBJECT / CHARACTER CAST — AUTHORITATIVE ===");
+        sb.AppendLine($"Explicit multi-subject mode is active with {subjects.Count} subject{(subjects.Count == 1 ? string.Empty : "s")}. Each subject has a stable internal SubjectId; names may be edited without changing identity. SubjectIds are audit metadata and must never be drawn inside the artwork.");
+        sb.AppendLine("Work Units are assigned to these structured identities by Diez. Do not reinterpret the cast as one comma-separated visual subject and do not render the whole cast unless the exact Work Unit explicitly calls for multiple participants.");
+        for (var i = 0; i < subjects.Count; i++)
+        {
+            var subject = subjects[i];
+            sb.AppendLine($"- Subject slot {i + 1}: {subject.Name}.");
+            if (!string.IsNullOrWhiteSpace(subject.Description))
+                sb.AppendLine($"  Identity definition — HARD: {subject.Description.Trim()}");
+        }
+        if (!string.IsNullOrWhiteSpace(requestedGroup(model)))
+            sb.AppendLine("- Shared theme/group context: " + requestedGroup(model));
+        sb.AppendLine();
+
+        static string requestedGroup(MultiSubjectProfile model) =>
+            PromptEnglishNormalizer.NormalizeProviderFacing(model.GroupDescription).Trim();
     }
 
     private static string PublicationAcceptanceGate(PreviewProject project, PromptEngineeringRequest request)
