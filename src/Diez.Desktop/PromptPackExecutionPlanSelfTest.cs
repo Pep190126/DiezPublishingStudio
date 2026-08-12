@@ -13,12 +13,20 @@ internal static class PromptPackExecutionPlanSelfTest
         Require(SingleWindowPromptTargetAiUi.LooksLikeLegacyGeneratedPrompt(
                 "REGOLE COMUNI DEL PROGETTO:\n...\nSPECIFICHE TECNICHE:\n- Qualità rendering: Massima / stampa"),
             "Il vecchio prompt tecnico italiano non viene riconosciuto come legacy.");
+        Require(ColoringIndependentHardProfileService.SelectableStyles.Contains("Kawaii", StringComparer.OrdinalIgnoreCase),
+            "Kawaii non disponibile come stile singolo.");
+        Require(ColoringIndependentHardProfileService.SelectableStyles.Contains("Cartoon", StringComparer.OrdinalIgnoreCase),
+            "Cartoon non disponibile come stile singolo.");
+        Require(!ColoringIndependentHardProfileService.SelectableStyles.Contains("Cozy", StringComparer.OrdinalIgnoreCase),
+            "Cozy è ancora erroneamente esposto come stile anziché parametro HARD indipendente.");
+        Require(!ColoringIndependentHardProfileService.SelectableStyles.Contains("Bold & Easy", StringComparer.OrdinalIgnoreCase),
+            "Bold & Easy è ancora erroneamente esposto come stile anziché parametro HARD indipendente.");
 
         var rejectedNonAtomic = false;
         try
         {
             PromptPackProviderFacingService.EnsureRendererPromptReady(
-                "Create ONE coloring-book illustration.\nPRIMARY SUBJECT — HARD LOCK: 3 animals different 3 images. The subject must be dominant.\nSTYLE — HARD LOCK: Kawaii / Cartoon.",
+                "Create ONE coloring-book illustration.\nPRIMARY SUBJECT — HARD LOCK: 3 animals different 3 images. The subject must be dominant.\nSTYLE — HARD LOCK: Kawaii.\nBOLD & EASY — HARD: OFF.\nCOZY — HARD: OFF.",
                 "IMG-TEST");
         }
         catch (InvalidOperationException) { rejectedNonAtomic = true; }
@@ -37,14 +45,17 @@ internal static class PromptPackExecutionPlanSelfTest
             // only appears in environment/MUST DO. The old resolver therefore failed to choose one species.
             profile.SubjectDescription = "3 animali diversi 3 immagini";
             profile.EnvironmentDescription = "jungla";
-            profile.Style = "Kawaii / Cartoon";
+            profile.Style = "Kawaii";
             profile.TargetAudience = "Bambini 6–9 anni";
             profile.Difficulty = "Facile";
-            profile.LineWeight = "Spesso — Bold";
-            profile.Complexity = "Bassa";
-            profile.ElementDensity = "Bassa";
+            profile.LineWeight = "Sottile — Fine";
+            profile.BoldEasy = true; // must be resolved OFF because thin lines are authoritative.
+            profile.Complexity = "Media";
+            profile.ElementDensity = "Media";
             profile.Background = "Contestuale leggero";
             BookTypePromptProfileService.SaveColoring(project, profile);
+            ColoringBoldEasyPolicyStore.Save(project, true, profile.LineWeight);
+            ColoringCozyPolicyStore.Save(project, false);
             project.Entities.Add(new GraphEntity
             {
                 Kind = "DiezImageGenerationSpecs",
@@ -138,13 +149,19 @@ internal static class PromptPackExecutionPlanSelfTest
                 Require(prompt.StartsWith("FRESH GENERATION — HARD RESET", StringComparison.Ordinal), "Prompt non inizia con hard reset renderer.");
                 Require(prompt.Contains("PRIMARY SUBJECT — HARD LOCK: " + expectedSubjects[i], StringComparison.OrdinalIgnoreCase),
                     "Soggetto concreto errato per v002: " + expectedSubjects[i]);
-                Require(prompt.Contains("STYLE — HARD LOCK: Kawaii / Cartoon", StringComparison.OrdinalIgnoreCase),
-                    "Stile Kawaii non è HARD nel renderer brief.");
+                Require(prompt.Contains("STYLE — HARD LOCK: Kawaii", StringComparison.OrdinalIgnoreCase),
+                    "Stile Kawaii singolo non è HARD nel renderer brief.");
+                Require(!prompt.Contains("Kawaii / Cartoon", StringComparison.OrdinalIgnoreCase),
+                    "Il vecchio stile combinato Kawaii / Cartoon è ancora nel renderer brief.");
+                Require(prompt.Contains("BOLD & EASY — HARD: OFF", StringComparison.Ordinal),
+                    "Linee sottili non producono Bold & Easy HARD OFF.");
+                Require(prompt.Contains("COZY — HARD: OFF", StringComparison.Ordinal),
+                    "Cozy HARD OFF non arriva nel renderer brief.");
+                Require(prompt.Contains("Thin — Fine", StringComparison.OrdinalIgnoreCase),
+                    "Spessore Thin/Fine non arriva al renderer brief.");
                 Require(prompt.Contains("COMPOSITION — HARD LOCK", StringComparison.Ordinal),
                     "Composizione singola non è HARD nel renderer brief.");
-                Require(prompt.Contains("natural-history", StringComparison.OrdinalIgnoreCase) &&
-                        prompt.Contains("engraving", StringComparison.OrdinalIgnoreCase) &&
-                        prompt.Contains("cross-hatching", StringComparison.OrdinalIgnoreCase),
+                Require(prompt.Contains("realistic natural-history", StringComparison.OrdinalIgnoreCase),
                     "Kawaii hard lock non respinge la resa realistica osservata nelle immagini fisiche.");
                 Require(prompt.Contains("Simple clean lines", StringComparison.OrdinalIgnoreCase),
                     "Linee semplici e pulite non normalizzato in inglese.");
@@ -161,6 +178,23 @@ internal static class PromptPackExecutionPlanSelfTest
             Require(manifest.Contains(expectedPackName, StringComparison.Ordinal), "Naming Prompt Pack assente dal manifest.");
             Require(manifest.Contains(expectedResponseName, StringComparison.Ordinal), "Naming Response assente dal manifest.");
             Require(manifest.Contains(project.ProjectId.ToString("D"), StringComparison.OrdinalIgnoreCase), "ProjectId interno assente dal manifest.");
+
+            // Positive-direction regression: the same independent dimensions must be HARD when ON too.
+            var p2 = BookTypePromptProfileService.LoadColoring(project);
+            p2.LineWeight = "Spesso — Bold";
+            p2.BoldEasy = true;
+            p2.Style = "Cartoon";
+            BookTypePromptProfileService.SaveColoring(project, p2);
+            ColoringBoldEasyPolicyStore.Save(project, true, p2.LineWeight);
+            ColoringCozyPolicyStore.Save(project, true);
+            var onPrompt = PromptPackProviderFacingService.BuildImageGenerationPrompt(
+                project, units[0], 3, 1, PromptPreparationSettingsStore.Load(project));
+            Require(onPrompt.Contains("STYLE — HARD LOCK: Cartoon", StringComparison.OrdinalIgnoreCase),
+                "Cartoon non resta uno stile singolo indipendente.");
+            Require(onPrompt.Contains("BOLD & EASY — HARD: ON", StringComparison.Ordinal),
+                "Bold & Easy HARD ON non arriva al renderer brief.");
+            Require(onPrompt.Contains("COZY — HARD: ON", StringComparison.Ordinal),
+                "Cozy HARD ON non arriva al renderer brief.");
         }
         finally
         {
