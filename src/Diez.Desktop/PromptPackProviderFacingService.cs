@@ -104,15 +104,19 @@ internal static class PromptPackProviderFacingService
         var sb = new StringBuilder();
         if (string.Equals(request.BookType, BookTypeProfileService.ColoringBook, StringComparison.OrdinalIgnoreCase))
         {
-            var style = Norm(request.Style, "clean professional coloring-book line art");
+            var hardProfile = ColoringIndependentHardProfileService.Resolve(project);
+            var style = Norm(hardProfile.Style, "Clean Line Art");
             sb.AppendLine("Create ONE finished, publication-quality coloring-book illustration.");
             sb.AppendLine($"PRIMARY SUBJECT — HARD LOCK: {subject}. The subject must be the dominant focal element, large, clearly recognizable, anatomically coherent and more visually important than the background.");
             sb.AppendLine("COMPOSITION — HARD LOCK: exactly ONE unified composition with exactly ONE primary scene filling the canvas. Keep the canvas as one continuous scene; do not subdivide it into separate framed, side-by-side or stacked regions, and do not show multiple alternative compositions or visually represent the series count.");
             if (!string.IsNullOrWhiteSpace(environment))
                 sb.AppendLine($"SETTING — SUPPORTING ONLY: {environment}. Keep the setting secondary, uncluttered and clearly subordinate to the main subject.");
-            sb.AppendLine($"STYLE — HARD LOCK: {style}. {StyleHardDirective(style)} A polished image in a different visual style is non-compliant and must be regenerated.");
-            sb.AppendLine($"EDITORIAL TARGET: audience {Norm(request.Audience, "general audience")}; difficulty {Norm(request.Difficulty, "Medium")}; line weight {Norm(request.LineWeight, "Medium")}; complexity {Norm(request.Complexity, "Medium")}; element density {Norm(request.Density, "Low to medium")}; background treatment {Norm(request.Background, "Simple contextual background")}.");
-            sb.AppendLine("DRAWING CRAFT: smooth intentional organic contours, coherent pose and anatomy, strong silhouette, clean closed colorable regions, balanced composition and a friendly professional finish. Simple child-friendly art must still look deliberately illustrated, never rough, primitive or placeholder-like.");
+            sb.AppendLine($"STYLE — HARD LOCK: {style}. {BookTypePromptProfileService.StyleHardDirectiveEnglish(style)} A polished image in a different visual style is non-compliant and must be regenerated.");
+            sb.AppendLine(ColoringIndependentHardProfileService.BoldEasyDirective(hardProfile.BoldEasy));
+            sb.AppendLine(ColoringIndependentHardProfileService.CozyDirective(hardProfile.Cozy));
+            sb.AppendLine($"EDITORIAL TARGET: audience {Norm(request.Audience, "general audience")}; difficulty {Norm(request.Difficulty, "Medium")}; line weight {Norm(hardProfile.LineWeight, "Medium")}; complexity {Norm(request.Complexity, "Medium")}; element density {Norm(request.Density, "Low to medium")}; background treatment {Norm(request.Background, "Simple contextual background")}.");
+            sb.AppendLine("LINE WEIGHT — HARD: the selected line weight is authoritative. Thin/Fine and Very thin/Extra Fine contours must remain visibly thin and may not be thickened into a Bold & Easy treatment.");
+            sb.AppendLine("DRAWING CRAFT: smooth intentional organic contours, coherent pose and anatomy, strong silhouette, clean closed colorable regions, balanced composition and a professional finish appropriate to the selected style and independent HARD profiles. Simple child-friendly art must still look deliberately illustrated, never rough, primitive or placeholder-like.");
             sb.AppendLine("COLOR OUTPUT — HARD: pure black #000000 line work on pure white #FFFFFF only in the final raster. Use no intermediate gray or color values. Keep regions comfortably colorable and print-legible.");
             sb.AppendLine("VISIBLE CONTENT — HARD: no text, letters, numbers, labels, signatures, watermarks, IDs or filenames inside the artwork.");
         }
@@ -149,7 +153,9 @@ internal static class PromptPackProviderFacingService
 
         AppendTechnical(sb, request.Technical);
         sb.AppendLine($"SERIES ROLE: this is item {index} of {Math.Max(1, total)}, but render ONLY this one composition. Do not represent the series count visually.");
-        sb.AppendLine("FINAL CHECK — HARD: the returned image must visibly match BOTH the PRIMARY SUBJECT and STYLE hard locks and must contain only one unified composition before any technical compliance is considered. If any of these fail, regenerate instead of returning the asset.");
+        sb.AppendLine(string.Equals(request.BookType, BookTypeProfileService.ColoringBook, StringComparison.OrdinalIgnoreCase)
+            ? "FINAL CHECK — HARD: the returned image must visibly match PRIMARY SUBJECT, STYLE, BOLD & EASY ON/OFF, COZY ON/OFF, LINE WEIGHT and single-composition hard locks before any technical compliance is considered. If any one fails, regenerate instead of returning the asset."
+            : "FINAL CHECK — HARD: the returned image must visibly match BOTH the PRIMARY SUBJECT and STYLE hard locks and must contain only one unified composition before any technical compliance is considered. If any of these fail, regenerate instead of returning the asset.");
 
         var renderer = PromptEnglishNormalizer.NormalizeProviderFacing(sb.ToString()).Trim();
         EnsureRendererPromptReady(renderer, unit.Code);
@@ -211,9 +217,19 @@ internal static class PromptPackProviderFacingService
         if (NonAtomicSubjectDirective.IsMatch(subject))
             throw new InvalidOperationException($"{label}: PRIMARY SUBJECT non atomico ('{subject}'). La quantità della serie non può entrare nel soggetto di una singola Work Unit.");
 
-        if (text.Contains("coloring-book", StringComparison.OrdinalIgnoreCase) &&
-            !text.Contains("STYLE — HARD LOCK:", StringComparison.Ordinal))
-            throw new InvalidOperationException($"{label}: STYLE — HARD LOCK mancante nel renderer prompt Coloring.");
+        if (text.Contains("coloring-book", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!text.Contains("STYLE — HARD LOCK:", StringComparison.Ordinal))
+                throw new InvalidOperationException($"{label}: STYLE — HARD LOCK mancante nel renderer prompt Coloring.");
+            if (!text.Contains("BOLD & EASY — HARD:", StringComparison.Ordinal))
+                throw new InvalidOperationException($"{label}: BOLD & EASY — HARD ON/OFF mancante nel renderer prompt Coloring.");
+            if (!text.Contains("COZY — HARD:", StringComparison.Ordinal))
+                throw new InvalidOperationException($"{label}: COZY — HARD ON/OFF mancante nel renderer prompt Coloring.");
+            if ((text.Contains("Thin — Fine", StringComparison.OrdinalIgnoreCase) ||
+                 text.Contains("Very thin — Extra Fine", StringComparison.OrdinalIgnoreCase)) &&
+                !text.Contains("BOLD & EASY — HARD: OFF", StringComparison.Ordinal))
+                throw new InvalidOperationException($"{label}: linee sottili/fini richiedono BOLD & EASY — HARD: OFF.");
+        }
 
         if (PromptEnglishNormalizer.ContainsKnownItalianVisualVocabulary(text))
             throw new InvalidOperationException($"{label}: il renderer prompt contiene ancora vocabolario provider-facing italiano noto.");
@@ -262,20 +278,6 @@ internal static class PromptPackProviderFacingService
             parts.Add("technical detail " + PromptEnglishNormalizer.NormalizeProviderFacing(technical.TechnicalDetail));
         if (parts.Count > 0)
             sb.AppendLine("TECHNICAL OUTPUT: " + string.Join("; ", parts) + ". Preserve aspect ratio and never stretch the artwork.");
-    }
-
-    private static string StyleHardDirective(string style)
-    {
-        if (style.Contains("kawaii", StringComparison.OrdinalIgnoreCase) ||
-            style.Contains("cartoon", StringComparison.OrdinalIgnoreCase))
-        {
-            return "The artwork must be unmistakably cute/cartoon rather than naturalistic: use deliberately simplified rounded forms, expressive friendly facial features, visibly stylized proportions (for example a relatively larger head/eyes where appropriate), reduced realistic texture/anatomical micro-detail and clean bold illustrative contours. Reject realistic natural-history illustration, engraving/etching, dense cross-hatching, photorealistic proportions or documentary animal rendering.";
-        }
-
-        if (style.Contains("bold", StringComparison.OrdinalIgnoreCase) && style.Contains("easy", StringComparison.OrdinalIgnoreCase))
-            return "Use visibly simplified forms, large readable colorable regions, confident bold contours and restrained interior detail. Do not drift into dense realistic engraving or intricate natural-history rendering.";
-
-        return "The selected style is an explicit editorial requirement: its defining visible traits must be present in the finished artwork, not merely mentioned in metadata.";
     }
 
     private static List<string> ExtractSpeciesInOrder(string text)
