@@ -7,7 +7,8 @@ namespace DiezPublishingStudio;
 
 /// <summary>
 /// Guided visual transport UI. It selects the active Work Units and delegates the complete ZIP
-/// pipeline to AiVisualPromptPackService; response import delegates to the audited V2 importer.
+/// pipeline to AiVisualPromptPackService; response import accepts either one nested Response Bundle
+/// or ordinary/partial Response ZIPs and then delegates every inner package to the audited V2 importer.
 /// </summary>
 internal static class SingleWindowSafeImageContextExportUi
 {
@@ -55,7 +56,7 @@ internal static class SingleWindowSafeImageContextExportUi
                 HorizontalContentAlignment = HorizontalAlignment.Center
             };
             ToolTip.SetTip(safe,
-                "Esporta un solo Prompt Pack con prompt VISUAL-ONLY e una clean-room queue guidata. Il launcher interno accompagna l'utente Work Unit per Work Unit e produce Response parziali importabili insieme.");
+                "Esporta un solo Prompt Pack con prompt VISUAL-ONLY e clean-room queue guidata. Il launcher produce un partial Response per Work Unit e poi li impacchetta localmente in un unico Response Bundle ZIP.");
             safe.Click += async (_, _) =>
             {
                 var state = AiExchangeStateStore.Load(project);
@@ -74,8 +75,7 @@ internal static class SingleWindowSafeImageContextExportUi
 
                 var nextVersion = BookPackageNamingService.PeekNextVersion(project);
                 var suggestedName = BookPackageNamingService.PromptPackFileName(project, nextVersion);
-                var firstPart = BookPackageNamingService.ResponsePartFileName(project, nextVersion, 1);
-                var lastPart = BookPackageNamingService.ResponsePartFileName(project, nextVersion, units.Count);
+                var finalResponse = BookPackageNamingService.ResponseFileName(project, nextVersion);
                 var file = await window.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
                 {
                     Title = "Salva Prompt Pack Diez con clean-room queue",
@@ -92,9 +92,7 @@ internal static class SingleWindowSafeImageContextExportUi
                     units.Select(u => u.WorkUnitId),
                     EnsureZip(file.Path.LocalPath));
                 SetStatus(window, result.Success
-                    ? result.Message + $" · Apri {PromptPackCleanRoomQueueService.LauncherFileName} nel Pack. Response: {firstPart}" +
-                      (units.Count > 1 ? $" … {lastPart}" : string.Empty) +
-                      " · poi importale tutte insieme con Importa risultati AI."
+                    ? result.Message + $" · Apri {PromptPackCleanRoomQueueService.LauncherFileName}: dopo le clean room il launcher crea un unico {finalResponse}. Importa quel solo ZIP con Importa risultati AI."
                     : result.Message);
             };
 
@@ -113,19 +111,19 @@ internal static class SingleWindowSafeImageContextExportUi
                 HorizontalContentAlignment = HorizontalAlignment.Center
             };
             ToolTip.SetTip(safeImport,
-                "Seleziona insieme uno o più Response ZIP, inclusi i part-NNN della clean-room queue. Diez li aggrega sullo stesso Prompt Pack/snapshot; Candidate e FAILED restano auditati separatamente.");
+                "Preferito: seleziona un solo Response Bundle ZIP, che contiene un ZIP parziale per ogni immagine. Restano compatibili anche Response ordinari o più part-NNN selezionati insieme.");
             safeImport.Click += async (_, _) =>
             {
                 var files = await window.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
                 {
-                    Title = "Importa insieme i Response ZIP Diez (anche part-NNN)",
+                    Title = "Importa Response Diez — bundle unico o ZIP singoli",
                     AllowMultiple = true,
                     FileTypeFilter = [new FilePickerFileType("Risultati AI Diez") { Patterns = ["*.zip"] }]
                 });
                 if (files.Count == 0) return;
 
                 var state = AiExchangeStateStore.Load(project);
-                var result = await AiExchangeResponseImportV2.ImportAsync(
+                var result = await AiExchangeResponseBundleService.ImportAsync(
                     project, path, state, files.Select(f => f.Path.LocalPath));
                 SetStatus(window, result.Message);
                 SingleWindowResponseReviewUi.Open(window);
@@ -146,7 +144,7 @@ internal static class SingleWindowSafeImageContextExportUi
                 HorizontalContentAlignment = HorizontalAlignment.Center
             };
             ToolTip.SetTip(safeReview,
-                "Apre la revisione scrollabile: Candidate con asset e FAILED provider senza asset restano stati distinti e auditabili, anche quando arrivano da Response parziali.");
+                "Apre la revisione scrollabile: Candidate con asset e FAILED provider senza asset restano stati distinti e auditabili anche quando arrivano da un Response Bundle annidato.");
             safeReview.Click += (_, _) => SingleWindowResponseReviewUi.Open(window);
             var index = row.Children.IndexOf(oldReview);
             row.Children.Insert(index < 0 ? row.Children.Count : index + 1, safeReview);
