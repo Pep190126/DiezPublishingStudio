@@ -138,7 +138,9 @@ jobs:
             "manual-render-call-isolation=no-prior-image-reference", "manual-render-chat-session=conditional-on-provider-visual-state",
             "manual-clean-room-queue=1.0", "manual-clean-room-launcher=yes",
             "manual-clean-room-chat=temporary-or-new-blank-per-work-unit", "manual-clean-room-one-attempt=yes",
-            "manual-partial-response=one-per-work-unit", "manual-partial-response-import=multi-select-once",
+            "manual-partial-response=one-per-work-unit", "manual-response-bundle=1.0",
+            "manual-response-bundle-shape=one-outer-zip-n-inner-zips", "manual-response-bundle-manifest=response-bundle-manifest.json",
+            "manual-response-bundle-import=single-zip-preferred", "manual-partial-response-import=multi-select-compatible-fallback",
             "package-naming=diez-title-versioned", "visual-context=V3", "response-import=audited-v2",
             "response-failed-review=scrollable-audited", "visual-prompt-pipeline=single-source",
             "vision-style-match=hard", "vision-bold-easy-match=hard", "vision-cozy-match=hard"
@@ -236,7 +238,7 @@ jobs:
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
-          name: DiezPublishingStudio-Setup-1.0.0-rc8-SW-FLOW-12-PromptCompiler35-CleanRoomQueue10
+          name: DiezPublishingStudio-Setup-1.0.0-rc8-SW-FLOW-12-PromptCompiler35-CleanRoomQueue10-ResponseBundle10
           path: artifacts/installer/DiezPublishingStudio-Setup.exe
           if-no-files-found: error
           retention-days: 90
