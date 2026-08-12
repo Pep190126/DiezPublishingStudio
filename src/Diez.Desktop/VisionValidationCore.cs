@@ -208,9 +208,11 @@ internal static class VisionValidationStore
         record.Confidence = Math.Clamp(result.Confidence, 0, 1);
         record.ObservedDescription = (result.ObservedDescription ?? string.Empty).Trim();
         record.Summary = (result.Summary ?? string.Empty).Trim();
-        record.Checks = (result.Checks ?? []).Select(NormalizeCheck).ToList();
-        record.BlocksApproval = string.Equals(record.OverallStatus, VisionValidationStatuses.Fail, StringComparison.Ordinal) ||
-                                record.Checks.Any(c => c.Severity == VisionSeverity.Hard && c.Status == VisionCheckStatuses.Fail);
+        record.Checks = (result.Checks ?? []).Select(NormalizeCheck).Select(c => ApplyHardPolicy(project, c)).ToList();
+
+        var hardFail = record.Checks.Any(c => c.Severity == VisionSeverity.Hard && c.Status == VisionCheckStatuses.Fail);
+        if (hardFail) record.OverallStatus = VisionValidationStatuses.Fail;
+        record.BlocksApproval = string.Equals(record.OverallStatus, VisionValidationStatuses.Fail, StringComparison.Ordinal) || hardFail;
         record.CheckedAtLocal = DateTimeOffset.Now.ToString("O");
 
         var version = exchange.Versions.FirstOrDefault(v => v.VersionId == result.VersionId);
@@ -290,6 +292,30 @@ internal static class VisionValidationStore
         Confidence = Math.Clamp(source.Confidence, 0, 1),
         Evidence = (source.Evidence ?? string.Empty).Trim()
     };
+
+    private static VisionValidationCheck ApplyHardPolicy(PreviewProject project, VisionValidationCheck check)
+    {
+        if (string.Equals(check.Key, "style_match", StringComparison.OrdinalIgnoreCase))
+            check.Severity = VisionSeverity.Hard;
+
+        // Compatibility with older validators that used style_quality for both match and taste:
+        // an explicit FAIL on style_quality becomes HARD when the project has an explicit selected style.
+        if (string.Equals(check.Key, "style_quality", StringComparison.OrdinalIgnoreCase) &&
+            check.Status == VisionCheckStatuses.Fail &&
+            !string.IsNullOrWhiteSpace(SelectedStyle(project)))
+            check.Severity = VisionSeverity.Hard;
+
+        if (string.Equals(check.Key, "single_composition", StringComparison.OrdinalIgnoreCase))
+            check.Severity = VisionSeverity.Hard;
+        return check;
+    }
+
+    private static string SelectedStyle(PreviewProject project)
+    {
+        if (string.Equals(BookTypeProfileService.Get(project), BookTypeProfileService.ColoringBook, StringComparison.OrdinalIgnoreCase))
+            return BookTypePromptProfileService.LoadColoring(project).Style ?? string.Empty;
+        return ImageCollectionPromptProfileService.Load(project).RenderingStyle ?? string.Empty;
+    }
 }
 
 internal static class VisionValidationSpecificationBuilder
@@ -313,22 +339,11 @@ internal static class VisionValidationSpecificationBuilder
             master?.MustNotDo ?? string.Empty,
             providerTarget,
             settings.PreferAdvancedModel);
-        var item = request.ItemOverrides.FirstOrDefault(x => x.ItemIndex == unit.Position);
-        var canonical = PromptEngineeringCompiler.BuildSeriesPrompt(
-            project,
-            Math.Max(1, seriesCount),
-            master?.MustDo ?? string.Empty,
-            master?.MustNotDo ?? string.Empty,
-            providerTarget,
-            settings.PreferAdvancedModel);
-        var itemContract = PromptEngineeringEngine.BuildItemPrompt(
-            project,
-            canonical,
-            Math.Max(1, seriesCount),
-            Math.Max(1, unit.Position),
-            unit.Code,
-            providerTarget,
-            settings.PreferAdvancedModel);
+        var position = Math.Max(1, unit.Position);
+        var item = request.ItemOverrides.FirstOrDefault(x => x.ItemIndex == position);
+        var atomicSubject = PromptPackProviderFacingService.ResolveAtomicSubject(request, position);
+        var generationContract = PromptPackProviderFacingService.BuildImageGenerationPrompt(
+            project, unit, Math.Max(1, seriesCount), position, settings);
 
         return new VisionValidationRequest
         {
@@ -340,19 +355,19 @@ internal static class VisionValidationSpecificationBuilder
             ContentSha256 = version.ContentSha256,
             CandidateFile = candidateFile,
             ProviderTarget = providerTarget,
-            GenerationContract = itemContract,
+            GenerationContract = generationContract,
             Expected = new VisionExpectedSpecification
             {
                 BookType = request.BookType,
                 Code = unit.Code,
-                SeriesPosition = Math.Max(1, unit.Position),
+                SeriesPosition = position,
                 SeriesCount = Math.Max(1, seriesCount),
                 Subject = request.Subject,
                 Environment = request.Environment,
                 MustDo = request.MustDo,
                 MustNotDo = request.MustNotDo,
-                ItemSubject = item?.Subject ?? string.Empty,
-                ItemEnvironment = item?.Environment ?? string.Empty,
+                ItemSubject = atomicSubject,
+                ItemEnvironment = item?.Environment ?? request.Environment,
                 ItemMustDo = item?.MustDo ?? string.Empty,
                 ItemMustNotDo = item?.MustNotDo ?? string.Empty,
                 Style = request.Style,
@@ -368,38 +383,55 @@ internal static class VisionValidationSpecificationBuilder
                 PixelWidth = request.Technical.PixelWidth,
                 PixelHeight = request.Technical.PixelHeight,
                 Dpi = request.Technical.Dpi,
-                HardCriteria = HardCriteria(request.BookType),
+                HardCriteria = HardCriteria(request),
                 QualityCriteria = QualityCriteria(request.BookType)
             }
         };
     }
 
-    private static List<string> HardCriteria(string bookType)
+    private static List<string> HardCriteria(PromptEngineeringRequest request)
     {
-        if (string.Equals(bookType, BookTypeProfileService.ColoringBook, StringComparison.OrdinalIgnoreCase))
+        var criteria = new List<string>();
+        if (string.Equals(request.BookType, BookTypeProfileService.ColoringBook, StringComparison.OrdinalIgnoreCase))
         {
-            return
+            criteria.AddRange(
             [
-                "The visible subject must semantically match the requested general and item-specific subject.",
+                "The visible primary subject must match expected.item_subject for this exact Work Unit. The series-level subject/theme must never justify showing multiple sibling subjects in the same image.",
+                "Exactly one unified primary composition is allowed. A triptych, grid, contact sheet, collage, split screen, multiple panels or multiple alternatives is a HARD failure unless this exact Work Unit explicitly requests it.",
                 "The visible environment must not contradict requested environment or exclusions.",
                 "The image must actually be a usable coloring-book illustration, not a photograph, rendered landscape, logo, icon sheet, collage or unrelated scene.",
                 "No visible text, letters, numbers, watermark, signature, UI or filename unless explicitly requested.",
                 "No obviously malformed or impossible anatomy/geometry that makes the main subject unusable.",
                 "All explicit MUST NOT DO constraints are hard exclusions.",
                 "All item-specific overrides have priority over general series wording."
-            ];
+            ]);
+        }
+        else
+        {
+            criteria.AddRange(
+            [
+                "The visible primary subject must match expected.item_subject for this exact Work Unit.",
+                "Exactly one unified primary composition is allowed unless this exact Work Unit explicitly requests a multi-panel layout.",
+                "The visible environment must not contradict requested environment or exclusions.",
+                "The image must serve the selected Book Type/editorial use rather than be an unrelated stock-like visual.",
+                "No visible text, labels, watermark, signature or filename unless explicitly requested.",
+                "No obviously malformed anatomy/geometry or duplicated critical objects that make the asset unusable.",
+                "All explicit MUST NOT DO constraints are hard exclusions.",
+                "All item-specific overrides have priority over general series wording."
+            ]);
         }
 
-        return
-        [
-            "The visible subject must semantically match the requested general and item-specific subject.",
-            "The visible environment must not contradict requested environment or exclusions.",
-            "The image must serve the selected Book Type/editorial use rather than be an unrelated stock-like visual.",
-            "No visible text, labels, watermark, signature or filename unless explicitly requested.",
-            "No obviously malformed anatomy/geometry or duplicated critical objects that make the asset unusable.",
-            "All explicit MUST NOT DO constraints are hard exclusions.",
-            "All item-specific overrides have priority over general series wording."
-        ];
+        var style = PromptEnglishNormalizer.NormalizeProviderFacing(
+            string.Equals(request.BookType, BookTypeProfileService.ColoringBook, StringComparison.OrdinalIgnoreCase)
+                ? request.Style
+                : request.RenderingStyle);
+        if (!string.IsNullOrWhiteSpace(style))
+        {
+            criteria.Add($"STYLE MATCH IS HARD: the visible artwork must materially match the selected style '{style}'. A polished image in a different style is a HARD failure, not a taste preference.");
+            if (style.Contains("kawaii", StringComparison.OrdinalIgnoreCase) || style.Contains("cartoon", StringComparison.OrdinalIgnoreCase))
+                criteria.Add("For Kawaii / Cartoon, realistic natural-history rendering, engraving/etching, dense cross-hatching, photographic/anatomically literal proportions or heavy realistic texture is a HARD style mismatch. The image must visibly use cute/cartoon simplification, rounded/stylized forms, expressive friendly features and simplified proportions/details.");
+        }
+        return criteria;
     }
 
     private static List<string> QualityCriteria(string bookType)
@@ -414,6 +446,7 @@ internal static class VisionValidationSpecificationBuilder
                 "Colorable regions and detail density appropriate to audience/difficulty.",
                 "Background supports the subject without meaningless filler or visual clutter.",
                 "No random floating symbols, pseudo-writing, decorative artifacts or accidental duplicated details.",
+                "Within the required selected style, execution quality and aesthetic preference may be reviewed softly unless publication fitness is obviously broken.",
                 "Overall page quality should be credible for a commercially published coloring book."
             ];
         }
@@ -424,7 +457,7 @@ internal static class VisionValidationSpecificationBuilder
             "Coherent composition rather than a literal collage of prompt keywords.",
             "Plausible anatomy/geometry/perspective for the chosen visual style.",
             "No random symbols, pseudo-writing, duplicated objects or generation artifacts.",
-            "Style, color treatment and detail should fit the selected editorial use.",
+            "Within the required selected style, color treatment and detail should fit the selected editorial use.",
             "Overall asset quality should be credible for professional publication."
         ];
     }
