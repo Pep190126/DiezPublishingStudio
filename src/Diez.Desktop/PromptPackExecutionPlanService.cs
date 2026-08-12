@@ -10,11 +10,11 @@ namespace DiezPublishingStudio;
 /// <summary>
 /// Makes the manual Prompt-Pack transport executable without asking the receiving agent to infer
 /// which orchestration fields should be sent to the image renderer. Every image Work Unit gets one
-/// visual-only prompt file, one unique render request id and an executor-owned fresh-call policy.
+/// visual-only prompt file, one unique render request id and a guided clean-room queue task.
 /// </summary>
 internal static class PromptPackExecutionPlanService
 {
-    public const string ProtocolVersion = "1.3";
+    public const string ProtocolVersion = "1.4";
     private const string ManifestName = "prompt-manifest.json";
     private const string ContextName = "request-context.json";
     private const string InstructionsName = "instructions.md";
@@ -68,7 +68,7 @@ internal static class PromptPackExecutionPlanService
                 throw new InvalidOperationException("image_generation_prompt mancante per " + unit.WorkUnitId);
 
             // Final image-model boundary: remove routing/retry/audit language and forbidden-layout concept soup.
-            // Freshness is enforced by the executor/call boundary, not by priming the visual model with process prose.
+            // Clean-room isolation is executor-owned and is never encoded into the visual model prompt itself.
             var authoritative = PromptPackRendererVisualBriefService.Build(basePrompt);
             PromptPackProviderFacingService.EnsureRendererPromptReady(authoritative, unit.Code);
             PromptPackRendererVisualBriefService.EnsureVisualOnly(authoritative);
@@ -102,7 +102,7 @@ internal static class PromptPackExecutionPlanService
                 ["order"] = index + 1,
                 ["work_unit_id"] = unit.WorkUnitId.ToString("D"),
                 ["work_unit_code"] = unit.Code,
-                ["candidate_version"] = IntValue(manifestUnit["candidate_version"], 1),
+                ["candidate_version"] = IntValue(manifestUnit["target_candidate_version"] ?? manifestUnit["candidate_version"], 1),
                 ["mode"] = unit.Mode,
                 ["render_request_id"] = renderRequestId.ToString("D"),
                 ["prompt_file"] = promptFile,
@@ -110,7 +110,7 @@ internal static class PromptPackExecutionPlanService
                 ["renderer_prompt_scope"] = "VISUAL_ONLY",
                 ["fresh_generation_required"] = true,
                 ["fresh_context_owner"] = "EXECUTOR",
-                ["chat_session_policy"] = "NEW_RENDERER_CALL_NO_PRIOR_IMAGE_REFERENCE",
+                ["chat_session_policy"] = "NEW_TEMPORARY_OR_NEW_BLANK_CHAT",
                 ["reuse_prior_generated_images_forbidden"] = true,
                 ["source_image_policy"] = sourcePolicy,
                 ["renderer_prompt_source"] = "prompt_file_verbatim",
@@ -137,12 +137,17 @@ internal static class PromptPackExecutionPlanService
             ["protocol_version"] = ProtocolVersion,
             ["start_here"] = StartName,
             ["render_plan"] = PlanName,
+            ["clean_room_queue"] = PromptPackCleanRoomQueueService.QueueFileName,
+            ["clean_room_launcher"] = PromptPackCleanRoomQueueService.LauncherFileName,
             ["renderer_prompt_source"] = "render-prompts/*.txt",
             ["renderer_prompt_scope"] = "VISUAL_ONLY",
             ["one_work_unit_per_renderer_call"] = true,
             ["fresh_generation_required"] = true,
             ["fresh_context_owner"] = "EXECUTOR",
-            ["chat_session_policy"] = "NEW_RENDERER_CALL_NO_PRIOR_IMAGE_REFERENCE",
+            ["chat_session_policy"] = "GUIDED_TEMPORARY_OR_NEW_BLANK_CHAT_PER_WORK_UNIT",
+            ["same_chat_renderer_isolation_certified"] = false,
+            ["partial_response_allowed"] = true,
+            ["partial_response_import"] = "MULTI_SELECT_ONCE",
             ["reuse_prior_generated_images_forbidden"] = true,
             ["atomic_subject_required"] = true,
             ["selected_style_is_hard"] = true
@@ -164,17 +169,27 @@ internal static class PromptPackExecutionPlanService
             ["package_version"] = packageVersion,
             ["prompt_pack_filename"] = promptPackFileName,
             ["response_filename"] = responseFileName,
-            ["renderer_prompt_source"] = "Read each prompt_file verbatim as VISUAL-ONLY model input; enforce routing/call isolation outside the renderer prompt.",
+            ["clean_room_queue"] = PromptPackCleanRoomQueueService.QueueFileName,
+            ["clean_room_launcher"] = PromptPackCleanRoomQueueService.LauncherFileName,
+            ["renderer_prompt_source"] = "Read each prompt_file verbatim as VISUAL-ONLY model input; enforce clean-room routing outside the renderer prompt.",
             ["renderer_prompt_scope"] = "VISUAL_ONLY",
             ["one_work_unit_per_renderer_call"] = true,
             ["fresh_generation_required"] = true,
             ["fresh_context_owner"] = "EXECUTOR",
-            ["chat_session_policy"] = "NEW_RENDERER_CALL_NO_PRIOR_IMAGE_REFERENCE",
+            ["chat_session_policy"] = "GUIDED_TEMPORARY_OR_NEW_BLANK_CHAT_PER_WORK_UNIT",
+            ["same_chat_renderer_isolation_certified"] = false,
+            ["partial_response_allowed"] = true,
+            ["partial_response_import"] = "MULTI_SELECT_ONCE",
             ["reuse_prior_generated_images_forbidden"] = true,
             ["atomic_subject_required"] = true,
             ["selected_style_is_hard"] = true,
             ["calls"] = calls
         };
+
+        // A single Prompt Pack now contains a guided clean-room queue. The user executes one disposable
+        // clean chat at a time and downloads one partial Response per Work Unit; Diez already supports
+        // importing all partial ZIPs together and reconciling them on the same request snapshot.
+        PromptPackCleanRoomQueueService.Apply(archive, project, packageVersion, manifest, calls);
 
         ReplaceObject(archive, ManifestName, manifest);
         ReplaceObject(archive, ContextName, context);
@@ -192,41 +207,37 @@ internal static class PromptPackExecutionPlanService
 Book: {BookPackageNamingService.BookTitle(project)}
 Internal project ID: {project.ProjectId:D}
 Package version: v{version:D3}
-Expected Prompt Pack name: `{promptPackFileName}`
-Required Response ZIP name: `{responseFileName}`
+Prompt Pack: `{promptPackFileName}`
+Aggregate Response name (optional): `{responseFileName}`
 
-This file is the entry point for manual execution. Do not infer the renderer prompt from conversation history.
+## Recommended manual workflow — ONE guided clean-room queue
+Open `{PromptPackCleanRoomQueueService.LauncherFileName}`. It presents Task 1/N → Task 2/N → Task 3/N in one local launcher, so the user does not have to manually track separate projects or reconstruct a final Response ZIP.
 
-1. Read `render-plan.json`.
-2. Process its `calls` strictly in order and independently.
-3. For each call, read the referenced `prompt_file` under `render-prompts/` VERBATIM. It is VISUAL-ONLY model input: never prepend/append routing, retry, IDs, audit text, manifest prose or conversation history to it.
-4. Freshness is the EXECUTOR'S responsibility. For every `AI_ONLY` Work Unit, start a NEW image-generation invocation and send only that Work Unit's visual prompt, with NO image from a prior Work Unit attached, referenced, edited, continued or restyled. The same orchestration chat may be used only when the platform gives each image-generation invocation an isolated no-input renderer context. If the platform automatically carries prior visual state between calls, use a new chat/session or equivalent isolated context for that Work Unit.
-5. For `AI_ONLY` / `BLANK_CANVAS_NO_INPUT_IMAGES`, no prior conversation image is an authorized renderer input. A new text message that implicitly continues or references the previous generated image does NOT satisfy fresh isolation.
-6. Before rendering, verify that `PRIMARY SUBJECT — HARD LOCK` names one atomic subject for this Work Unit. Series quantity/layout language must not exist in the visual prompt. If it does, return FAILED with a prompt-routing error instead of rendering.
-7. After rendering, inspect the actual image against `PRIMARY SUBJECT — HARD LOCK`, `STYLE — HARD LOCK`, independent HARD profile states, line weight and `COMPOSITION — HARD LOCK`. A correct animal in the wrong selected style is NOT compliant.
-8. If a hard lock fails, discard the image and retry once with another new no-prior-image renderer invocation. Never repair a wrong result by editing the previous wrong render. If the platform cannot provide isolated no-input generation, return FAILED/INCOMPLETE and include no non-compliant asset.
-9. Preserve Diez `work_unit_id`, candidate version, `render_request_id` and `render_prompt_sha256` in the response manifest when possible. These are executor/audit metadata and must NOT be inserted into the image-model prompt or artwork.
-10. Return the package as `{responseFileName}`. File naming is for the user; Diez continues to bind results using stable internal IDs.
+For each task:
+1. Open a NEW Temporary Chat when available, otherwise a NEW blank chat. The current physical tests proved that the same image conversation cannot be certified as clean because prior-project visuals may leak into a later renderer call.
+2. Copy the complete task from the launcher and send it in that clean chat.
+3. The chat executor must send ONLY the enclosed VISUAL-ONLY block to the image renderer. Routing IDs, response packaging and audit text remain outside the image-model prompt.
+4. Use exactly ONE image-generation attempt in that clean-room chat. If it violates a HARD lock, return that task as FAILED without an asset; do not contaminate the same chat with repeated edit/retry cycles.
+5. Download the partial Response ZIP named `diez-...-response-v{version:D3}-part-NNN.zip`, close/abandon that clean chat, then return to the launcher for the next task.
+6. When all tasks are done, go back to Diez → `Importa risultati AI` and multi-select ALL partial Response ZIPs in one operation. Diez aggregates them on the same Prompt Pack/snapshot and opens one unified Review page.
 
-The long `instruction`, manifest, request-context, render routing and QA contract are orchestration context. They are NOT renderer prompts.
+`render-plan.json` and `{PromptPackCleanRoomQueueService.QueueFileName}` remain the machine-readable audit contracts. `render-prompts/*.txt` remains VISUAL-ONLY image-model input. The long manifest/instructions/request-context are never renderer prompts.
 """.Trim();
 
     private static string AppendExecutionInstructions(string existing, string responseFileName)
     {
-        const string marker = "## Diez renderer isolation — AUTHORITATIVE";
+        const string marker = "## Diez clean-room queue — AUTHORITATIVE";
         if ((existing ?? string.Empty).Contains(marker, StringComparison.Ordinal)) return existing;
         return (existing ?? string.Empty).TrimEnd() + "\n\n" + $"""
 {marker}
-- Start with `00-START-HERE.md`, then execute `render-plan.json`.
-- `render-prompts/*.txt` is VISUAL-ONLY image-model input. Routing/session/retry/audit metadata stays outside the renderer prompt.
-- Every AI_ONLY Work Unit requires a new image-generation invocation with no prior Work Unit image attached or referenced. The orchestration chat may remain the same only if the platform truly isolates renderer calls; when visual state is carried automatically, use a new chat/session or equivalent isolated context.
-- For AI_ONLY, use a blank no-input renderer context: never edit, continue, restyle or reference a previous Work Unit image.
-- `PRIMARY SUBJECT — HARD LOCK` must be one atomic subject for the current Work Unit. Never visualize the series count.
-- `STYLE — HARD LOCK` and the independent Coloring HARD profiles are explicit editorial requirements, not soft preferences.
-- `COMPOSITION — HARD LOCK` requires one unified scene. Layout-family exclusion wording is intentionally kept out of the visual prompt to avoid priming the model with forbidden concepts.
-- Never paste the long manifest, `instruction`, request-context, render request ID, retry rules or QA contract into the image renderer.
-- If isolated no-input image generation is unavailable, return FAILED/INCOMPLETE rather than editing/reusing a previous image.
-- Name the returned ZIP `{responseFileName}`; stable IDs remain authoritative internally.
+- Prefer `{PromptPackCleanRoomQueueService.LauncherFileName}` as the human entry point; it guides the entire batch as one queue.
+- Every AI_ONLY Work Unit runs in a NEW Temporary Chat or NEW blank chat because same-chat image isolation is NOT certified by the physical transport tests.
+- `render-prompts/*.txt` is VISUAL-ONLY image-model input. Never forward routing/session/retry/audit metadata to the image renderer.
+- One clean-room task performs one image-generation attempt. A non-compliant result becomes a partial FAILED response rather than an edit/retry inside a contaminated visual conversation.
+- Each task returns a PARTIAL Response ZIP named `diez-...-response-vNNN-part-NNN.zip` with exactly one Work Unit and `partial=true`.
+- Diez accepts all partial Response ZIPs together in one multi-select import and reconciles them on the original Prompt Pack/snapshot. The user does not need to merge ZIPs manually.
+- Stable ProjectId/WorkUnitId/candidate version/render_request_id/SHA remain authoritative; filenames are human-facing only.
+- An optional provider may still return one aggregate `{responseFileName}` when it can genuinely guarantee stateless renderer calls, but the manual ChatGPT path defaults to the clean-room queue.
 """.Trim();
     }
 
