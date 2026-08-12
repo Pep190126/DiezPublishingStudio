@@ -119,6 +119,7 @@ internal static class AiExchangeImageContextSelfTest
                 "Orso in piedi sul tappetino", "authoritative_visual_source", "all unspecified elements",
                 "posizione del braccio destro", "Generate EXACTLY ONE image",
                 "DIEZ SOURCE-IMAGE / MODIFICATION CONTRACT", "PROVIDER EXECUTION PROFILE — OPENAI",
+                "COLORING PUBLICATION ACCEPTANCE GATE — HARD",
                 $"\"prompt_compiler_version\": \"{PromptEngineeringCompiler.Version}\""
             })
                 Require(manifest.Contains(required, StringComparison.OrdinalIgnoreCase), "Manifest correzione incompleto: " + required);
@@ -141,11 +142,29 @@ internal static class AiExchangeImageContextSelfTest
                 Require(!requestContext.Contains(forbidden, StringComparison.Ordinal), "Dato non attivo ancora nel request-context: " + forbidden);
 
             var instructions = await ReadEntryAsync(zip, "instructions.md");
-            Require(instructions.Contains("Diez Publishing Studio — Prompt Pack v1", StringComparison.Ordinal), "Le istruzioni core sono state perse.");
-            Require(instructions.Contains("base_version.file", StringComparison.Ordinal), "Le istruzioni non impongono l'uso della base reale.");
-            Require(instructions.Contains("non sostituiscono il file immagine", StringComparison.OrdinalIgnoreCase), "Le descrizioni possono ancora sostituire impropriamente l'immagine.");
-            Require(instructions.Contains("EXACTLY ONE image", StringComparison.OrdinalIgnoreCase), "Contratto one-image non propagato alle istruzioni.");
-            Require(!instructions.Contains("margini, bleed", StringComparison.OrdinalIgnoreCase), "Le istruzioni AI contengono ancora margini/bleed.");
+            foreach (var required in new[]
+            {
+                "Diez Publishing Studio — Prompt Pack v1",
+                "base_version.file",
+                "descriptions guide the work but never replace a real image file",
+                "EXACTLY ONE image",
+                "Image-generation integrity — HARD",
+                "genuine image-generation/illustration capability",
+                "primitive SVG/Canvas/Pillow geometry",
+                "return `INCOMPLETE` or `FAILED`",
+                "rough-draft, scribble-like, placeholder, primitive-geometric",
+                $"provider compiler: {PromptEngineeringCompiler.Version}"
+            })
+                Require(instructions.Contains(required, StringComparison.OrdinalIgnoreCase),
+                    "Istruzioni Prompt Pack inglesi/qualitative incomplete: " + required);
+
+            foreach (var forbidden in new[]
+            {
+                "Questo package descrive", "## Modalità", "Regole essenziali",
+                "non sostituiscono il file immagine", "margini, bleed"
+            })
+                Require(!instructions.Contains(forbidden, StringComparison.OrdinalIgnoreCase),
+                    "Le istruzioni provider-facing contengono ancora testo italiano/legacy: " + forbidden);
         }
         finally
         {
