@@ -47,7 +47,7 @@ internal static class AiExchangeFailedResponseImportSelfTest
             PromptMasterMetadataStore.MarkGenerated(
                 project, 3, mustDo, string.Empty, PromptEngineeringProviderIds.OpenAi, true);
 
-            var jobs = AiImageBatchService.CreateImageSeries(project, 3, mustDo, "Tavola").ToList();
+            AiImageBatchService.CreateImageSeries(project, 3, mustDo, "Tavola").ToList();
             VisualPromptSessionService.EnsureActive(project);
             await ProjectFileStore.SaveAsync(projectPath, project);
             var state = AiExchangeStateStore.Load(project);
@@ -106,19 +106,51 @@ internal static class AiExchangeFailedResponseImportSelfTest
             Require(result.Summary.Success, "Un Response valido tutto FAILED viene ancora trattato come import fallito. " + result.Message);
             Require(result.Message.Contains("3 FAILED provider registrati", StringComparison.OrdinalIgnoreCase),
                 "Il riepilogo non distingue i FAILED provider dagli errori package. " + result.Message);
-            Require(state.Versions.Count == beforeVersions, "Il FAILED provider ha creato Candidate finte.");
-            Require(project.Materials.Count == beforeMaterials, "Il FAILED provider ha creato Material fittizi.");
+            Require(state.Versions.Count == beforeVersions + 3,
+                "I tre FAILED non sono stati registrati come tentativi versionati centrali.");
+            Require(project.Materials.Count == beforeMaterials,
+                "Il FAILED provider ha creato Material fittizi.");
 
             foreach (var (unit, i) in units.Select((u, i) => (u, i)))
             {
-                var failure = AiExchangeResponseFailureStore.Latest(project, unit.WorkUnitId);
-                Require(failure is not null, unit.Code + ": FAILED non persistito.");
-                Require(failure!.CandidateVersion == snapshot.Items.Single(s => s.WorkUnitId == unit.WorkUnitId).TargetCandidateVersion,
+                var targetVersion = snapshot.Items.Single(s => s.WorkUnitId == unit.WorkUnitId).TargetCandidateVersion;
+                var attempted = state.Versions.SingleOrDefault(v =>
+                    v.WorkUnitId == unit.WorkUnitId &&
+                    v.VersionNumber == targetVersion);
+                Require(attempted is not null, unit.Code + ": versione FAILED non creata.");
+                Require(AiExchangeResponseFailureStore.IsFailureVersion(attempted),
+                    unit.Code + ": versione FAILED non marcata come audit provider.");
+                Require(attempted!.Status == AiExchangeVersionStatuses.Incomplete,
+                    unit.Code + ": FAILED non resta INCOMPLETE.");
+                Require(!attempted.MaterialId.HasValue,
+                    unit.Code + ": FAILED ha un asset fittizio.");
+                Require(attempted.DescriptionStatus == AiExchangeDescriptionStatuses.NeedsVerification,
+                    unit.Code + ": FAILED non è NEEDS_VERIFICATION.");
+                Require(unit.CandidateVersionIds.Contains(attempted.VersionId),
+                    unit.Code + ": versione FAILED non collegata alla Work Unit.");
+
+                var failure = AiExchangeResponseFailureStore.Latest(project, state, unit.WorkUnitId);
+                Require(failure is not null, unit.Code + ": FAILED non persistito/auditabile.");
+                Require(failure!.CandidateVersion == targetVersion,
                     unit.Code + ": candidate_version FAILED non preservata.");
                 Require(failure.RenderRequestId == renderIds[i], unit.Code + ": render_request_id non preservato.");
                 Require(failure.RenderPromptSha256 == promptHashes[i], unit.Code + ": hash renderer non preservato.");
                 Require(failure.FailureReason.Contains("one-composition", StringComparison.OrdinalIgnoreCase),
                     unit.Code + ": failure_reason non preservato.");
+            }
+
+            var reloaded = await ProjectFileStore.LoadAsync(projectPath);
+            var reloadedState = AiExchangeStateStore.Load(reloaded);
+            foreach (var unit in units)
+            {
+                var targetVersion = snapshot.Items.Single(s => s.WorkUnitId == unit.WorkUnitId).TargetCandidateVersion;
+                var failure = AiExchangeResponseFailureStore.Latest(reloaded, reloadedState, unit.WorkUnitId);
+                Require(failure is not null && failure.CandidateVersion == targetVersion,
+                    unit.Code + ": FAILED non sopravvive al reload fisico del progetto.");
+                var attempted = reloadedState.Versions.SingleOrDefault(v =>
+                    v.WorkUnitId == unit.WorkUnitId && v.VersionNumber == targetVersion);
+                Require(AiExchangeResponseFailureStore.IsFailureVersion(attempted),
+                    unit.Code + ": marker FAILED centrale non sopravvive al reload.");
             }
         }
         finally
