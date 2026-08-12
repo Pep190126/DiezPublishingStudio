@@ -49,7 +49,7 @@ internal static class PromptPackPromptEngineeringFinalizer
 
         using var archive = ZipFile.Open(promptPackPath, ZipArchiveMode.Update);
         RewriteManifest(archive, project, units, master, settings);
-        RewriteContext(archive, project, master, settings);
+        RewriteContext(archive, project, units, master, settings);
         RewriteInstructions(archive, project, master, settings);
     }
 
@@ -61,7 +61,7 @@ internal static class PromptPackPromptEngineeringFinalizer
         var stored = PromptMasterStateStore.LoadForCurrentBook(project);
         var mustDo = stored?.MustDo ?? string.Empty;
         var mustNotDo = stored?.MustNotDo ?? string.Empty;
-        var canonical = PromptEnglishNormalizer.NormalizeProviderFacing(
+        var canonical = PromptPackProviderFacingService.DecontaminateLongPrompt(
             PromptEngineeringCompiler.BuildSeriesPrompt(
                 project,
                 count,
@@ -86,6 +86,7 @@ internal static class PromptPackPromptEngineeringFinalizer
         if (metadata?.ManualOverride == true && !string.IsNullOrWhiteSpace(storedPrompt))
         {
             var delta = PromptMasterMetadataStore.ExtractManualDelta(metadata, storedPrompt).Trim();
+            delta = PromptPackProviderFacingService.SanitizeManualDelta(delta);
             delta = PromptEnglishNormalizer.NormalizeProviderFacing(delta);
             if (delta.Length > 0)
             {
@@ -93,11 +94,11 @@ internal static class PromptPackPromptEngineeringFinalizer
                 merged.AppendLine();
                 merged.AppendLine();
                 merged.AppendLine("=== USER MANUAL DELTA — PRESERVED FROM THE EDITOR ===");
-                merged.AppendLine("These are the user-added/changed lines detected against the previous generated baseline. Preserve their creative/editorial intent. CURRENT structured parameters, hard Book-Type rules, technical values, item overrides and Consistent rules above take priority on conflict.");
+                merged.AppendLine("These are genuine user-added/changed creative or editorial lines detected against the previous generated baseline. Current structured parameters, hard Book-Type rules, technical values, item overrides and Consistent rules above take priority on conflict.");
                 merged.AppendLine();
                 merged.AppendLine(delta);
                 return new ResolvedMaster(
-                    PromptEnglishNormalizer.NormalizeProviderFacing(merged.ToString()),
+                    PromptPackProviderFacingService.DecontaminateLongPrompt(merged.ToString()),
                     canonical,
                     delta,
                     true,
@@ -106,8 +107,8 @@ internal static class PromptPackPromptEngineeringFinalizer
             }
         }
 
-        // This also repairs old projects where a stale generated prompt was accidentally marked as a
-        // manual/current prompt even though ExtractManualDelta returns no actual user-authored delta.
+        // This also repairs old projects where stale generated technical text was accidentally marked as
+        // a manual/current prompt. Generated technical blocks are never preserved as a manual delta.
         PromptMasterStateStore.Save(project, new PromptMasterState
         {
             BookType = BookTypeProfileService.Get(project),
@@ -136,21 +137,7 @@ internal static class PromptPackPromptEngineeringFinalizer
         if (root is null || array is null) return;
 
         foreach (var node in array.OfType<JsonObject>())
-        {
-            if (!Guid.TryParse(node["id"]?.ToString(), out var id)) continue;
-            var unit = units.FirstOrDefault(u => u.WorkUnitId == id);
-            if (unit is null) continue;
-            var index = units.IndexOf(unit) + 1;
-
-            node["instruction"] = BuildUnitInstruction(
-                project, unit, master.ExportPrompt, units.Count, index, settings);
-            node["prompt_engine_version"] = PromptEngineeringEngine.EngineVersion;
-            node["prompt_compiler_version"] = PromptEngineeringCompiler.Version;
-            node["provider_target"] = settings.ProviderId;
-            node["series_position"] = index;
-            node["series_count"] = units.Count;
-            node["output_count_for_this_work_unit"] = 1;
-        }
+            RewriteUnitNode(node, project, units, master, settings);
 
         root["prompt_engine"] = new JsonObject
         {
@@ -166,9 +153,37 @@ internal static class PromptPackPromptEngineeringFinalizer
             ["manual_prompt_present"] = master.ManualPresent,
             ["manual_prompt_current"] = master.ManualCurrent,
             ["recompiled_for_current_parameters"] = master.Recompiled,
-            ["work_unit_output_count"] = 1
+            ["work_unit_output_count"] = 1,
+            ["renderer_prompt_field"] = "image_generation_prompt",
+            ["renderer_prompt_rule"] = "Send image_generation_prompt only to the image renderer; keep instruction as orchestration/QA context."
         };
         ReplaceObject(archive, ManifestName, root);
+    }
+
+    private static void RewriteUnitNode(
+        JsonObject node,
+        PreviewProject project,
+        IReadOnlyList<AiExchangeWorkUnit> units,
+        ResolvedMaster master,
+        PromptPreparationSettings settings)
+    {
+        if (!Guid.TryParse(node["id"]?.ToString(), out var id)) return;
+        var unit = units.FirstOrDefault(u => u.WorkUnitId == id);
+        if (unit is null) return;
+        var index = units.IndexOf(unit) + 1;
+
+        node["instruction"] = BuildUnitInstruction(
+            project, unit, master.ExportPrompt, units.Count, index, settings);
+        node["image_generation_prompt"] = PromptPackProviderFacingService.BuildImageGenerationPrompt(
+            project, unit, units.Count, index, settings);
+        node["image_generation_prompt_language"] = "en";
+        node["image_generation_prompt_authoritative"] = true;
+        node["prompt_engine_version"] = PromptEngineeringEngine.EngineVersion;
+        node["prompt_compiler_version"] = PromptEngineeringCompiler.Version;
+        node["provider_target"] = settings.ProviderId;
+        node["series_position"] = index;
+        node["series_count"] = units.Count;
+        node["output_count_for_this_work_unit"] = 1;
     }
 
     private static string BuildUnitInstruction(
@@ -193,7 +208,7 @@ internal static class PromptPackPromptEngineeringFinalizer
                        !string.IsNullOrWhiteSpace(localInstruction) ||
                        string.Equals(unit.Mode, AiExchangeModes.AiWithInputAsReference, StringComparison.OrdinalIgnoreCase) ||
                        string.Equals(unit.Mode, AiExchangeModes.InputTransformedByAi, StringComparison.OrdinalIgnoreCase);
-        if (!mutation) return PromptEnglishNormalizer.NormalizeProviderFacing(sb.ToString());
+        if (!mutation) return PromptPackProviderFacingService.DecontaminateLongPrompt(sb.ToString());
 
         sb.AppendLine();
         sb.AppendLine();
@@ -216,7 +231,7 @@ internal static class PromptPackPromptEngineeringFinalizer
         }
         sb.AppendLine("Priority: explicit item constraint > preserve/change/add/remove > local exception > CURRENT hard Book-Type rules > LOCKED consistency > PREFERRED consistency > manual/shared intent > creative freedom.");
         sb.AppendLine("The returned description must match the actual edited result; never reuse a stale description of the base image.");
-        return PromptEnglishNormalizer.NormalizeProviderFacing(sb.ToString());
+        return PromptPackProviderFacingService.DecontaminateLongPrompt(sb.ToString());
     }
 
     /// <summary>
@@ -240,6 +255,7 @@ internal static class PromptPackPromptEngineeringFinalizer
     private static void RewriteContext(
         ZipArchive archive,
         PreviewProject project,
+        IReadOnlyList<AiExchangeWorkUnit> units,
         ResolvedMaster master,
         PromptPreparationSettings settings)
     {
@@ -267,6 +283,13 @@ internal static class PromptPackPromptEngineeringFinalizer
         presets["semantic_engine_version"] = PromptEngineeringEngine.EngineVersion;
         presets["provider_compiler_version"] = PromptEngineeringCompiler.Version;
         root["image_presets"] = presets;
+
+        // request-context.json previously retained pre-finalizer Work Unit copies. Rewrite them from the
+        // same final compiler used for prompt-manifest.json so the ZIP cannot contain two competing prompts.
+        if (root["work_units"] is JsonArray contextUnits)
+            foreach (var node in contextUnits.OfType<JsonObject>())
+                RewriteUnitNode(node, project, units, master, settings);
+
         root["active_prompt_profile"] = new JsonObject
         {
             ["book_type"] = type,
@@ -277,8 +300,10 @@ internal static class PromptPackPromptEngineeringFinalizer
             ["manual_prompt_present"] = master.ManualPresent,
             ["manual_prompt_current"] = master.ManualCurrent,
             ["manual_delta"] = master.ManualDelta,
-            ["rule"] = "Only this active Book Type profile may influence the current request. Historical/inactive profiles are excluded. Current hard constraints override stale manual technical values; only actual user-added/changed lines are carried forward as manual delta."
+            ["renderer_prompt_field"] = "image_generation_prompt",
+            ["rule"] = "Only this active Book Type profile may influence the current request. Current structured parameters override stale generated technical text; only genuine creative/editorial user delta may be carried forward."
         };
+        PromptPackProviderFacingService.NormalizeRequestContext(root);
         ReplaceObject(archive, ContextName, root);
     }
 
@@ -297,12 +322,12 @@ internal static class PromptPackPromptEngineeringFinalizer
 - Active Book Type: {BookTypeProfileService.Get(project)}.
 - Target renderer: {settings.ProviderId}.
 - Only the active Book Type prompt profile is valid for this request; historical/inactive visual profiles must be ignored.
-- Provider-facing operational prompts are normalized to English; Italian UI labels/values remain only as project metadata and must never override the authoritative Work Unit instruction.
-- Every `work_units[].instruction` requests EXACTLY ONE image. `series_count` is context only and never authorizes a grid, collage or multiple alternatives.
+- Provider-facing operational prompts are normalized to English; localized UI labels remain project metadata and never override the final Work Unit contract.
+- For IMAGE Work Units, `image_generation_prompt` is the concise renderer prompt. The long `instruction` is orchestration/QA context and must not be forwarded wholesale to the image renderer.
+- Process each Work Unit independently: one Work Unit → one renderer call → one final composition.
 - `output_count_for_this_work_unit = 1` is a hard execution contract.
 - Professional quality gates remain mandatory even with very few optional GUI parameters.
-- For Coloring Book, obvious rough-draft/scribble/placeholder/primitive geometric execution is a HARD Book-Type failure even when size, DPI and black/white raster checks pass. Simple child-friendly art is valid only when intentional, polished and professionally resolved.
-- Manual prompt text is preserved as an additive semantic delta. Current structured parameters and the current compiler baseline always take priority over stale generated text.
+- Generated legacy technical blocks are never preserved as manual user delta.
 - For corrections, the real base/input image plus preserve/change/add/remove are authoritative; descriptions assist but never replace image files.
 """;
         ReplaceText(archive, InstructionsName, existing.TrimEnd() + section);
