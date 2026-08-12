@@ -40,6 +40,9 @@ internal static class BookPackageNamingService
     public static string ResponseFileName(PreviewProject project, int version) =>
         $"diez-{Slug(BookTitle(project))}-response-v{Math.Max(1, version):D3}.zip";
 
+    public static string ResponsePartFileName(PreviewProject project, int version, int part) =>
+        $"diez-{Slug(BookTitle(project))}-response-v{Math.Max(1, version):D3}-part-{Math.Max(1, part):D3}.zip";
+
     internal static string Slug(string? value)
     {
         var source = (value ?? string.Empty).Trim().Normalize(NormalizationForm.FormD);
