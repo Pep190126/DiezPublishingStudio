@@ -75,11 +75,8 @@ internal static class SingleWindowVisionValidationUi
 
         AiExchangeVersion? LatestUsableVersion(AiExchangeState state, AiExchangeWorkUnit unit)
         {
-            var version = state.Versions
-                .Where(v => v.WorkUnitId == unit.WorkUnitId && v.Status != AiExchangeVersionStatuses.Rejected)
-                .OrderByDescending(v => v.VersionNumber)
-                .FirstOrDefault();
-            var failure = AiExchangeResponseFailureStore.Latest(project, unit.WorkUnitId);
+            var version = SingleWindowResponseReviewUi.LatestAssetVersion(state, unit);
+            var failure = AiExchangeResponseFailureStore.Latest(project, state, unit.WorkUnitId);
             return SingleWindowResponseReviewUi.FailureIsCurrent(version, failure) ? null : version;
         }
 
@@ -104,7 +101,7 @@ internal static class SingleWindowVisionValidationUi
             }
             if (version is null)
             {
-                var failure = AiExchangeResponseFailureStore.Latest(project, unit.WorkUnitId);
+                var failure = AiExchangeResponseFailureStore.Latest(project, state, unit.WorkUnitId);
                 if (failure is not null)
                 {
                     status.Text = $"Vision non eseguibile: {unit.Code} v{failure.CandidateVersion} è FAILED e non contiene un asset corrente.";
