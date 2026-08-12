@@ -89,11 +89,7 @@ internal static class PromptPackCleanRoomQueueService
                 ["response_partial"] = true
             });
 
-            launcherTasks.Add(new LauncherTask(
-                order,
-                workUnitCode,
-                responseFile,
-                taskText));
+            launcherTasks.Add(new LauncherTask(order, workUnitCode, responseFile, taskText));
         }
 
         var queue = new JsonObject
@@ -135,130 +131,118 @@ internal static class PromptPackCleanRoomQueueService
         string rendererPrompt)
     {
         var assetName = $"{SafeCode(workUnitCode, order)}-v{candidateVersion:D3}.png";
-        return $"""
-# Diez clean-room task {order}/{total} — {workUnitCode}
-
-Book: {bookTitle}
-
-This task is designed for a NEW Temporary Chat or NEW blank chat. Do not execute it in a conversation that already contains generated images from another Diez Work Unit or project.
-
-## Execution contract
-1. Create exactly ONE new image-generation call for this Work Unit.
-2. Do not attach, reference, edit, continue, restyle or reuse any image from another conversation, project, Work Unit or earlier generation.
-3. When invoking the image renderer, send ONLY the text between `BEGIN DIEZ VISUAL PROMPT` and `END DIEZ VISUAL PROMPT`. The surrounding transport/audit text is for the chat executor only and must never be forwarded to the image model.
-4. Inspect the returned image against every HARD lock in the visual prompt. Do not call a wrong style, wrong line weight, wrong composition or wrong subject successful merely because the animal is recognizable.
-5. Use ONE generation attempt in this clean-room chat. If that attempt is non-compliant, do not edit/reuse it and do not keep retrying in the now-contaminated chat: return this Work Unit as `FAILED` with no asset. Diez can later issue a new clean-room retry only for the failed item.
-6. If compliant, package only this one Work Unit as a PARTIAL Diez Response ZIP named `{responseFile}`.
-
-## BEGIN DIEZ VISUAL PROMPT
-{rendererPrompt}
-## END DIEZ VISUAL PROMPT
-
-## Partial Response identity — preserve exactly
-- project_id: `{projectId}`
-- job_id: `{jobId}`
-- prompt_pack_id: `{promptPackId}`
-- work_unit_id: `{workUnitId}`
-- candidate_version: `{candidateVersion}`
-- content_type: `IMAGE`
-- render_request_id: `{renderRequestId}`
-- render_prompt_sha256: `{promptSha}`
-- response filename: `{responseFile}`
-
-## Response ZIP contract
-Create `response-manifest.json` at ZIP root and a `content/` directory. Generate a NEW UUID for `package_id`.
-
-If the image passes all HARD locks, use status `SUCCEEDED`, place the image at `content/{assetName}`, set `primary_asset` to that exact path, and set `failure_reason` to null.
-
-If the image fails any HARD lock or a clean generation is unavailable, use status `FAILED`, set `primary_asset` to null, include no image asset, and explain the exact failure in `failure_reason`.
-
-The manifest must have this shape:
-```json
-{{
-  "protocol": "diez-response",
-  "protocol_version": 1,
-  "project_id": "{projectId}",
-  "job_id": "{jobId}",
-  "prompt_pack_id": "{promptPackId}",
-  "package_id": "GENERATE-A-NEW-UUID",
-  "partial": true,
-  "items": [
-    {{
-      "work_unit_id": "{workUnitId}",
-      "candidate_version": {candidateVersion},
-      "content_type": "IMAGE",
-      "status": "SUCCEEDED-or-FAILED",
-      "primary_asset": "content/{assetName}-or-null",
-      "description": "short factual description",
-      "render_request_id": "{renderRequestId}",
-      "render_prompt_sha256": "{promptSha}",
-      "failure_reason": null
-    }}
-  ]
-}}
-```
-
-Return only the ZIP for this task as the downloadable artifact. Do not combine other Work Units into this partial response.
-""".Trim();
+        var sb = new StringBuilder();
+        sb.AppendLine($"# Diez clean-room task {order}/{total} — {workUnitCode}");
+        sb.AppendLine();
+        sb.AppendLine($"Book: {bookTitle}");
+        sb.AppendLine();
+        sb.AppendLine("This task is designed for a NEW Temporary Chat or NEW blank chat. Do not execute it in a conversation that already contains generated images from another Diez Work Unit or project.");
+        sb.AppendLine();
+        sb.AppendLine("## Execution contract");
+        sb.AppendLine("1. Create exactly ONE new image-generation call for this Work Unit.");
+        sb.AppendLine("2. Do not attach, reference, edit, continue, restyle or reuse any image from another conversation, project, Work Unit or earlier generation.");
+        sb.AppendLine("3. When invoking the image renderer, send ONLY the text between `BEGIN DIEZ VISUAL PROMPT` and `END DIEZ VISUAL PROMPT`. The surrounding transport/audit text is for the chat executor only and must never be forwarded to the image model.");
+        sb.AppendLine("4. Inspect the returned image against every HARD lock in the visual prompt. Do not call a wrong style, wrong line weight, wrong composition or wrong subject successful merely because the animal is recognizable.");
+        sb.AppendLine("5. Use ONE generation attempt in this clean-room chat. If that attempt is non-compliant, do not edit/reuse it and do not keep retrying in the now-contaminated chat: return this Work Unit as `FAILED` with no asset. Diez can later issue a new clean-room retry only for the failed item.");
+        sb.AppendLine($"6. If compliant, package only this one Work Unit as a PARTIAL Diez Response ZIP named `{responseFile}`.");
+        sb.AppendLine();
+        sb.AppendLine("## BEGIN DIEZ VISUAL PROMPT");
+        sb.AppendLine(rendererPrompt);
+        sb.AppendLine("## END DIEZ VISUAL PROMPT");
+        sb.AppendLine();
+        sb.AppendLine("## Partial Response identity — preserve exactly");
+        sb.AppendLine($"- project_id: `{projectId}`");
+        sb.AppendLine($"- job_id: `{jobId}`");
+        sb.AppendLine($"- prompt_pack_id: `{promptPackId}`");
+        sb.AppendLine($"- work_unit_id: `{workUnitId}`");
+        sb.AppendLine($"- candidate_version: `{candidateVersion}`");
+        sb.AppendLine("- content_type: `IMAGE`");
+        sb.AppendLine($"- render_request_id: `{renderRequestId}`");
+        sb.AppendLine($"- render_prompt_sha256: `{promptSha}`");
+        sb.AppendLine($"- response filename: `{responseFile}`");
+        sb.AppendLine();
+        sb.AppendLine("## Response ZIP contract");
+        sb.AppendLine("Create `response-manifest.json` at ZIP root and a `content/` directory. Generate a NEW UUID for `package_id`.");
+        sb.AppendLine();
+        sb.AppendLine($"If the image passes all HARD locks, use status `SUCCEEDED`, place the image at `content/{assetName}`, set `primary_asset` to that exact path, and set `failure_reason` to null.");
+        sb.AppendLine();
+        sb.AppendLine("If the image fails any HARD lock or a clean generation is unavailable, use status `FAILED`, set `primary_asset` to null, include no image asset, and explain the exact failure in `failure_reason`.");
+        sb.AppendLine();
+        sb.AppendLine("The manifest must have this shape (success example; switch asset/status/failure fields as described above for FAILED):");
+        sb.AppendLine("```json");
+        sb.AppendLine("{");
+        sb.AppendLine("  \"protocol\": \"diez-response\",");
+        sb.AppendLine("  \"protocol_version\": 1,");
+        sb.AppendLine($"  \"project_id\": {JsonSerializer.Serialize(projectId)},");
+        sb.AppendLine($"  \"job_id\": {JsonSerializer.Serialize(jobId)},");
+        sb.AppendLine($"  \"prompt_pack_id\": {JsonSerializer.Serialize(promptPackId)},");
+        sb.AppendLine("  \"package_id\": \"GENERATE-A-NEW-UUID\",");
+        sb.AppendLine("  \"partial\": true,");
+        sb.AppendLine("  \"items\": [");
+        sb.AppendLine("    {");
+        sb.AppendLine($"      \"work_unit_id\": {JsonSerializer.Serialize(workUnitId)},");
+        sb.AppendLine($"      \"candidate_version\": {candidateVersion},");
+        sb.AppendLine("      \"content_type\": \"IMAGE\",");
+        sb.AppendLine("      \"status\": \"SUCCEEDED\",");
+        sb.AppendLine($"      \"primary_asset\": {JsonSerializer.Serialize("content/" + assetName)},");
+        sb.AppendLine("      \"description\": \"short factual description\",");
+        sb.AppendLine($"      \"render_request_id\": {JsonSerializer.Serialize(renderRequestId)},");
+        sb.AppendLine($"      \"render_prompt_sha256\": {JsonSerializer.Serialize(promptSha)},");
+        sb.AppendLine("      \"failure_reason\": null");
+        sb.AppendLine("    }");
+        sb.AppendLine("  ]");
+        sb.AppendLine("}");
+        sb.AppendLine("```");
+        sb.AppendLine();
+        sb.AppendLine("Return only the ZIP for this task as the downloadable artifact. Do not combine other Work Units into this partial response.");
+        return sb.ToString().Trim();
     }
 
     private static string BuildLauncher(string bookTitle, int version, IReadOnlyList<LauncherTask> tasks)
     {
-        var cards = new StringBuilder();
+        var html = new StringBuilder();
+        html.AppendLine("<!doctype html>");
+        html.AppendLine("<html lang=\"it\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">");
+        html.Append("<title>Diez clean-room queue — ").Append(WebUtility.HtmlEncode(bookTitle)).AppendLine("</title>");
+        html.AppendLine("<style>");
+        html.AppendLine("body{font-family:Segoe UI,Arial,sans-serif;max-width:1100px;margin:32px auto;padding:0 18px;line-height:1.45;color:#171717}");
+        html.AppendLine("h1{margin-bottom:6px}.intro{background:#f5f5f5;border:1px solid #ddd;border-radius:12px;padding:16px;margin:18px 0}");
+        html.AppendLine(".task{border:1px solid #d7d7d7;border-radius:12px;padding:16px;margin:18px 0;box-shadow:0 1px 3px rgba(0,0,0,.05)}");
+        html.AppendLine(".task-head{display:flex;gap:12px;justify-content:space-between;align-items:center;flex-wrap:wrap;font-size:18px}.pill{font-size:13px;background:#f0f0f0;border-radius:999px;padding:5px 10px}");
+        html.AppendLine("textarea{width:100%;height:260px;box-sizing:border-box;font-family:Consolas,monospace;font-size:12px;margin:10px 0;padding:10px}.actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap}");
+        html.AppendLine("button,.button{border:0;border-radius:8px;background:#1f6feb;color:white;padding:10px 14px;text-decoration:none;cursor:pointer;font-size:14px}label{padding:8px 0}#progress{font-weight:600}.warn{color:#8a4b00}");
+        html.AppendLine("</style></head><body>");
+        html.AppendLine("<h1>Diez clean-room queue</h1>");
+        html.Append(WebUtility.HtmlEncode(bookTitle)).Append(" · Prompt Pack v").Append(version.ToString("D3")).AppendLine();
+        html.AppendLine("<div class=\"intro\">");
+        html.AppendLine("<p><strong>Un solo workflow, clean room reali.</strong> Questa pagina gestisce la sequenza; non usare una sola conversazione contenente tutte le immagini. Apri un task alla volta in una Temporary Chat (preferita) o nuova chat vuota, scarica il relativo Response ZIP e chiudi/abbandona quella chat prima del task successivo.</p>");
+        html.AppendLine("<p class=\"warn\">Non serve costruire un Response finale a mano. Alla fine, in Diez premi <strong>Importa risultati AI</strong> e seleziona insieme tutti i Response <code>part-...zip</code>: l'importer li aggrega sullo stesso Prompt Pack.</p>");
+        html.Append("<div id=\"progress\">0/").Append(tasks.Count).AppendLine(" Response parziali segnati come scaricati.</div></div>");
+
         foreach (var task in tasks)
         {
             var id = $"task-{task.Order:D3}";
-            cards.AppendLine($"""
-<section class="task" data-order="{task.Order}">
-  <div class="task-head"><strong>Task {task.Order}/{tasks.Count} · {WebUtility.HtmlEncode(task.WorkUnitCode)}</strong><span class="pill">Response: {WebUtility.HtmlEncode(task.ResponseFile)}</span></div>
-  <p>Apri una <strong>Temporary Chat</strong> (preferita) o una nuova chat vuota, poi copia e incolla il task completo. Quando hai scaricato lo ZIP parziale, torna qui e segna il task come completato.</p>
-  <textarea id="{id}" readonly>{WebUtility.HtmlEncode(task.TaskText)}</textarea>
-  <div class="actions">
-    <button onclick="copyTask('{id}', this)">Copia task completo</button>
-    <a class="button" href="https://chatgpt.com/" target="_blank" rel="noopener noreferrer">Apri ChatGPT</a>
-    <label><input type="checkbox" onchange="markDone({task.Order}, this.checked)" id="done-{task.Order}"> ZIP parziale scaricato</label>
-  </div>
-</section>
-""");
+            html.Append("<section class=\"task\" data-order=\"").Append(task.Order).AppendLine("\">");
+            html.Append("<div class=\"task-head\"><strong>Task ").Append(task.Order).Append('/').Append(tasks.Count).Append(" · ").Append(WebUtility.HtmlEncode(task.WorkUnitCode)).Append("</strong><span class=\"pill\">Response: ").Append(WebUtility.HtmlEncode(task.ResponseFile)).AppendLine("</span></div>");
+            html.AppendLine("<p>Apri una <strong>Temporary Chat</strong> (preferita) o una nuova chat vuota, poi copia e incolla il task completo. Quando hai scaricato lo ZIP parziale, torna qui e segna il task come completato.</p>");
+            html.Append("<textarea id=\"").Append(id).Append("\" readonly>").Append(WebUtility.HtmlEncode(task.TaskText)).AppendLine("</textarea>");
+            html.AppendLine("<div class=\"actions\">");
+            html.Append("<button onclick=\"copyTask('").Append(id).AppendLine("',this)\">Copia task completo</button>");
+            html.AppendLine("<a class=\"button\" href=\"https://chatgpt.com/\" target=\"_blank\" rel=\"noopener noreferrer\">Apri ChatGPT</a>");
+            html.Append("<label><input type=\"checkbox\" onchange=\"markDone(").Append(task.Order).Append(",this.checked)\" id=\"done-").Append(task.Order).AppendLine("\"> ZIP parziale scaricato</label>");
+            html.AppendLine("</div></section>");
         }
 
-        return $"""
-<!doctype html>
-<html lang="it">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Diez clean-room queue — {WebUtility.HtmlEncode(bookTitle)}</title>
-<style>
-body{{font-family:Segoe UI,Arial,sans-serif;max-width:1100px;margin:32px auto;padding:0 18px;line-height:1.45;color:#171717}}
-h1{{margin-bottom:6px}} .intro{{background:#f5f5f5;border:1px solid #ddd;border-radius:12px;padding:16px;margin:18px 0}}
-.task{{border:1px solid #d7d7d7;border-radius:12px;padding:16px;margin:18px 0;box-shadow:0 1px 3px rgba(0,0,0,.05)}}
-.task-head{{display:flex;gap:12px;justify-content:space-between;align-items:center;flex-wrap:wrap;font-size:18px}}
-.pill{{font-size:13px;background:#f0f0f0;border-radius:999px;padding:5px 10px}} textarea{{width:100%;height:260px;box-sizing:border-box;font-family:Consolas,monospace;font-size:12px;margin:10px 0;padding:10px}}
-.actions{{display:flex;gap:12px;align-items:center;flex-wrap:wrap}} button,.button{{border:0;border-radius:8px;background:#1f6feb;color:white;padding:10px 14px;text-decoration:none;cursor:pointer;font-size:14px}} label{{padding:8px 0}}
-#progress{{font-weight:600}} .warn{{color:#8a4b00}}
-</style>
-</head>
-<body>
-<h1>Diez clean-room queue</h1>
-<div>{WebUtility.HtmlEncode(bookTitle)} · Prompt Pack v{version:D3}</div>
-<div class="intro">
-  <p><strong>Un solo workflow, clean room reali.</strong> Questa pagina gestisce la sequenza; non usare una sola conversazione contenente tutte le immagini. In ChatGPT, una Temporary Chat parte da uno slate vuoto rispetto alle conversazioni precedenti. Apri un task alla volta, scarica il relativo Response ZIP e chiudi/abbandona quella chat prima del task successivo.</p>
-  <p class="warn">Non serve costruire un Response finale a mano. Alla fine, in Diez premi <strong>Importa risultati AI</strong> e seleziona insieme tutti i Response `part-...zip`: l'importer li aggrega sullo stesso Prompt Pack.</p>
-  <div id="progress">0/{tasks.Count} Response parziali segnati come scaricati.</div>
-</div>
-{cards}
-<script>
-const key='diez-clean-room-{WebUtility.HtmlEncode(BookPackageNamingService.Slug(bookTitle))}-v{version:D3}';
-function load(){{let s={{}};try{{s=JSON.parse(localStorage.getItem(key)||'{{}}')}}catch{{}};for(let i=1;i<={tasks.Count};i++){{const e=document.getElementById('done-'+i);if(e)e.checked=!!s[i]}}update()}}
-function markDone(i,v){{let s={{}};try{{s=JSON.parse(localStorage.getItem(key)||'{{}}')}}catch{{}};s[i]=v;localStorage.setItem(key,JSON.stringify(s));update()}}
-function update(){{let n=0;for(let i=1;i<={tasks.Count};i++){{const e=document.getElementById('done-'+i);if(e&&e.checked)n++}}document.getElementById('progress').textContent=n+'/{tasks.Count} Response parziali segnati come scaricati.'}}
-async function copyTask(id,button){{const el=document.getElementById(id);let ok=false;try{{await navigator.clipboard.writeText(el.value);ok=true}}catch{{el.focus();el.select();try{{ok=document.execCommand('copy')}}catch{{}}}}button.textContent=ok?'Copiato':'Seleziona e copia manualmente';setTimeout(()=>button.textContent='Copia task completo',1800)}}
-load();
-</script>
-</body>
-</html>
-""".Trim();
+        var storageKey = $"diez-clean-room-{BookPackageNamingService.Slug(bookTitle)}-v{version:D3}";
+        html.AppendLine("<script>");
+        html.Append("const key=").Append(JsonSerializer.Serialize(storageKey)).AppendLine(";");
+        html.Append("const total=").Append(tasks.Count).AppendLine(";");
+        html.AppendLine("function load(){let s={};try{s=JSON.parse(localStorage.getItem(key)||'{}')}catch{};for(let i=1;i<=total;i++){const e=document.getElementById('done-'+i);if(e)e.checked=!!s[i]}update()}");
+        html.AppendLine("function markDone(i,v){let s={};try{s=JSON.parse(localStorage.getItem(key)||'{}')}catch{};s[i]=v;localStorage.setItem(key,JSON.stringify(s));update()}");
+        html.AppendLine("function update(){let n=0;for(let i=1;i<=total;i++){const e=document.getElementById('done-'+i);if(e&&e.checked)n++}document.getElementById('progress').textContent=n+'/'+total+' Response parziali segnati come scaricati.'}");
+        html.AppendLine("async function copyTask(id,button){const el=document.getElementById(id);let ok=false;try{await navigator.clipboard.writeText(el.value);ok=true}catch{el.focus();el.select();try{ok=document.execCommand('copy')}catch{}}button.textContent=ok?'Copiato':'Seleziona e copia manualmente';setTimeout(()=>button.textContent='Copia task completo',1800)}");
+        html.AppendLine("load();</script></body></html>");
+        return html.ToString().Trim();
     }
 
     private static string ReadText(ZipArchive archive, string path)
