@@ -41,21 +41,21 @@ internal static class PromptPackExecutionPlanSelfTest
             project.EditionMetadata.Title = "Animali della Giungla";
             BookTypeProfileService.Set(project, BookTypeProfileService.ColoringBook);
             var profile = BookTypePromptProfileService.LoadColoring(project);
-            // Exact physical v002 failure family: the subject itself contains the series count while jungle
-            // only appears in environment/MUST DO. The old resolver therefore failed to choose one species.
+            // Exact physical failure family: series count in user wording, Kawaii + Thin/Fine + Cozy ON,
+            // plus the user's negative phrase that used to leak verbatim into the image model prompt.
             profile.SubjectDescription = "3 animali diversi 3 immagini";
             profile.EnvironmentDescription = "jungla";
             profile.Style = "Kawaii";
             profile.TargetAudience = "Bambini 6–9 anni";
             profile.Difficulty = "Facile";
             profile.LineWeight = "Sottile — Fine";
-            profile.BoldEasy = true; // must be resolved OFF because thin lines are authoritative.
-            profile.Complexity = "Media";
-            profile.ElementDensity = "Media";
+            profile.BoldEasy = true; // must resolve OFF because Thin/Fine is authoritative.
+            profile.Complexity = "Bassa";
+            profile.ElementDensity = "Bassa";
             profile.Background = "Contestuale leggero";
             BookTypePromptProfileService.SaveColoring(project, profile);
             ColoringBoldEasyPolicyStore.Save(project, true, profile.LineWeight);
-            ColoringCozyPolicyStore.Save(project, false);
+            ColoringCozyPolicyStore.Save(project, true);
             project.Entities.Add(new GraphEntity
             {
                 Kind = "DiezImageGenerationSpecs",
@@ -69,6 +69,7 @@ internal static class PromptPackExecutionPlanSelfTest
                 PreferAdvancedModel = true
             });
             const string mustDo = "3 immagini di animali della jungla, riempi lo sfondo con ambientazione jungla";
+            const string mustNot = "un'unica image con 3 illustrazioni";
             PromptMasterStateStore.Save(project, new PromptMasterState
             {
                 BookType = BookTypeProfileService.ColoringBook,
@@ -76,12 +77,13 @@ internal static class PromptPackExecutionPlanSelfTest
                 PreferAdvancedModel = true,
                 SeriesCount = 3,
                 MustDo = mustDo,
+                MustNotDo = mustNot,
                 Prompt = PromptEngineeringCompiler.BuildSeriesPrompt(
-                    project, 3, mustDo, string.Empty,
+                    project, 3, mustDo, mustNot,
                     PromptEngineeringProviderIds.OpenAi, true)
             });
             PromptMasterMetadataStore.MarkGenerated(
-                project, 3, mustDo, string.Empty,
+                project, 3, mustDo, mustNot,
                 PromptEngineeringProviderIds.OpenAi, true);
 
             var jobs = AiImageBatchService.CreateImageSeries(project, 3, mustDo, "Tavola").ToList();
@@ -107,7 +109,7 @@ internal static class PromptPackExecutionPlanSelfTest
             var packPath = Path.Combine(root, expectedPackName);
             var result = await AiVisualPromptPackService.BuildAsync(
                 project, projectPath, state, units.Select(u => u.WorkUnitId), packPath);
-            Require(result.Success, "Build Prompt Pack v002 regression fallita: " + result.Message);
+            Require(result.Success, "Build Prompt Pack visual-only regression fallita: " + result.Message);
             Require(BookPackageNamingService.PeekNextVersion(project) == 2, "Versione package non avanzata dopo export riuscito.");
 
             using var zip = ZipFile.OpenRead(packPath);
@@ -115,16 +117,20 @@ internal static class PromptPackExecutionPlanSelfTest
             Require(zip.GetEntry("render-plan.json") is not null, "render-plan.json mancante.");
             var start = await ReadAsync(zip, "00-START-HERE.md");
             Require(start.Contains(expectedResponseName, StringComparison.Ordinal), "Nome response non presente nel runbook.");
-            Require(start.Contains("NEW/FRESH image generation", StringComparison.OrdinalIgnoreCase), "Regola fresh generation mancante.");
+            Require(start.Contains("VISUAL-ONLY", StringComparison.OrdinalIgnoreCase), "Runbook non separa il prompt visuale dall'orchestrazione.");
+            Require(start.Contains("brand-new chat/session", StringComparison.OrdinalIgnoreCase), "Runbook non richiede una sessione chat realmente isolata per AI_ONLY.");
+            Require(start.Contains("does NOT count as fresh isolation", StringComparison.OrdinalIgnoreCase), "Runbook non vieta il falso fresh nella stessa conversazione visuale.");
             Require(start.Contains("STYLE — HARD LOCK", StringComparison.Ordinal), "Runbook non verifica lo style hard lock.");
-            Require(start.Contains("triptych", StringComparison.OrdinalIgnoreCase), "Runbook non classifica triptych come failure.");
 
             var planText = await ReadAsync(zip, "render-plan.json");
             using var plan = JsonDocument.Parse(planText);
             Require(plan.RootElement.GetProperty("protocol_version").GetString() == PromptPackExecutionPlanService.ProtocolVersion,
                 "Versione render plan non aggiornata.");
-            Require(PromptPackExecutionPlanService.ProtocolVersion == "1.2", "Protocollo render plan atteso 1.2.");
+            Require(PromptPackExecutionPlanService.ProtocolVersion == "1.3", "Protocollo render plan atteso 1.3.");
             Require(plan.RootElement.GetProperty("response_filename").GetString() == expectedResponseName, "Nome response errato nel render plan.");
+            Require(plan.RootElement.GetProperty("renderer_prompt_scope").GetString() == "VISUAL_ONLY", "Renderer prompt non dichiarato VISUAL_ONLY.");
+            Require(plan.RootElement.GetProperty("fresh_context_owner").GetString() == "EXECUTOR", "Fresh context non assegnato all'executor.");
+            Require(plan.RootElement.GetProperty("chat_session_policy").GetString() == "NEW_ISOLATED_SESSION_PER_AI_ONLY_WORK_UNIT", "Policy sessione isolata mancante.");
             Require(plan.RootElement.GetProperty("atomic_subject_required").GetBoolean(), "atomic_subject_required non attivo.");
             Require(plan.RootElement.GetProperty("selected_style_is_hard").GetBoolean(), "selected_style_is_hard non attivo.");
             var calls = plan.RootElement.GetProperty("calls").EnumerateArray().ToList();
@@ -133,10 +139,14 @@ internal static class PromptPackExecutionPlanSelfTest
                 "render_request_id non univoci.");
 
             var expectedSubjects = new[] { "one monkey", "one tiger", "one elephant" };
+            var visualPrompts = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             for (var i = 0; i < calls.Count; i++)
             {
                 var call = calls[i];
                 Require(call.GetProperty("fresh_generation_required").GetBoolean(), "fresh_generation_required non true.");
+                Require(call.GetProperty("fresh_context_owner").GetString() == "EXECUTOR", "Fresh context per call non è executor-owned.");
+                Require(call.GetProperty("chat_session_policy").GetString() == "NEW_ISOLATED_SESSION_PER_AI_ONLY_WORK_UNIT", "Policy fresh chat per call mancante.");
+                Require(call.GetProperty("renderer_prompt_scope").GetString() == "VISUAL_ONLY", "Prompt per call non VISUAL_ONLY.");
                 Require(call.GetProperty("reuse_prior_generated_images_forbidden").GetBoolean(), "Divieto riuso immagini precedenti non true.");
                 Require(call.GetProperty("source_image_policy").GetString() == "BLANK_CANVAS_NO_INPUT_IMAGES", "AI_ONLY non parte da blank canvas.");
                 Require(call.GetProperty("hard_style_guard").GetString() == "STYLE — HARD LOCK", "hard_style_guard errato.");
@@ -146,55 +156,80 @@ internal static class PromptPackExecutionPlanSelfTest
                 var prompt = await ReadAsync(zip, promptFile);
                 var actualSha = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(prompt))).ToLowerInvariant();
                 Require(actualSha == expectedSha, "SHA prompt file non corrisponde al render plan.");
-                Require(prompt.StartsWith("FRESH GENERATION — HARD RESET", StringComparison.Ordinal), "Prompt non inizia con hard reset renderer.");
+                Require(prompt.StartsWith("Create ONE finished, publication-quality coloring-book illustration.", StringComparison.Ordinal),
+                    "Il prompt visual-only contiene ancora un preambolo operativo prima della richiesta visuale.");
                 Require(prompt.Contains("PRIMARY SUBJECT — HARD LOCK: " + expectedSubjects[i], StringComparison.OrdinalIgnoreCase),
-                    "Soggetto concreto errato per v002: " + expectedSubjects[i]);
+                    "Soggetto concreto errato: " + expectedSubjects[i]);
                 Require(prompt.Contains("STYLE — HARD LOCK: Kawaii", StringComparison.OrdinalIgnoreCase),
                     "Stile Kawaii singolo non è HARD nel renderer brief.");
+                Require(prompt.Contains("unmistakably cute Kawaii design", StringComparison.OrdinalIgnoreCase),
+                    "Il renderer brief Kawaii non usa una descrizione visuale positiva forte.");
                 Require(!prompt.Contains("Kawaii / Cartoon", StringComparison.OrdinalIgnoreCase),
                     "Il vecchio stile combinato Kawaii / Cartoon è ancora nel renderer brief.");
                 Require(prompt.Contains("BOLD & EASY — HARD: OFF", StringComparison.Ordinal),
                     "Linee sottili non producono Bold & Easy HARD OFF.");
-                Require(prompt.Contains("COZY — HARD: OFF", StringComparison.Ordinal),
-                    "Cozy HARD OFF non arriva nel renderer brief.");
+                Require(prompt.Contains("COZY — HARD: ON", StringComparison.Ordinal),
+                    "Cozy HARD ON non arriva nel renderer brief.");
                 Require(prompt.Contains("Thin — Fine", StringComparison.OrdinalIgnoreCase),
                     "Spessore Thin/Fine non arriva al renderer brief.");
-                Require(prompt.Contains("COMPOSITION — HARD LOCK", StringComparison.Ordinal),
-                    "Composizione singola non è HARD nel renderer brief.");
-                Require(prompt.Contains("realistic natural-history", StringComparison.OrdinalIgnoreCase),
-                    "Kawaii hard lock non respinge la resa realistica osservata nelle immagini fisiche.");
+                Require(prompt.Contains("visibly thin, fine, crisp black contours", StringComparison.OrdinalIgnoreCase),
+                    "Thin/Fine non viene espresso in forma visuale positiva.");
+                Require(prompt.Contains("COMPOSITION — HARD LOCK: one continuous unified primary scene", StringComparison.OrdinalIgnoreCase),
+                    "Composizione singola non è espressa positivamente nel renderer brief.");
                 Require(prompt.Contains("Simple clean lines", StringComparison.OrdinalIgnoreCase),
                     "Linee semplici e pulite non normalizzato in inglese.");
+                Require(prompt.Length < 4200, "Renderer visual brief ancora troppo lungo/operativo.");
+
                 foreach (var forbidden in new[]
                 {
-                    "PRIMARY SUBJECT — HARD LOCK: 3", "3 animals", "3 images", "Linee semplici e pulite",
+                    "FRESH GENERATION", "Source-image policy", "DIEZ RENDER REQUEST ID", "FAILED/INCOMPLETE",
+                    "SERIES ROLE", "FINAL CHECK — HARD", "triptych", "contact sheet", "collage", "multi-panel",
+                    "realistic natural-history", "un'unica image con 3 illustrazioni", "3 illustrations", "3 images",
+                    "PRIMARY SUBJECT — HARD LOCK: 3", "3 animals", "Linee semplici e pulite",
                     "SPECIFICHE TECNICHE", "Massima / stampa"
                 })
                     Require(!prompt.Contains(forbidden, StringComparison.OrdinalIgnoreCase),
-                        "Contaminazione v002 nel renderer prompt: " + forbidden);
+                        "Contaminazione nel renderer visual-only prompt: " + forbidden);
+
+                visualPrompts[call.GetProperty("work_unit_id").GetString() ?? string.Empty] = prompt;
             }
 
-            var manifest = await ReadAsync(zip, "prompt-manifest.json");
-            Require(manifest.Contains(expectedPackName, StringComparison.Ordinal), "Naming Prompt Pack assente dal manifest.");
-            Require(manifest.Contains(expectedResponseName, StringComparison.Ordinal), "Naming Response assente dal manifest.");
-            Require(manifest.Contains(project.ProjectId.ToString("D"), StringComparison.OrdinalIgnoreCase), "ProjectId interno assente dal manifest.");
+            var manifestText = await ReadAsync(zip, "prompt-manifest.json");
+            var contextText = await ReadAsync(zip, "request-context.json");
+            Require(manifestText.Contains(expectedPackName, StringComparison.Ordinal), "Naming Prompt Pack assente dal manifest.");
+            Require(manifestText.Contains(expectedResponseName, StringComparison.Ordinal), "Naming Response assente dal manifest.");
+            Require(manifestText.Contains(project.ProjectId.ToString("D"), StringComparison.OrdinalIgnoreCase), "ProjectId interno assente dal manifest.");
+            using var manifest = JsonDocument.Parse(manifestText);
+            using var context = JsonDocument.Parse(contextText);
+            foreach (var manifestUnit in manifest.RootElement.GetProperty("work_units").EnumerateArray())
+            {
+                var id = manifestUnit.GetProperty("id").GetString() ?? string.Empty;
+                Require(manifestUnit.GetProperty("renderer_prompt_scope").GetString() == "VISUAL_ONLY", "Manifest WU non VISUAL_ONLY.");
+                Require(visualPrompts.TryGetValue(id, out var prompt), "WU manifest non presente nel render plan.");
+                Require(manifestUnit.GetProperty("image_generation_prompt").GetString() == prompt, "Manifest e prompt file divergono.");
+                var contextUnit = context.RootElement.GetProperty("work_units").EnumerateArray()
+                    .First(x => string.Equals(x.GetProperty("id").GetString(), id, StringComparison.OrdinalIgnoreCase));
+                Require(contextUnit.GetProperty("image_generation_prompt").GetString() == prompt, "Request-context e prompt file divergono.");
+                Require(contextUnit.GetProperty("renderer_prompt_scope").GetString() == "VISUAL_ONLY", "Request-context WU non VISUAL_ONLY.");
+            }
 
-            // Positive-direction regression: the same independent dimensions must be HARD when ON too.
+            // Opposite-direction regression: independent dimensions remain bidirectional HARD.
             var p2 = BookTypePromptProfileService.LoadColoring(project);
             p2.LineWeight = "Spesso — Bold";
             p2.BoldEasy = true;
             p2.Style = "Cartoon";
             BookTypePromptProfileService.SaveColoring(project, p2);
             ColoringBoldEasyPolicyStore.Save(project, true, p2.LineWeight);
-            ColoringCozyPolicyStore.Save(project, true);
-            var onPrompt = PromptPackProviderFacingService.BuildImageGenerationPrompt(
+            ColoringCozyPolicyStore.Save(project, false);
+            var rawOnPrompt = PromptPackProviderFacingService.BuildImageGenerationPrompt(
                 project, units[0], 3, 1, PromptPreparationSettingsStore.Load(project));
+            var onPrompt = PromptPackRendererVisualBriefService.Build(rawOnPrompt);
             Require(onPrompt.Contains("STYLE — HARD LOCK: Cartoon", StringComparison.OrdinalIgnoreCase),
                 "Cartoon non resta uno stile singolo indipendente.");
             Require(onPrompt.Contains("BOLD & EASY — HARD: ON", StringComparison.Ordinal),
                 "Bold & Easy HARD ON non arriva al renderer brief.");
-            Require(onPrompt.Contains("COZY — HARD: ON", StringComparison.Ordinal),
-                "Cozy HARD ON non arriva al renderer brief.");
+            Require(onPrompt.Contains("COZY — HARD: OFF", StringComparison.Ordinal),
+                "Cozy HARD OFF non arriva al renderer brief.");
         }
         finally
         {
