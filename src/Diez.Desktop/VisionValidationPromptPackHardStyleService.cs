@@ -21,10 +21,12 @@ internal static class VisionValidationPromptPackHardStyleService
         var result = await VisionValidationPromptPackService.BuildAsync(
             project, projectPath, exchange, versionIds, outputPath);
         if (!result.Success) return result;
-        RewriteInstructions(EnsureZip(outputPath));
+        var zipPath = EnsureZip(outputPath);
+        VisionStructuredSubjectService.RewritePromptPack(zipPath, project);
+        RewriteInstructions(zipPath);
         return (
             true,
-            result.Message + " · Style match, Bold & Easy, Cozy e composizione singola sono criteri HARD quando applicabili.",
+            result.Message + " · Style match, Bold & Easy, Cozy, soggetto strutturato e composizione singola sono criteri HARD quando applicabili.",
             result.ValidationPackId);
     }
 
@@ -52,7 +54,7 @@ internal static class VisionValidationPromptPackHardStyleService
 The real candidate pixels are authoritative. Evaluate the exact Work Unit, not the series as a whole.
 
 Required semantic checks:
-- `subject_match` — HARD: compare the visible primary subject with `expected.item_subject`, the atomic subject for this Work Unit.
+- `subject_match` — HARD: compare the visible primary subject with `expected.item_subject`, the atomic/structured subject for this Work Unit. When structured multi-subject mode is active, `subject_id` is trusted Diez audit metadata and `subject_name` / `expected.item_subject` identify that exact subject profile.
 - `single_composition` — HARD: exactly one unified primary composition unless this exact Work Unit explicitly requests otherwise.
 - `style_match` — HARD: the visible image must materially match `expected.style`. A polished image in a different style is still FAIL/HARD.
 - For `Kawaii`, realistic natural-history or engraving-like treatment, dense realistic hatching and anatomically literal documentary rendering are a HARD style mismatch when the page does not visibly read as Kawaii.
