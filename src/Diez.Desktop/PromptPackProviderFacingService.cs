@@ -107,7 +107,7 @@ internal static class PromptPackProviderFacingService
             var style = Norm(request.Style, "clean professional coloring-book line art");
             sb.AppendLine("Create ONE finished, publication-quality coloring-book illustration.");
             sb.AppendLine($"PRIMARY SUBJECT — HARD LOCK: {subject}. The subject must be the dominant focal element, large, clearly recognizable, anatomically coherent and more visually important than the background.");
-            sb.AppendLine("COMPOSITION — HARD LOCK: exactly ONE unified composition with exactly ONE primary scene. No triptych, grid, contact sheet, collage, split screen, multiple panels, multiple alternatives, or visual representation of the series count.");
+            sb.AppendLine("COMPOSITION — HARD LOCK: exactly ONE unified composition with exactly ONE primary scene filling the canvas. Keep the canvas as one continuous scene; do not subdivide it into separate framed, side-by-side or stacked regions, and do not show multiple alternative compositions or visually represent the series count.");
             if (!string.IsNullOrWhiteSpace(environment))
                 sb.AppendLine($"SETTING — SUPPORTING ONLY: {environment}. Keep the setting secondary, uncluttered and clearly subordinate to the main subject.");
             sb.AppendLine($"STYLE — HARD LOCK: {style}. {StyleHardDirective(style)} A polished image in a different visual style is non-compliant and must be regenerated.");
@@ -121,7 +121,7 @@ internal static class PromptPackProviderFacingService
             var style = Norm(request.RenderingStyle, "professional illustration");
             sb.AppendLine("Create ONE finished, publication-quality editorial image.");
             sb.AppendLine($"PRIMARY SUBJECT — HARD LOCK: {subject}. Make the requested subject immediately readable and dominant in the composition.");
-            sb.AppendLine("COMPOSITION — HARD LOCK: exactly ONE unified composition with one primary scene; no grid, triptych, contact sheet, collage, split screen or multiple alternatives unless explicitly requested by this Work Unit.");
+            sb.AppendLine("COMPOSITION — HARD LOCK: exactly ONE unified composition with one primary scene filling the canvas. Keep the canvas continuous rather than subdividing it into separate framed, side-by-side or stacked regions; do not show multiple alternative compositions unless this exact Work Unit explicitly requests them.");
             if (!string.IsNullOrWhiteSpace(environment))
                 sb.AppendLine($"SETTING — SUPPORTING ONLY: {environment}. The setting must support the subject rather than replace it.");
             sb.AppendLine($"STYLE — HARD LOCK: {style}. The visible rendering must clearly match this selected style; a professionally rendered image in a different style is non-compliant.");
