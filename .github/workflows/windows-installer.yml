@@ -123,6 +123,8 @@ jobs:
           foreach ($required in @(
             "OK", "SW-FLOW-12", "book-type=visible", "book-type-back=works", "quantity-change-type=absent",
             "quantity-field=native-numeric", "visual-subject-environment=native-visible", "coloring-style=native-visible",
+            "multi-subject=optional-1-12", "multi-subject-description=reuses-theme-box", "multi-subject-id=stable",
+            "multi-subject-consistent=per-subject", "custom-style=hard-authority", "custom-style-library=explicit-opt-in",
             "coloring-style-single-choice=yes", "coloring-bold-easy=bidirectional-hard", "coloring-cozy=bidirectional-hard",
             "coloring-binary-bw=fixed", "line-thickness=dropdown", "image-specs=visible", "kdp-trim-presets=yes",
             "editable-inputs=avaloniaedit-raster", "active-project=kept-until-replace-or-exit", "home-resume=book-type",
@@ -238,7 +240,7 @@ jobs:
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
-          name: DiezPublishingStudio-Setup-1.0.0-rc8-SW-FLOW-12-PromptCompiler35-CleanRoomQueue10-ResponseBundle10
+          name: DiezPublishingStudio-Setup-1.0.0-rc8-SW-FLOW-12-PromptCompiler35-MultiSubject12-CustomHard
           path: artifacts/installer/DiezPublishingStudio-Setup.exe
           if-no-files-found: error
           retention-days: 90
