@@ -8,8 +8,9 @@ using Avalonia.Media.Imaging;
 namespace DiezPublishingStudio;
 
 /// <summary>
-/// Audited Response review page. Unlike the legacy page, provider-declared FAILED items are first-class
-/// rows even when no Candidate/material exists, and the main review body always lives inside a ScrollViewer.
+/// Audited Response review page. Provider-declared FAILED attempts are first-class rows even when no
+/// Candidate/material exists, and the main review body always lives inside a ScrollViewer. FAILED audit
+/// is read from the central AiExchange version stream with the legacy sidecar as migration fallback.
 /// </summary>
 internal static class SingleWindowResponseReviewUi
 {
@@ -22,7 +23,10 @@ internal static class SingleWindowResponseReviewUi
             .Where(u => string.Equals(u.ContentType, AiExchangeContentTypes.Image, StringComparison.OrdinalIgnoreCase))
             .OrderBy(u => u.Position)
             .ThenBy(u => u.Code, StringComparer.OrdinalIgnoreCase)
-            .Select(u => new ReviewRow(u, LatestVersion(exchange, u), AiExchangeResponseFailureStore.Latest(project, u.WorkUnitId)))
+            .Select(u => new ReviewRow(
+                u,
+                LatestAssetVersion(exchange, u),
+                AiExchangeResponseFailureStore.Latest(project, exchange, u.WorkUnitId)))
             .ToList();
 
         var list = new ListBox
@@ -81,8 +85,8 @@ internal static class SingleWindowResponseReviewUi
 
             // Reload live state because description/approval may change while this page remains open.
             var state = AiExchangeStateStore.Load(project);
-            var version = LatestVersion(state, row.Unit);
-            var failure = AiExchangeResponseFailureStore.Latest(project, row.Unit.WorkUnitId);
+            var version = LatestAssetVersion(state, row.Unit);
+            var failure = AiExchangeResponseFailureStore.Latest(project, state, row.Unit.WorkUnitId);
             if (FailureIsCurrent(version, failure))
             {
                 var reason = string.IsNullOrWhiteSpace(failure!.FailureReason) ? "Motivo non specificato dal provider." : failure.FailureReason;
@@ -96,7 +100,7 @@ internal static class SingleWindowResponseReviewUi
                 if (!string.IsNullOrWhiteSpace(failure.RenderRequestId)) lines.Add("render_request_id: " + failure.RenderRequestId);
                 if (!string.IsNullOrWhiteSpace(failure.RenderPromptSha256)) lines.Add("render_prompt_sha256: " + failure.RenderPromptSha256);
                 if (version is not null)
-                    lines.Add($"Nota: esiste una Candidate precedente v{version.VersionNumber}, ma il tentativo corrente v{failure.CandidateVersion} è FAILED e resta lo stato mostrato.");
+                    lines.Add($"Nota: esiste una Candidate con asset precedente v{version.VersionNumber}, ma il tentativo corrente v{failure.CandidateVersion} è FAILED e resta lo stato mostrato.");
                 audit.Text = string.Join(Environment.NewLine, lines);
                 description.Text = failure.Description;
                 description.IsEnabled = false;
@@ -110,7 +114,7 @@ internal static class SingleWindowResponseReviewUi
             if (version is null)
             {
                 info.Text = $"{row.Unit.Code} · nessun Response ancora registrato";
-                audit.Text = "Non risultano né una Candidate né un FAILED provider auditato per questa Work Unit.";
+                audit.Text = "Non risultano né una Candidate con asset né un FAILED provider auditato per questa Work Unit.";
                 description.Text = string.Empty;
                 description.IsEnabled = false;
                 save.IsEnabled = false;
@@ -144,8 +148,8 @@ internal static class SingleWindowResponseReviewUi
             var row = Selected();
             if (row is null) return;
             var state = AiExchangeStateStore.Load(project);
-            var version = LatestVersion(state, row.Unit);
-            var failure = AiExchangeResponseFailureStore.Latest(project, row.Unit.WorkUnitId);
+            var version = LatestAssetVersion(state, row.Unit);
+            var failure = AiExchangeResponseFailureStore.Latest(project, state, row.Unit.WorkUnitId);
             if (version is null || FailureIsCurrent(version, failure)) return;
             version.Description = (description.Text ?? string.Empty).Trim();
             version.DescriptionStatus = string.IsNullOrWhiteSpace(version.Description)
@@ -166,8 +170,8 @@ internal static class SingleWindowResponseReviewUi
             var row = Selected();
             if (row is null) return;
             var state = AiExchangeStateStore.Load(project);
-            var version = LatestVersion(state, row.Unit);
-            var failure = AiExchangeResponseFailureStore.Latest(project, row.Unit.WorkUnitId);
+            var version = LatestAssetVersion(state, row.Unit);
+            var failure = AiExchangeResponseFailureStore.Latest(project, state, row.Unit.WorkUnitId);
             if (version is null || FailureIsCurrent(version, failure)) return;
             if (!AiExchangeApprovalService.Approve(project, state, version.VersionId, out var message))
             {
@@ -234,9 +238,11 @@ internal static class SingleWindowResponseReviewUi
     internal static bool FailureIsCurrent(AiExchangeVersion? version, AiExchangeResponseFailureStore.Record? failure) =>
         failure is not null && (version is null || failure.CandidateVersion >= version.VersionNumber);
 
-    private static AiExchangeVersion? LatestVersion(AiExchangeState state, AiExchangeWorkUnit unit) =>
+    internal static AiExchangeVersion? LatestAssetVersion(AiExchangeState state, AiExchangeWorkUnit unit) =>
         state.Versions
-            .Where(v => v.WorkUnitId == unit.WorkUnitId && v.Status != AiExchangeVersionStatuses.Rejected)
+            .Where(v => v.WorkUnitId == unit.WorkUnitId &&
+                        v.Status != AiExchangeVersionStatuses.Rejected &&
+                        !AiExchangeResponseFailureStore.IsFailureVersion(v))
             .OrderByDescending(v => v.VersionNumber)
             .FirstOrDefault();
 
