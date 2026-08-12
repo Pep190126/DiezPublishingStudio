@@ -56,6 +56,9 @@ internal static class SingleWindowColoringStylePolicyUi
         var pageHost = host.GetType().GetField("_pageHost", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(host) as ContentControl;
         if (pageHost?.Content is not Control page) return;
 
+        // Multi-subject and Custom-style controls share this native-page refresh lifecycle.
+        SingleWindowSubjectStyleUi.Refresh(window);
+
         if (!Descendants(page).Any(c => string.Equals(c.Name, "DiezNativeColoringProfile", StringComparison.Ordinal)))
         {
             SyncPersistedProfile(project, path);
@@ -71,9 +74,13 @@ internal static class SingleWindowColoringStylePolicyUi
         if (profilePanel is null || line is null || style is null) return;
 
         var hard = ColoringIndependentHardProfileService.Resolve(project);
+        var persisted = BookTypePromptProfileService.LoadColoring(project);
         var styles = ColoringIndependentHardProfileService.SelectableStyles;
         style.ItemsSource = styles;
-        style.SelectedItem = styles.FirstOrDefault(x => string.Equals(x, hard.Style, StringComparison.OrdinalIgnoreCase))
+        var selectedStyle = persisted.Style;
+        if (string.Equals(selectedStyle, "Custom", StringComparison.OrdinalIgnoreCase))
+            selectedStyle = "Custom";
+        style.SelectedItem = styles.FirstOrDefault(x => string.Equals(x, selectedStyle, StringComparison.OrdinalIgnoreCase))
                              ?? "Clean Line Art";
 
         var bold = Descendants(page).OfType<ComboBox>().FirstOrDefault(c => string.Equals(c.Name, BoldControlName, StringComparison.Ordinal));
@@ -168,6 +175,9 @@ internal static class SingleWindowColoringStylePolicyUi
                 ApplyConstraints(line, bold, boldStatus!, cozy, cozyStatus!);
                 Persist();
             };
+
+        // Custom-style UI must see the final style ItemsSource/selection after this policy refresh.
+        SingleWindowSubjectStyleUi.Refresh(window);
     }
 
     private static void ApplyConstraints(
@@ -219,7 +229,10 @@ internal static class SingleWindowColoringStylePolicyUi
     {
         if (!string.Equals(BookTypeProfileService.Get(project), BookTypeProfileService.ColoringBook, StringComparison.OrdinalIgnoreCase)) return;
         var hard = ColoringIndependentHardProfileService.Resolve(project);
-        ColoringIndependentHardProfileService.PersistResolvedState(project, hard.Style, hard.LineWeight, hard.BoldEasy, hard.Cozy);
+        var p = BookTypePromptProfileService.LoadColoring(project);
+        // Do not feed the resolved Custom definition back through the style selector; preserve Style=Custom + definition.
+        var selected = string.Equals(p.Style, "Custom", StringComparison.OrdinalIgnoreCase) ? "Custom" : hard.Style;
+        ColoringIndependentHardProfileService.PersistResolvedState(project, selected, hard.LineWeight, hard.BoldEasy, hard.Cozy);
         _ = ProjectFileStore.SaveAsync(path, project);
     }
 
