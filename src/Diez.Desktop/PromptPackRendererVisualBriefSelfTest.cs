@@ -12,6 +12,8 @@ STYLE — HARD LOCK: Cute & Playful.
 BOLD & EASY — HARD: ON.
 COZY — HARD: ON.
 USER REQUIREMENT — HARD: 3 animals carini e un'image per ogni animale
+USER REQUIREMENT — HARD: one image per animal
+USER REQUIREMENT — HARD: un’immagine per animale
 VISIBLE CONTENT — HARD: include exactly 3 small stars on the collar.
 """;
 
@@ -20,10 +22,12 @@ VISIBLE CONTENT — HARD: include exactly 3 small stars on the collar.
             "Il soggetto atomico è stato perso.");
         Require(result.Contains("include exactly 3 small stars", StringComparison.OrdinalIgnoreCase),
             "Un conteggio visuale realmente item-specific è stato rimosso per errore.");
-        Require(!result.Contains("3 animals carini", StringComparison.OrdinalIgnoreCase),
-            "La direttiva di serie italiana è arrivata al renderer.");
-        Require(!result.Contains("image per ogni animale", StringComparison.OrdinalIgnoreCase),
-            "La direttiva one-image-per-animal è arrivata al renderer.");
+        foreach (var forbidden in new[]
+                 {
+                     "3 animals carini", "image per ogni animale", "one image per animal", "un’immagine per animale"
+                 })
+            Require(!result.Contains(forbidden, StringComparison.OrdinalIgnoreCase),
+                "Direttiva di serie arrivata al renderer: " + forbidden);
     }
 
     private static void Require(bool condition, string message)
