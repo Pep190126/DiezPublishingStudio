@@ -123,6 +123,7 @@ jobs:
           foreach ($required in @(
             "OK", "SW-FLOW-12", "book-type=visible", "book-type-back=works", "quantity-change-type=absent",
             "quantity-field=native-numeric", "visual-subject-environment=native-visible", "coloring-style=native-visible",
+            "coloring-style-single-choice=yes", "coloring-bold-easy=bidirectional-hard", "coloring-cozy=bidirectional-hard",
             "coloring-binary-bw=fixed", "line-thickness=dropdown", "image-specs=visible", "kdp-trim-presets=yes",
             "editable-inputs=avaloniaedit-raster", "active-project=kept-until-replace-or-exit", "home-resume=book-type",
             "consistent-on=criteria-native-visible", "consistency-notes=native-visible", "consistency-levels=3",
@@ -131,10 +132,11 @@ jobs:
             "bleed=image-generation-removed", "prompt-editors=native-3", "undo=ctrl-z", "redo=ctrl-y",
             "prompt-semantic-engine=3.0", "prompt-provider-compiler=3.4", "prompt-profile-isolation=yes",
             "prompt-work-unit-output=1", "prompt-render-field=image_generation_prompt", "prompt-context-single-source=yes",
-            "prompt-atomic-subject=yes", "prompt-style-hard=yes", "prompt-composition-hard=yes",
-            "manual-render-plan=1.2", "manual-render-fresh-per-work-unit=yes", "package-naming=diez-title-versioned",
-            "visual-context=V3", "response-import=audited-v2", "response-failed-review=scrollable-audited",
-            "visual-prompt-pipeline=single-source", "vision-style-match=hard"
+            "prompt-atomic-subject=yes", "prompt-style-hard=yes", "prompt-bold-easy-hard=yes", "prompt-cozy-hard=yes",
+            "prompt-composition-hard=yes", "manual-render-plan=1.2", "manual-render-fresh-per-work-unit=yes",
+            "package-naming=diez-title-versioned", "visual-context=V3", "response-import=audited-v2",
+            "response-failed-review=scrollable-audited", "visual-prompt-pipeline=single-source",
+            "vision-style-match=hard", "vision-bold-easy-match=hard", "vision-cozy-match=hard"
           )) {
             if ($text -notmatch [regex]::Escape($required)) { throw "UI flow contract missing: $required" }
           }
@@ -229,7 +231,7 @@ jobs:
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
-          name: DiezPublishingStudio-Setup-1.0.0-rc8-SW-FLOW-12-PromptCompiler34-AtomicStyleReview
+          name: DiezPublishingStudio-Setup-1.0.0-rc8-SW-FLOW-12-PromptCompiler34-IndependentHardProfiles
           path: artifacts/installer/DiezPublishingStudio-Setup.exe
           if-no-files-found: error
           retention-days: 90
