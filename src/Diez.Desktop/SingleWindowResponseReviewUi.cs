@@ -85,11 +85,12 @@ internal static class SingleWindowResponseReviewUi
             var failure = AiExchangeResponseFailureStore.Latest(project, row.Unit.WorkUnitId);
             if (FailureIsCurrent(version, failure))
             {
-                info.Text = $"{row.Unit.Code} · v{failure!.CandidateVersion} · FAILED · nessun asset accettato";
+                var reason = string.IsNullOrWhiteSpace(failure!.FailureReason) ? "Motivo non specificato dal provider." : failure.FailureReason;
+                info.Text = $"{row.Unit.Code} · v{failure.CandidateVersion} · FAILED · nessun asset accettato{Environment.NewLine}{reason}";
                 var lines = new List<string>
                 {
                     "Esito provider: FAILED",
-                    string.IsNullOrWhiteSpace(failure.FailureReason) ? "Motivo: non specificato" : "Motivo: " + failure.FailureReason
+                    "Motivo: " + reason
                 };
                 if (!string.IsNullOrWhiteSpace(failure.Description)) lines.Add("Descrizione provider: " + failure.Description);
                 if (!string.IsNullOrWhiteSpace(failure.RenderRequestId)) lines.Add("render_request_id: " + failure.RenderRequestId);
@@ -102,7 +103,7 @@ internal static class SingleWindowResponseReviewUi
                 save.IsEnabled = false;
                 approve.IsEnabled = false;
                 SetPreview(host, Placeholder(
-                    "FAILED — nessun asset incluso. Il renderer ha restituito un risultato non conforme e Diez lo ha correttamente scartato; non c'è un'immagine corrente da approvare o visualizzare."));
+                    "FAILED — nessun asset incluso. Il renderer ha restituito un risultato non conforme e Diez lo ha correttamente scartato; non c'è un'immagine corrente da approvare o visualizzare." + Environment.NewLine + reason));
                 return;
             }
 
