@@ -18,7 +18,7 @@ internal static class SingleWindowResponseReviewUiContractProbe
         {
             var project = ProjectFileStore.Create("Response Review Contract");
             BookTypeProfileService.Set(project, BookTypeProfileService.ColoringBook);
-            var jobs = AiImageBatchService.CreateImageSeries(project, 3, "3 animali diversi 3 immagini", "Tavola").ToList();
+            AiImageBatchService.CreateImageSeries(project, 3, "3 animali diversi 3 immagini", "Tavola").ToList();
             VisualPromptSessionService.EnsureActive(project);
             await ProjectFileStore.SaveAsync(path, project);
             SetSession(window, project, path);
@@ -32,16 +32,25 @@ internal static class SingleWindowResponseReviewUiContractProbe
             if (units.Count != 3) throw new InvalidOperationException("Response Review contract: tre Work Unit non disponibili.");
             foreach (var unit in units)
             {
+                var latestVersion = state.Versions
+                    .Where(v => v.WorkUnitId == unit.WorkUnitId)
+                    .Select(v => v.VersionNumber)
+                    .DefaultIfEmpty(0)
+                    .Max();
+                var failedVersion = latestVersion + 1;
                 AiExchangeResponseFailureStore.RecordFailure(
                     project,
                     "UI-CONTRACT-PACKAGE",
                     Guid.NewGuid(),
                     unit.WorkUnitId,
-                    1,
+                    failedVersion,
                     "Triptych rejected.",
                     "Renderer produced three bordered panels; one-composition hard lock failed.",
                     Guid.NewGuid().ToString("D"),
                     new string('a', 64));
+                var stored = AiExchangeResponseFailureStore.Latest(project, unit.WorkUnitId);
+                if (stored is null || stored.CandidateVersion != failedVersion)
+                    throw new InvalidOperationException(unit.Code + ": FAILED sintetico non persistito come versione corrente.");
             }
             await ProjectFileStore.SaveAsync(path, project);
 
@@ -63,7 +72,7 @@ internal static class SingleWindowResponseReviewUiContractProbe
             if (!visibleText.Contains("FAILED", StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException("FAILED provider non visibile nella pagina Review.");
             if (!visibleText.Contains("three bordered panels", StringComparison.OrdinalIgnoreCase))
-                throw new InvalidOperationException("failure_reason non visibile/auditabile nella pagina Review.");
+                throw new InvalidOperationException("failure_reason non visibile/auditabile nella pagina Review. Testo renderizzato: " + visibleText);
             if (visibleText.Contains("Risultato non ancora disponibile", StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException("FAILED auditato viene ancora presentato come risultato genericamente non disponibile.");
 
@@ -72,7 +81,7 @@ internal static class SingleWindowResponseReviewUiContractProbe
             var previewText = string.Join("\n", Descendants(preview).OfType<TextBlock>().Select(t => t.Text ?? string.Empty));
             if (!previewText.Contains("nessun asset incluso", StringComparison.OrdinalIgnoreCase) ||
                 !previewText.Contains("correttamente scartato", StringComparison.OrdinalIgnoreCase))
-                throw new InvalidOperationException("Anteprima FAILED non spiega che l'asset non conforme è stato scartato.");
+                throw new InvalidOperationException("Anteprima FAILED non spiega che l'asset non conforme è stato scartato. Anteprima: " + previewText);
         }
         finally
         {
