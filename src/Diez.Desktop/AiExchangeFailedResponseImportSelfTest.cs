@@ -94,9 +94,11 @@ internal static class AiExchangeFailedResponseImportSelfTest
                     items
                 };
                 var entry = zip.CreateEntry("response-manifest.json");
-                await using var target = entry.Open();
-                await using var writer = new StreamWriter(target, new UTF8Encoding(false));
-                await writer.WriteAsync(JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }));
+                await using (var target = entry.Open())
+                await using (var writer = new StreamWriter(target, new UTF8Encoding(false)))
+                {
+                    await writer.WriteAsync(JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }));
+                }
                 zip.CreateEntry("content/");
             }
 
