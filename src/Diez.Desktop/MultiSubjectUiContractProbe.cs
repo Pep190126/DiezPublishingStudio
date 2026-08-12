@@ -28,6 +28,7 @@ internal static class MultiSubjectUiContractProbe
             await WaitAsync();
             SingleWindowColoringStylePolicyUi.Refresh(window);
             SingleWindowSubjectStyleUi.Refresh(window);
+            SingleWindowMultiSubjectLabelUi.Refresh(window);
             await WaitAsync();
 
             var page = pageHost.Content as Control ?? throw new InvalidOperationException("Multi-subject probe: pagina Quantità assente.");
@@ -44,7 +45,7 @@ internal static class MultiSubjectUiContractProbe
                 throw new InvalidOperationException("Multi-subject probe: massimo soggetti non è 12.");
             if (enabled.IsChecked == true)
                 throw new InvalidOperationException("Multi-subject probe: modalità Multi deve essere facoltativa/OFF per default.");
-            if (!string.Equals(LabelFor(subject), "Tema / gruppo di soggetti", StringComparison.Ordinal))
+            if (!HasVisibleLabel(page, "Tema / gruppo di soggetti"))
                 throw new InvalidOperationException("Multi-subject probe: label tema/gruppo non attiva con Multi OFF.");
             if (!(subject.Watermark ?? string.Empty).Contains("gruppi/temi", StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException("Multi-subject probe: placeholder OFF non guida verso gruppi/temi.");
@@ -65,13 +66,14 @@ internal static class MultiSubjectUiContractProbe
             MultiSubjectProfileService.Save(project, model);
             await ProjectFileStore.SaveAsync(tempPath, project);
             SingleWindowSubjectStyleUi.Refresh(window);
+            SingleWindowMultiSubjectLabelUi.Refresh(window);
             await WaitAsync();
 
             page = pageHost.Content as Control ?? throw new InvalidOperationException("Multi-subject probe: pagina persa.");
             subject = Require<TextBox>(page, "VisualSubjectInstructions");
             if (!ReferenceEquals(subject, originalSubjectReference))
                 throw new InvalidOperationException("Multi-subject probe: è stato creato un secondo box descrizione invece di riusare quello esistente.");
-            if (!string.Equals(LabelFor(subject), "Descrizione — Milo", StringComparison.Ordinal))
+            if (!HasVisibleLabel(page, "Descrizione — Milo"))
                 throw new InvalidOperationException("Multi-subject probe: label descrizione non segue il soggetto attivo.");
             if (!string.Equals(subject.Text, subjects[0].Description, StringComparison.Ordinal))
                 throw new InvalidOperationException("Multi-subject probe: box descrizione non carica la descrizione legata al SubjectId.");
@@ -117,7 +119,7 @@ internal static class MultiSubjectUiContractProbe
             var saveCustom = Require<CheckBox>(page, "ColoringSaveCustomStyle");
             if (!custom.IsVisible || !saveCustom.IsVisible)
                 throw new InvalidOperationException("Multi-subject probe: descrizione Custom HARD / opt-in libreria non visibili.");
-            if (!string.Equals(LabelFor(custom), "Stile Custom — descrizione HARD", StringComparison.Ordinal))
+            if (!HasVisibleLabel(page, "Stile Custom — descrizione HARD"))
                 throw new InvalidOperationException("Multi-subject probe: Custom è ancora presentato come nota SOFT.");
 
             const string customDefinition = "rounded editorial ink style with playful asymmetry, tiny floral accents and clean organic contours";
@@ -146,12 +148,8 @@ internal static class MultiSubjectUiContractProbe
         Descendants(root).OfType<T>().FirstOrDefault(x => x.Name == name)
         ?? throw new InvalidOperationException($"Multi-subject probe: controllo mancante {name}.");
 
-    private static string LabelFor(Control control)
-    {
-        if (control.Parent is StackPanel stack)
-            return stack.Children.OfType<TextBlock>().FirstOrDefault()?.Text ?? string.Empty;
-        return string.Empty;
-    }
+    private static bool HasVisibleLabel(Control root, string text) =>
+        Descendants(root).OfType<TextBlock>().Any(x => x.IsVisible && string.Equals(x.Text, text, StringComparison.Ordinal));
 
     private static List<string> Values(ComboBox combo)
     {
