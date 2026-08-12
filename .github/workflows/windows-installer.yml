@@ -135,10 +135,10 @@ jobs:
             "prompt-atomic-subject=yes", "prompt-style-hard=yes", "prompt-bold-easy-hard=yes", "prompt-cozy-hard=yes",
             "prompt-composition-hard=yes", "renderer-prompt-scope=visual-only", "manual-render-plan=1.3",
             "manual-render-fresh-per-work-unit=yes", "manual-render-fresh-context-owner=executor",
-            "manual-render-chat-session=isolated-per-ai-only-work-unit", "package-naming=diez-title-versioned",
-            "visual-context=V3", "response-import=audited-v2", "response-failed-review=scrollable-audited",
-            "visual-prompt-pipeline=single-source", "vision-style-match=hard", "vision-bold-easy-match=hard",
-            "vision-cozy-match=hard"
+            "manual-render-call-isolation=no-prior-image-reference", "manual-render-chat-session=conditional-on-provider-visual-state",
+            "package-naming=diez-title-versioned", "visual-context=V3", "response-import=audited-v2",
+            "response-failed-review=scrollable-audited", "visual-prompt-pipeline=single-source",
+            "vision-style-match=hard", "vision-bold-easy-match=hard", "vision-cozy-match=hard"
           )) {
             if ($text -notmatch [regex]::Escape($required)) { throw "UI flow contract missing: $required" }
           }
