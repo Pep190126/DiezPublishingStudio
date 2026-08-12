@@ -17,6 +17,7 @@ internal sealed class AiExchangeImportV2Report
 /// It validates manifest/file identity before ingestion, validates the REAL returned image pixels
 /// against deterministic Book-Type constraints, and verifies the resulting Candidate afterwards.
 /// A provider description can never override a pixel-level validation failure.
+/// Provider-declared FAILED items are persisted as audited results even when no Candidate asset exists.
 /// </summary>
 internal static class AiExchangeResponseImportV2
 {
@@ -36,7 +37,8 @@ internal static class AiExchangeResponseImportV2
         var incomplete = 0;
         var duplicates = 0;
         var conflicts = 0;
-        var failed = 0;
+        var providerFailed = 0;
+        var transportFailed = 0;
         var details = new List<string>();
         var changed = false;
 
@@ -51,7 +53,7 @@ internal static class AiExchangeResponseImportV2
                 var manifestEntry = FindEntryExactOrCaseInsensitive(archive, "response-manifest.json");
                 if (manifestEntry is null)
                 {
-                    failed++;
+                    transportFailed++;
                     details.Add($"{zipLabel}: response-manifest.json realmente assente.");
                     continue;
                 }
@@ -61,7 +63,7 @@ internal static class AiExchangeResponseImportV2
                     manifest = await JsonSerializer.DeserializeAsync<ResponseManifest>(stream, JsonOptions);
                 if (!ValidateHeader(project, state, manifest, out var snapshot, out var headerError))
                 {
-                    failed++;
+                    transportFailed++;
                     details.Add($"{zipLabel}: {headerError}");
                     continue;
                 }
@@ -86,13 +88,8 @@ internal static class AiExchangeResponseImportV2
                         details.Add($"{code}: Work Unit duplicata nello stesso response-manifest.");
                         continue;
                     }
-                    if (string.Equals(item.Status, "FAILED", StringComparison.OrdinalIgnoreCase))
-                    {
-                        failed++;
-                        details.Add($"{code}: provider ha dichiarato FAILED.");
-                        continue;
-                    }
 
+                    // Validate identity/snapshot BEFORE accepting either COMPLETE or FAILED status.
                     var request = snapshot!.Items.FirstOrDefault(x => x.WorkUnitId == item.WorkUnitId);
                     if (unit is null || request is null)
                     {
@@ -104,6 +101,27 @@ internal static class AiExchangeResponseImportV2
                     {
                         conflicts++;
                         details.Add($"{code}: candidate_version attesa {request.TargetCandidateVersion}, ricevuta {item.CandidateVersion}.");
+                        continue;
+                    }
+
+                    if (string.Equals(item.Status, "FAILED", StringComparison.OrdinalIgnoreCase))
+                    {
+                        AiExchangeResponseFailureStore.RecordFailure(
+                            project,
+                            manifest.PackageId,
+                            manifest.PromptPackId,
+                            item.WorkUnitId,
+                            item.CandidateVersion,
+                            item.Description,
+                            item.FailureReason,
+                            item.RenderRequestId,
+                            item.RenderPromptSha256);
+                        providerFailed++;
+                        changed = true;
+                        var reason = string.IsNullOrWhiteSpace(item.FailureReason)
+                            ? item.Description
+                            : item.FailureReason;
+                        details.Add($"{code}: FAILED provider registrato{(string.IsNullOrWhiteSpace(reason) ? "." : " — " + reason)}");
                         continue;
                     }
 
@@ -157,7 +175,7 @@ internal static class AiExchangeResponseImportV2
                         v.WorkUnitId == item.WorkUnitId && v.VersionNumber == item.CandidateVersion);
                     if (version is null)
                     {
-                        failed++;
+                        transportFailed++;
                         details.Add($"{code}: ingest terminato ma Candidate v{item.CandidateVersion} non presente nello stato Diez.");
                         continue;
                     }
@@ -191,7 +209,7 @@ internal static class AiExchangeResponseImportV2
                         case "INCOMPLETE": incomplete++; break;
                         case "DUPLICATE": duplicates++; break;
                         case "CONFLICT": conflicts++; break;
-                        default: failed++; break;
+                        default: transportFailed++; break;
                     }
                     details.Add($"{code}: asset presente e Candidate v{item.CandidateVersion} verificata ({version.Status}).");
                 }
@@ -212,12 +230,12 @@ internal static class AiExchangeResponseImportV2
             }
             catch (InvalidDataException ex)
             {
-                failed++;
+                transportFailed++;
                 details.Add($"{zipLabel}: ZIP non valido: {ex.Message}");
             }
             catch (Exception ex)
             {
-                failed++;
+                transportFailed++;
                 details.Add($"{zipLabel}: errore import: {ex.GetBaseException().Message}");
             }
             finally
@@ -259,15 +277,18 @@ internal static class AiExchangeResponseImportV2
             await ProjectFileStore.SaveAsync(projectPath, project);
         }
 
-        var success = imported > 0 || incomplete > 0 || duplicates > 0;
+        // A response containing only provider-declared FAILED items is still a successfully imported/audited
+        // response package. It must not look like an import transport failure in the UI.
+        var success = changed || imported > 0 || incomplete > 0 || duplicates > 0 || providerFailed > 0;
+        var failedTotal = providerFailed + transportFailed;
         var summary = new AiExchangeImportSummary(
             success,
             imported,
             incomplete,
             duplicates,
             conflicts,
-            failed,
-            $"Import AI verificato: {imported} pronti/aggiornati · {incomplete} incompleti/da correggere · {duplicates} duplicati · {conflicts} conflitti · {failed} errori.");
+            failedTotal,
+            $"Import AI verificato: {imported} pronti/aggiornati · {incomplete} incompleti/da correggere · {providerFailed} FAILED provider registrati · {duplicates} duplicati · {conflicts} conflitti · {transportFailed} errori package.");
         return new AiExchangeImportV2Report { Summary = summary, Details = details };
     }
 
@@ -368,5 +389,8 @@ internal static class AiExchangeResponseImportV2
         public string Status { get; set; } = "COMPLETE";
         public string PrimaryAsset { get; set; } = string.Empty;
         public string Description { get; set; } = string.Empty;
+        public string RenderRequestId { get; set; } = string.Empty;
+        public string RenderPromptSha256 { get; set; } = string.Empty;
+        public string FailureReason { get; set; } = string.Empty;
     }
 }
