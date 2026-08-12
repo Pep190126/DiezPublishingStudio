@@ -117,11 +117,11 @@ internal static class PromptPackExecutionPlanSelfTest
             Require(zip.GetEntry("render-plan.json") is not null, "render-plan.json mancante.");
             var start = await ReadAsync(zip, "00-START-HERE.md");
             Require(start.Contains(expectedResponseName, StringComparison.Ordinal), "Nome response non presente nel runbook.");
-            Require(start.Contains("VISUAL-ONLY", StringComparison.OrdinalIgnoreCase), "Runbook non separa il prompt visuale dall'orchestrazione.");
-            Require(start.Contains("NEW image-generation invocation", StringComparison.OrdinalIgnoreCase), "Runbook non richiede una nuova chiamata image-generation per Work Unit.");
-            Require(start.Contains("same orchestration chat may be used only when", StringComparison.OrdinalIgnoreCase), "Runbook non distingue call isolation da chat isolation.");
-            Require(start.Contains("automatically carry prior visual state", StringComparison.OrdinalIgnoreCase), "Runbook non richiede una nuova sessione quando il provider trascina stato visuale.");
-            Require(start.Contains("STYLE — HARD LOCK", StringComparison.Ordinal), "Runbook non verifica lo style hard lock.");
+            Require(start.Contains("generation chats return IMAGE ONLY", StringComparison.OrdinalIgnoreCase), "Runbook non separa la generazione immagine dal trasporto.");
+            Require(start.Contains("Do not upload this entire Prompt Pack", StringComparison.OrdinalIgnoreCase), "Runbook consente ancora l'esecuzione wholesale in una chat.");
+            Require(start.Contains("Do not ask the chat to create a Response ZIP", StringComparison.OrdinalIgnoreCase), "Runbook lascia ancora il packaging alla chat di generazione.");
+            Require(start.Contains("another NEW blank chat", StringComparison.OrdinalIgnoreCase), "Runbook non richiede una chat nuova per la Work Unit successiva.");
+            Require(start.Contains("render-prompts/*.txt", StringComparison.OrdinalIgnoreCase), "Runbook non dichiara il solo contenuto model-facing.");
 
             var planText = await ReadAsync(zip, "render-plan.json");
             using var plan = JsonDocument.Parse(planText);
