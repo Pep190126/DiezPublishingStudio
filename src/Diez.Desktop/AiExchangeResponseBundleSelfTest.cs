@@ -148,7 +148,7 @@ internal static class AiExchangeResponseBundleSelfTest
                     work_unit_id = workUnitId,
                     candidate_version = candidateVersion,
                     content_type = "IMAGE",
-                    status = "SUCCEEDED",
+                    status = "COMPLETE",
                     primary_asset = assetPath,
                     description = "Pure black-and-white jungle animal coloring page.",
                     render_request_id = (string?)null,
