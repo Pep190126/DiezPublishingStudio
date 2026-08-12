@@ -67,8 +67,6 @@ internal static class PromptPackExecutionPlanService
             if (basePrompt.Length == 0)
                 throw new InvalidOperationException("image_generation_prompt mancante per " + unit.WorkUnitId);
 
-            // Final image-model boundary: remove routing/retry/audit language and forbidden-layout concept soup.
-            // Clean-room isolation is executor-owned and is never encoded into the visual model prompt itself.
             var authoritative = PromptPackRendererVisualBriefService.Build(basePrompt);
             PromptPackProviderFacingService.EnsureRendererPromptReady(authoritative, unit.Code);
             PromptPackRendererVisualBriefService.EnsureVisualOnly(authoritative);
@@ -150,7 +148,11 @@ internal static class PromptPackExecutionPlanService
             ["clean_room_chat_policy"] = "GUIDED_TEMPORARY_OR_NEW_BLANK_CHAT_PER_WORK_UNIT",
             ["same_chat_renderer_isolation_certified"] = false,
             ["partial_response_allowed"] = true,
-            ["partial_response_import"] = "MULTI_SELECT_ONCE",
+            ["response_bundle_protocol"] = AiExchangeResponseBundleService.Protocol,
+            ["response_bundle_protocol_version"] = AiExchangeResponseBundleService.ProtocolVersion,
+            ["response_bundle_manifest"] = AiExchangeResponseBundleService.ManifestFileName,
+            ["response_bundle_filename"] = responseFileName,
+            ["partial_response_import"] = "BUNDLE_ONE_OUTER_ZIP_PREFERRED_OR_MULTI_SELECT_PARTS",
             ["reuse_prior_generated_images_forbidden"] = true,
             ["atomic_subject_required"] = true,
             ["selected_style_is_hard"] = true
@@ -175,6 +177,9 @@ internal static class PromptPackExecutionPlanService
             ["clean_room_queue"] = PromptPackCleanRoomQueueService.QueueFileName,
             ["clean_room_queue_version"] = PromptPackCleanRoomQueueService.QueueProtocolVersion,
             ["clean_room_launcher"] = PromptPackCleanRoomQueueService.LauncherFileName,
+            ["response_bundle_protocol"] = AiExchangeResponseBundleService.Protocol,
+            ["response_bundle_protocol_version"] = AiExchangeResponseBundleService.ProtocolVersion,
+            ["response_bundle_manifest"] = AiExchangeResponseBundleService.ManifestFileName,
             ["renderer_prompt_source"] = "Read each prompt_file verbatim as VISUAL-ONLY model input; enforce clean-room routing outside the renderer prompt.",
             ["renderer_prompt_scope"] = "VISUAL_ONLY",
             ["one_work_unit_per_renderer_call"] = true,
@@ -184,7 +189,7 @@ internal static class PromptPackExecutionPlanService
             ["clean_room_chat_policy"] = "GUIDED_TEMPORARY_OR_NEW_BLANK_CHAT_PER_WORK_UNIT",
             ["same_chat_renderer_isolation_certified"] = false,
             ["partial_response_allowed"] = true,
-            ["partial_response_import"] = "MULTI_SELECT_ONCE",
+            ["partial_response_import"] = "BUNDLE_ONE_OUTER_ZIP_PREFERRED_OR_MULTI_SELECT_PARTS",
             ["reuse_prior_generated_images_forbidden"] = true,
             ["atomic_subject_required"] = true,
             ["selected_style_is_hard"] = true,
@@ -210,10 +215,10 @@ Book: {BookPackageNamingService.BookTitle(project)}
 Internal project ID: {project.ProjectId:D}
 Package version: v{version:D3}
 Prompt Pack: `{promptPackFileName}`
-Aggregate Response name (optional): `{responseFileName}`
+Final Response Bundle: `{responseFileName}`
 
 ## Recommended manual workflow — ONE guided clean-room queue
-Open `{PromptPackCleanRoomQueueService.LauncherFileName}`. It presents Task 1/N → Task 2/N → Task 3/N in one local launcher, so the user does not have to manually track separate projects or reconstruct a final Response ZIP.
+Open `{PromptPackCleanRoomQueueService.LauncherFileName}`. It presents Task 1/N → Task 2/N → Task N/N in one local launcher, so the user does not have to manage separate projects or reconstruct manifests by hand.
 
 For each task:
 1. Open a NEW Temporary Chat when available, otherwise a NEW blank chat. The current physical tests proved that the same image conversation cannot be certified as clean because prior-project visuals may leak into a later renderer call.
@@ -221,7 +226,8 @@ For each task:
 3. The chat executor must send ONLY the enclosed VISUAL-ONLY block to the image renderer. Routing IDs, response packaging and audit text remain outside the image-model prompt.
 4. Use exactly ONE image-generation attempt in that clean-room chat. If it violates a HARD lock, return that task as FAILED without an asset; do not contaminate the same chat with repeated edit/retry cycles.
 5. Download the partial Response ZIP named `diez-...-response-v{version:D3}-part-NNN.zip`, close/abandon that clean chat, then return to the launcher for the next task.
-6. When all tasks are done, go back to Diez → `Importa risultati AI` and multi-select ALL partial Response ZIPs in one operation. Diez aggregates them on the same Prompt Pack/snapshot and opens one unified Review page.
+6. When all tasks are done, use the launcher's `Crea Response ZIP unico`: select the N partial ZIPs and it creates `{responseFileName}` locally. The outer ZIP contains `{AiExchangeResponseBundleService.ManifestFileName}` plus `parts/*.zip`, one inner ZIP per image/Work Unit.
+7. In Diez → `Importa risultati AI`, select only `{responseFileName}`. Diez opens the bundle, audits each inner Response independently, reconciles them on the same Prompt Pack/snapshot and opens one unified Review page. Multi-selecting the raw part-NNN ZIPs remains supported only as a compatibility fallback.
 
 Compatibility/audit note: the same orchestration chat may be used only when a platform truly gives each image-generation invocation an isolated no-input renderer context. The physical ChatGPT tests showed that a platform may automatically carry prior visual state, so the clean-room queue is the default manual path here. Every task still represents a NEW image-generation invocation at the renderer boundary.
 
@@ -239,9 +245,10 @@ Compatibility/audit note: the same orchestration chat may be used only when a pl
 - `render-prompts/*.txt` is VISUAL-ONLY image-model input. Never forward routing/session/retry/audit metadata to the image renderer.
 - One clean-room task performs one image-generation attempt. A non-compliant result becomes a partial FAILED response rather than an edit/retry inside a contaminated visual conversation.
 - Each task returns a PARTIAL Response ZIP named `diez-...-response-vNNN-part-NNN.zip` with exactly one Work Unit and `partial=true`.
-- Diez accepts all partial Response ZIPs together in one multi-select import and reconciles them on the original Prompt Pack/snapshot. The user does not need to merge ZIPs manually.
-- Stable ProjectId/WorkUnitId/candidate version/render_request_id/SHA remain authoritative; filenames are human-facing only.
-- An optional provider may still return one aggregate `{responseFileName}` when it can genuinely guarantee stateless renderer calls, but the manual ChatGPT path defaults to the clean-room queue.
+- After all clean-room tasks, the launcher locally creates one outer `{responseFileName}` using protocol `{AiExchangeResponseBundleService.Protocol}` v{AiExchangeResponseBundleService.ProtocolVersion}. It contains `{AiExchangeResponseBundleService.ManifestFileName}` and `parts/*.zip`, one nested partial Response per Work Unit.
+- The preferred Diez import is that single outer Response Bundle. Direct multi-select of the raw part-NNN files remains backward-compatible.
+- Stable ProjectId/WorkUnitId/candidate version/render_request_id/SHA remain authoritative inside every nested Response; filenames are human-facing only.
+- An optional provider may still return one ordinary aggregate `{responseFileName}` when it can genuinely guarantee stateless renderer calls; the importer distinguishes an ordinary Response ZIP from a nested Response Bundle by its root manifest.
 """.Trim();
     }
 
