@@ -80,7 +80,12 @@ TECHNICAL OUTPUT: target raster 2550 × 3300 px; 300 DPI print context.
             Require(rootNode.GetProperty("chat_policy").GetString() == "NEW_TEMPORARY_OR_NEW_BLANK_CHAT_PER_WORK_UNIT", "Policy clean-room non esplicita.");
             Require(!rootNode.GetProperty("same_chat_renderer_isolation_certified").GetBoolean(), "Same-chat isolation non deve risultare certificato.");
             Require(rootNode.GetProperty("partial_response_allowed").GetBoolean(), "Response parziali non abilitate.");
-            Require(rootNode.GetProperty("import_mode").GetString() == "MULTI_SELECT_ALL_PARTIAL_RESPONSE_ZIPS_ONCE", "Import aggregato one-shot non dichiarato.");
+            Require(rootNode.GetProperty("bundle_protocol").GetString() == AiExchangeResponseBundleService.Protocol, "Protocollo Response Bundle errato.");
+            Require(rootNode.GetProperty("bundle_protocol_version").GetInt32() == AiExchangeResponseBundleService.ProtocolVersion, "Versione Response Bundle errata.");
+            Require(rootNode.GetProperty("bundle_manifest").GetString() == AiExchangeResponseBundleService.ManifestFileName, "Manifest Response Bundle errato.");
+            Require(rootNode.GetProperty("bundle_filename").GetString() == BookPackageNamingService.ResponseFileName(project, 1), "Nome bundle finale errato.");
+            Require(rootNode.GetProperty("final_transport").GetString() == "ONE_OUTER_ZIP_WITH_N_PARTIAL_RESPONSE_ZIPS", "Trasporto finale non dichiarato come ZIP annidato unico.");
+            Require(rootNode.GetProperty("import_mode").GetString() == "SINGLE_RESPONSE_BUNDLE_PREFERRED_OR_MULTI_SELECT_PARTS", "Import bundle-preferred non dichiarato.");
 
             var tasks = rootNode.GetProperty("tasks").EnumerateArray().ToList();
             for (var i = 0; i < tasks.Count; i++)
@@ -88,6 +93,7 @@ TECHNICAL OUTPUT: target raster 2550 × 3300 px; 300 DPI print context.
                 var order = i + 1;
                 var expectedResponse = BookPackageNamingService.ResponsePartFileName(project, 1, order);
                 Require(tasks[i].GetProperty("partial_response_filename").GetString() == expectedResponse, "Naming Response parziale errato.");
+                Require(tasks[i].GetProperty("bundle_entry").GetString() == AiExchangeResponseBundleService.PartsDirectory + expectedResponse, "Entry annidata errata.");
                 Require(tasks[i].GetProperty("one_generation_attempt_per_clean_room").GetBoolean(), "Il task deve limitarsi a un tentativo per clean room.");
                 Require(!tasks[i].GetProperty("previous_images_allowed").GetBoolean(), "Immagini precedenti non devono essere ammesse.");
                 Require(tasks[i].GetProperty("response_partial").GetBoolean(), "Il task deve richiedere partial=true.");
@@ -109,8 +115,12 @@ TECHNICAL OUTPUT: target raster 2550 × 3300 px; 300 DPI print context.
             Require(launcher.Contains("Diez clean-room queue", StringComparison.OrdinalIgnoreCase), "Launcher non identificabile.");
             Require(launcher.Contains("https://chatgpt.com/", StringComparison.OrdinalIgnoreCase), "Launcher non apre ChatGPT.");
             Require(launcher.Contains("Temporary Chat", StringComparison.OrdinalIgnoreCase), "Launcher non guida alla Temporary Chat.");
-            Require(launcher.Contains("Importa risultati AI", StringComparison.OrdinalIgnoreCase), "Launcher non spiega l'import aggregato.");
+            Require(launcher.Contains("Crea Response ZIP unico", StringComparison.OrdinalIgnoreCase), "Launcher non crea il bundle finale unico.");
+            Require(launcher.Contains("response-bundle-manifest.json", StringComparison.OrdinalIgnoreCase), "Launcher non genera il manifest bundle.");
+            Require(launcher.Contains("diez-response-bundle", StringComparison.OrdinalIgnoreCase), "Launcher non dichiara il protocollo bundle.");
+            Require(launcher.Contains("makeStoredZip", StringComparison.Ordinal), "Launcher non contiene il writer ZIP locale senza dipendenze.");
             Require(launcher.Contains("localStorage", StringComparison.Ordinal), "Launcher non conserva il progresso locale della coda.");
+            Require(launcher.Contains(BookPackageNamingService.ResponseFileName(project, 1), StringComparison.Ordinal), "Launcher non mostra il Response Bundle finale.");
             Require(launcher.Contains(BookPackageNamingService.ResponsePartFileName(project, 1, 1), StringComparison.Ordinal), "Launcher non mostra il primo Response parziale.");
             Require(launcher.Contains(BookPackageNamingService.ResponsePartFileName(project, 1, 3), StringComparison.Ordinal), "Launcher non mostra l'ultimo Response parziale.");
         }
