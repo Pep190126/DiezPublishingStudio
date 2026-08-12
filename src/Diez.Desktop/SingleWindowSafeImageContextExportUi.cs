@@ -55,7 +55,7 @@ internal static class SingleWindowSafeImageContextExportUi
                 HorizontalContentAlignment = HorizontalAlignment.Center
             };
             ToolTip.SetTip(safe,
-                "Esporta il solo profilo attivo, un render prompt isolato per Work Unit, file reali, render-plan.json e nomi leggibili basati sul titolo del libro.");
+                "Esporta un solo Prompt Pack con prompt VISUAL-ONLY e una clean-room queue guidata. Il launcher interno accompagna l'utente Work Unit per Work Unit e produce Response parziali importabili insieme.");
             safe.Click += async (_, _) =>
             {
                 var state = AiExchangeStateStore.Load(project);
@@ -74,10 +74,11 @@ internal static class SingleWindowSafeImageContextExportUi
 
                 var nextVersion = BookPackageNamingService.PeekNextVersion(project);
                 var suggestedName = BookPackageNamingService.PromptPackFileName(project, nextVersion);
-                var expectedResponse = BookPackageNamingService.ResponseFileName(project, nextVersion);
+                var firstPart = BookPackageNamingService.ResponsePartFileName(project, nextVersion, 1);
+                var lastPart = BookPackageNamingService.ResponsePartFileName(project, nextVersion, units.Count);
                 var file = await window.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
                 {
-                    Title = "Salva Prompt Pack Diez con render plan isolato",
+                    Title = "Salva Prompt Pack Diez con clean-room queue",
                     SuggestedFileName = suggestedName,
                     DefaultExtension = "zip",
                     FileTypeChoices = [new FilePickerFileType("Prompt Pack Diez") { Patterns = ["*.zip"] }]
@@ -91,7 +92,9 @@ internal static class SingleWindowSafeImageContextExportUi
                     units.Select(u => u.WorkUnitId),
                     EnsureZip(file.Path.LocalPath));
                 SetStatus(window, result.Success
-                    ? result.Message + $" · Risposta attesa: {expectedResponse}"
+                    ? result.Message + $" · Apri {PromptPackCleanRoomQueueService.LauncherFileName} nel Pack. Response: {firstPart}" +
+                      (units.Count > 1 ? $" … {lastPart}" : string.Empty) +
+                      " · poi importale tutte insieme con Importa risultati AI."
                     : result.Message);
             };
 
@@ -110,12 +113,12 @@ internal static class SingleWindowSafeImageContextExportUi
                 HorizontalContentAlignment = HorizontalAlignment.Center
             };
             ToolTip.SetTip(safeImport,
-                "Verifica manifest e asset di ogni Work Unit prima dell'import. Anche i FAILED senza asset vengono registrati e mostrati nella revisione. Il nome file è solo leggibile: gli ID interni restano autoritativi.");
+                "Seleziona insieme uno o più Response ZIP, inclusi i part-NNN della clean-room queue. Diez li aggrega sullo stesso Prompt Pack/snapshot; Candidate e FAILED restano auditati separatamente.");
             safeImport.Click += async (_, _) =>
             {
                 var files = await window.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
                 {
-                    Title = "Importa uno o più ZIP restituiti dall'AI",
+                    Title = "Importa insieme i Response ZIP Diez (anche part-NNN)",
                     AllowMultiple = true,
                     FileTypeFilter = [new FilePickerFileType("Risultati AI Diez") { Patterns = ["*.zip"] }]
                 });
@@ -143,7 +146,7 @@ internal static class SingleWindowSafeImageContextExportUi
                 HorizontalContentAlignment = HorizontalAlignment.Center
             };
             ToolTip.SetTip(safeReview,
-                "Apre la revisione scrollabile: Candidate con asset e FAILED provider senza asset restano stati distinti e auditabili.");
+                "Apre la revisione scrollabile: Candidate con asset e FAILED provider senza asset restano stati distinti e auditabili, anche quando arrivano da Response parziali.");
             safeReview.Click += (_, _) => SingleWindowResponseReviewUi.Open(window);
             var index = row.Children.IndexOf(oldReview);
             row.Children.Insert(index < 0 ? row.Children.Count : index + 1, safeReview);
