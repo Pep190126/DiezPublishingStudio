@@ -8,7 +8,7 @@ namespace DiezPublishingStudio;
 /// </summary>
 internal static class PromptEngineeringCompiler
 {
-    public const string Version = "3.2";
+    public const string Version = "3.3";
 
     public static string BuildSeriesPrompt(
         PreviewProject project,
