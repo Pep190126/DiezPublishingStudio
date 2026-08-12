@@ -49,6 +49,8 @@ public sealed class App : Application
                 failures.Add(hardProfileError);
             if (!StartupDiagnostics.TryAttach("Label Multi-soggetto nativa", () => SingleWindowMultiSubjectLabelUi.Attach(mainWindow), out var subjectLabelError) && subjectLabelError is not null)
                 failures.Add(subjectLabelError);
+            if (!StartupDiagnostics.TryAttach("Consenso libreria stile Custom", () => SingleWindowCustomStyleConsentUi.Attach(mainWindow), out var customStyleConsentError) && customStyleConsentError is not null)
+                failures.Add(customStyleConsentError);
             if (!StartupDiagnostics.TryAttach("Prompt Compiler 3.5", () => SingleWindowPromptTargetAiUi.Attach(mainWindow), out var promptTargetError) && promptTargetError is not null)
                 failures.Add(promptTargetError);
             if (!StartupDiagnostics.TryAttach("Contesto immagini V3", () => SingleWindowAiImageContextUi.Attach(mainWindow), out var imageContextError) && imageContextError is not null)
