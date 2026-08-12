@@ -10,8 +10,8 @@ namespace DiezPublishingStudio;
 /// </summary>
 internal static class PromptPackRendererVisualBriefService
 {
-    private static readonly Regex SeriesLayoutExclusion = new(
-        @"(?i)(?:\b\d+\s+(?:images?|immagini|illustrations?|illustrazioni|panels?|pannelli)\b|\b(?:one|una|un['’]?unica?)\s+(?:image|immagine)\b.{0,40}\b\d+\s+(?:illustrations?|illustrazioni|images?|immagini)\b|\b(?:triptych|trittico|contact\s+sheet|collage|multi[- ]?panel|griglia|grid)\b)",
+    private static readonly Regex SeriesLayoutOrRoutingDirective = new(
+        @"(?i)(?:\b\d+\s+(?:images?|immagini|illustrations?|illustrazioni|panels?|pannelli)\b|\b(?:one|una|un['’]?unica?)\s+(?:image|immagine)\b.{0,40}\b\d+\s+(?:illustrations?|illustrazioni|images?|immagini)\b|\b(?:one|una|un['’]?)\s*(?:image|immagine)\s+(?:per|for)\s+(?:each|every|ogni)\s+(?:animal|animale|subject|soggetto)\b|\b(?:triptych|trittico|contact\s+sheet|collage|multi[- ]?panel|griglia|grid)\b)",
         RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     private static readonly string[] OperationalMarkers =
@@ -93,10 +93,12 @@ internal static class PromptPackRendererVisualBriefService
                 continue;
             }
 
-            if (line.StartsWith("USER EXCLUSION — HARD:", StringComparison.OrdinalIgnoreCase) && SeriesLayoutExclusion.IsMatch(line))
+            if ((line.StartsWith("USER EXCLUSION — HARD:", StringComparison.OrdinalIgnoreCase) ||
+                 line.StartsWith("USER REQUIREMENT — HARD:", StringComparison.OrdinalIgnoreCase)) &&
+                SeriesLayoutOrRoutingDirective.IsMatch(line))
             {
-                // The atomic-subject + one-scene locks already express this requirement positively.
-                // Do not prime the visual model with the forbidden series/multi-layout concept itself.
+                // Series orchestration such as "one image per animal" belongs to the batch/work-unit
+                // planner. The atomic subject + one-scene locks already express the renderer-visible intent.
                 continue;
             }
 
@@ -115,6 +117,8 @@ internal static class PromptPackRendererVisualBriefService
         foreach (var forbidden in ForbiddenRendererConceptSoup)
             if (text.Contains(forbidden, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException("Renderer visual brief contaminato da istruzione orchestrativa/layout: " + forbidden);
+        if (SeriesLayoutOrRoutingDirective.IsMatch(text))
+            throw new InvalidOperationException("Renderer visual brief contaminato da direttiva di serie/per-item.");
     }
 
     private static string ExtractStyle(string line)
