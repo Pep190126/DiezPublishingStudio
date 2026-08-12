@@ -11,8 +11,8 @@ namespace DiezPublishingStudio;
 /// Manual clean-room transport for environments where a chat-based image renderer may inherit visual
 /// state from the current conversation. One Prompt Pack remains the user's single transport object,
 /// while every AI_ONLY Work Unit gets a self-contained clean-room task and partial-response contract.
-/// The launcher guides the user through disposable Temporary/New Chats one at a time; Diez then imports
-/// all partial responses together through the existing audited multi-ZIP importer.
+/// The launcher guides the user through disposable Temporary/New Chats one at a time, then packs all
+/// partial Response ZIPs into one outer Response Bundle ZIP without external JavaScript libraries.
 /// </summary>
 internal static class PromptPackCleanRoomQueueService
 {
@@ -37,6 +37,7 @@ internal static class PromptPackCleanRoomQueueService
         var jobId = promptManifest["job_id"]?.ToString() ?? string.Empty;
         var promptPackId = promptManifest["prompt_pack_id"]?.ToString() ?? string.Empty;
         var bookTitle = BookPackageNamingService.BookTitle(project);
+        var bundleFileName = BookPackageNamingService.ResponseFileName(project, packageVersion);
         var tasks = new JsonArray();
         var launcherTasks = new List<LauncherTask>();
 
@@ -83,13 +84,14 @@ internal static class PromptPackCleanRoomQueueService
                 ["renderer_prompt_sha256"] = promptSha,
                 ["render_request_id"] = renderRequestId,
                 ["partial_response_filename"] = responseFile,
+                ["bundle_entry"] = AiExchangeResponseBundleService.PartsDirectory + responseFile,
                 ["chat_policy"] = "NEW_TEMPORARY_OR_NEW_BLANK_CHAT",
                 ["one_generation_attempt_per_clean_room"] = true,
                 ["previous_images_allowed"] = false,
                 ["response_partial"] = true
             });
 
-            launcherTasks.Add(new LauncherTask(order, workUnitCode, responseFile, taskText));
+            launcherTasks.Add(new LauncherTask(order, workUnitId, workUnitCode, responseFile, taskText));
         }
 
         var queue = new JsonObject
@@ -106,13 +108,19 @@ internal static class PromptPackCleanRoomQueueService
             ["chat_policy"] = "NEW_TEMPORARY_OR_NEW_BLANK_CHAT_PER_WORK_UNIT",
             ["same_chat_renderer_isolation_certified"] = false,
             ["partial_response_allowed"] = true,
-            ["import_mode"] = "MULTI_SELECT_ALL_PARTIAL_RESPONSE_ZIPS_ONCE",
+            ["bundle_protocol"] = AiExchangeResponseBundleService.Protocol,
+            ["bundle_protocol_version"] = AiExchangeResponseBundleService.ProtocolVersion,
+            ["bundle_filename"] = bundleFileName,
+            ["bundle_manifest"] = AiExchangeResponseBundleService.ManifestFileName,
+            ["final_transport"] = "ONE_OUTER_ZIP_WITH_N_PARTIAL_RESPONSE_ZIPS",
+            ["import_mode"] = "SINGLE_RESPONSE_BUNDLE_PREFERRED_OR_MULTI_SELECT_PARTS",
             ["launcher"] = LauncherFileName,
             ["tasks"] = tasks
         };
 
         ReplaceText(archive, QueueFileName, queue.ToJsonString(JsonOptions));
-        ReplaceText(archive, LauncherFileName, BuildLauncher(bookTitle, packageVersion, launcherTasks));
+        ReplaceText(archive, LauncherFileName,
+            BuildLauncher(bookTitle, packageVersion, projectId, promptPackId, bundleFileName, launcherTasks));
     }
 
     private static string BuildTaskMarkdown(
@@ -144,7 +152,7 @@ internal static class PromptPackCleanRoomQueueService
         sb.AppendLine("3. When invoking the image renderer, send ONLY the text between `BEGIN DIEZ VISUAL PROMPT` and `END DIEZ VISUAL PROMPT`. The surrounding transport/audit text is for the chat executor only and must never be forwarded to the image model.");
         sb.AppendLine("4. Inspect the returned image against every HARD lock in the visual prompt. Do not call a wrong style, wrong line weight, wrong composition or wrong subject successful merely because the animal is recognizable.");
         sb.AppendLine("5. Use ONE generation attempt in this clean-room chat. If that attempt is non-compliant, do not edit/reuse it and do not keep retrying in the now-contaminated chat: return this Work Unit as `FAILED` with no asset. Diez can later issue a new clean-room retry only for the failed item.");
-        sb.AppendLine($"6. If compliant, package only this one Work Unit as a PARTIAL Diez Response ZIP named `{responseFile}`.");
+        sb.AppendLine($"6. If compliant, package only this one Work Unit as a PARTIAL Diez Response ZIP named `{responseFile}`. The local Diez launcher will later place this ZIP inside the single final Response Bundle.");
         sb.AppendLine();
         sb.AppendLine("## BEGIN DIEZ VISUAL PROMPT");
         sb.AppendLine(rendererPrompt);
@@ -194,11 +202,17 @@ internal static class PromptPackCleanRoomQueueService
         sb.AppendLine("}");
         sb.AppendLine("```");
         sb.AppendLine();
-        sb.AppendLine("Return only the ZIP for this task as the downloadable artifact. Do not combine other Work Units into this partial response.");
+        sb.AppendLine("Return only the ZIP for this task as the downloadable artifact. Do not combine other Work Units inside this clean-room chat.");
         return sb.ToString().Trim();
     }
 
-    private static string BuildLauncher(string bookTitle, int version, IReadOnlyList<LauncherTask> tasks)
+    private static string BuildLauncher(
+        string bookTitle,
+        int version,
+        string projectId,
+        string promptPackId,
+        string bundleFileName,
+        IReadOnlyList<LauncherTask> tasks)
     {
         var html = new StringBuilder();
         html.AppendLine("<!doctype html>");
@@ -206,17 +220,17 @@ internal static class PromptPackCleanRoomQueueService
         html.Append("<title>Diez clean-room queue — ").Append(WebUtility.HtmlEncode(bookTitle)).AppendLine("</title>");
         html.AppendLine("<style>");
         html.AppendLine("body{font-family:Segoe UI,Arial,sans-serif;max-width:1100px;margin:32px auto;padding:0 18px;line-height:1.45;color:#171717}");
-        html.AppendLine("h1{margin-bottom:6px}.intro{background:#f5f5f5;border:1px solid #ddd;border-radius:12px;padding:16px;margin:18px 0}");
+        html.AppendLine("h1{margin-bottom:6px}.intro,.bundle{background:#f5f5f5;border:1px solid #ddd;border-radius:12px;padding:16px;margin:18px 0}");
         html.AppendLine(".task{border:1px solid #d7d7d7;border-radius:12px;padding:16px;margin:18px 0;box-shadow:0 1px 3px rgba(0,0,0,.05)}");
         html.AppendLine(".task-head{display:flex;gap:12px;justify-content:space-between;align-items:center;flex-wrap:wrap;font-size:18px}.pill{font-size:13px;background:#f0f0f0;border-radius:999px;padding:5px 10px}");
         html.AppendLine("textarea{width:100%;height:260px;box-sizing:border-box;font-family:Consolas,monospace;font-size:12px;margin:10px 0;padding:10px}.actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap}");
-        html.AppendLine("button,.button{border:0;border-radius:8px;background:#1f6feb;color:white;padding:10px 14px;text-decoration:none;cursor:pointer;font-size:14px}label{padding:8px 0}#progress{font-weight:600}.warn{color:#8a4b00}");
+        html.AppendLine("button,.button{border:0;border-radius:8px;background:#1f6feb;color:white;padding:10px 14px;text-decoration:none;cursor:pointer;font-size:14px}label{padding:8px 0}#progress{font-weight:600}.warn{color:#8a4b00}#bundleStatus{margin-top:10px;font-weight:600}");
         html.AppendLine("</style></head><body>");
         html.AppendLine("<h1>Diez clean-room queue</h1>");
         html.Append(WebUtility.HtmlEncode(bookTitle)).Append(" · Prompt Pack v").Append(version.ToString("D3")).AppendLine();
         html.AppendLine("<div class=\"intro\">");
         html.AppendLine("<p><strong>Un solo workflow, clean room reali.</strong> Questa pagina gestisce la sequenza; non usare una sola conversazione contenente tutte le immagini. Apri un task alla volta in una Temporary Chat (preferita) o nuova chat vuota, scarica il relativo Response ZIP e chiudi/abbandona quella chat prima del task successivo.</p>");
-        html.AppendLine("<p class=\"warn\">Non serve costruire un Response finale a mano. Alla fine, in Diez premi <strong>Importa risultati AI</strong> e seleziona insieme tutti i Response <code>part-...zip</code>: l'importer li aggrega sullo stesso Prompt Pack.</p>");
+        html.Append("<p class=\"warn\">I singoli ZIP sono solo parti tecniche. Alla fine questa pagina li inserisce automaticamente in <strong>un unico Response ZIP</strong>: <code>").Append(WebUtility.HtmlEncode(bundleFileName)).AppendLine("</code>.</p>");
         html.Append("<div id=\"progress\">0/").Append(tasks.Count).AppendLine(" Response parziali segnati come scaricati.</div></div>");
 
         foreach (var task in tasks)
@@ -233,14 +247,43 @@ internal static class PromptPackCleanRoomQueueService
             html.AppendLine("</div></section>");
         }
 
+        html.AppendLine("<section class=\"bundle\">");
+        html.AppendLine("<h2>Response finale unico</h2>");
+        html.Append("<p>Seleziona insieme i ").Append(tasks.Count).Append(" ZIP parziali scaricati. Il launcher crea localmente <code>").Append(WebUtility.HtmlEncode(bundleFileName)).AppendLine("</code> contenente un file ZIP per ogni immagine. Nessun file viene caricato su servizi esterni durante questo passaggio.</p>");
+        html.AppendLine("<input id=\"partFiles\" type=\"file\" accept=\".zip,application/zip\" multiple>");
+        html.AppendLine("<button onclick=\"buildResponseBundle()\">Crea Response ZIP unico</button>");
+        html.AppendLine("<div id=\"bundleStatus\"></div>");
+        html.AppendLine("<p>Dopo il download, in Diez premi <strong>Importa risultati AI</strong> e seleziona solo questo ZIP esterno. Rimane compatibile anche l'importazione diretta dei singoli part-NNN.</p>");
+        html.AppendLine("</section>");
+
         var storageKey = $"diez-clean-room-{BookPackageNamingService.Slug(bookTitle)}-v{version:D3}";
+        var expectedParts = tasks.Select(t => new
+        {
+            order = t.Order,
+            work_unit_id = t.WorkUnitId,
+            name = t.ResponseFile,
+            entry = AiExchangeResponseBundleService.PartsDirectory + t.ResponseFile
+        }).ToArray();
+
         html.AppendLine("<script>");
         html.Append("const key=").Append(JsonSerializer.Serialize(storageKey)).AppendLine(";");
         html.Append("const total=").Append(tasks.Count).AppendLine(";");
+        html.Append("const projectId=").Append(JsonSerializer.Serialize(projectId)).AppendLine(";");
+        html.Append("const promptPackId=").Append(JsonSerializer.Serialize(promptPackId)).AppendLine(";");
+        html.Append("const bundleFileName=").Append(JsonSerializer.Serialize(bundleFileName)).AppendLine(";");
+        html.Append("const expectedParts=").Append(JsonSerializer.Serialize(expectedParts)).AppendLine(";");
         html.AppendLine("function load(){let s={};try{s=JSON.parse(localStorage.getItem(key)||'{}')}catch{};for(let i=1;i<=total;i++){const e=document.getElementById('done-'+i);if(e)e.checked=!!s[i]}update()}");
         html.AppendLine("function markDone(i,v){let s={};try{s=JSON.parse(localStorage.getItem(key)||'{}')}catch{};s[i]=v;localStorage.setItem(key,JSON.stringify(s));update()}");
         html.AppendLine("function update(){let n=0;for(let i=1;i<=total;i++){const e=document.getElementById('done-'+i);if(e&&e.checked)n++}document.getElementById('progress').textContent=n+'/'+total+' Response parziali segnati come scaricati.'}");
         html.AppendLine("async function copyTask(id,button){const el=document.getElementById(id);let ok=false;try{await navigator.clipboard.writeText(el.value);ok=true}catch{el.focus();el.select();try{ok=document.execCommand('copy')}catch{}}button.textContent=ok?'Copiato':'Seleziona e copia manualmente';setTimeout(()=>button.textContent='Copia task completo',1800)}");
+        html.AppendLine("function w16(a,o,v){a[o]=v&255;a[o+1]=(v>>>8)&255}");
+        html.AppendLine("function w32(a,o,v){a[o]=v&255;a[o+1]=(v>>>8)&255;a[o+2]=(v>>>16)&255;a[o+3]=(v>>>24)&255}");
+        html.AppendLine("const crcTable=(()=>{const t=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=(c&1)?(0xedb88320^(c>>>1)):(c>>>1);t[n]=c>>>0}return t})()");
+        html.AppendLine("function crc32(data){let c=0xffffffff;for(const b of data)c=crcTable[(c^b)&255]^(c>>>8);return (c^0xffffffff)>>>0}");
+        html.AppendLine("function dosStamp(){const d=new Date();const y=Math.max(1980,d.getFullYear());return{time:(d.getHours()<<11)|(d.getMinutes()<<5)|(d.getSeconds()>>1),date:((y-1980)<<9)|((d.getMonth()+1)<<5)|d.getDate()}} ");
+        html.AppendLine("function concat(parts){let n=0;for(const p of parts)n+=p.length;const out=new Uint8Array(n);let o=0;for(const p of parts){out.set(p,o);o+=p.length}return out}");
+        html.AppendLine("function makeStoredZip(entries){const enc=new TextEncoder(),body=[],central=[];let offset=0;const stamp=dosStamp();for(const e of entries){const name=enc.encode(e.name),data=e.data,crc=crc32(data);if(data.length>0xffffffff)throw new Error('Parte ZIP troppo grande per il bundle standard.');const local=new Uint8Array(30);w32(local,0,0x04034b50);w16(local,4,20);w16(local,6,0x0800);w16(local,8,0);w16(local,10,stamp.time);w16(local,12,stamp.date);w32(local,14,crc);w32(local,18,data.length);w32(local,22,data.length);w16(local,26,name.length);w16(local,28,0);body.push(local,name,data);const cen=new Uint8Array(46);w32(cen,0,0x02014b50);w16(cen,4,20);w16(cen,6,20);w16(cen,8,0x0800);w16(cen,10,0);w16(cen,12,stamp.time);w16(cen,14,stamp.date);w32(cen,16,crc);w32(cen,20,data.length);w32(cen,24,data.length);w16(cen,28,name.length);w16(cen,30,0);w16(cen,32,0);w16(cen,34,0);w16(cen,36,0);w32(cen,38,0);w32(cen,42,offset);central.push(cen,name);offset+=local.length+name.length+data.length}const centralBytes=concat(central),eocd=new Uint8Array(22);w32(eocd,0,0x06054b50);w16(eocd,4,0);w16(eocd,6,0);w16(eocd,8,entries.length);w16(eocd,10,entries.length);w32(eocd,12,centralBytes.length);w32(eocd,16,offset);w16(eocd,20,0);return new Blob([...body,centralBytes,eocd],{type:'application/zip'})}");
+        html.AppendLine("async function buildResponseBundle(){const status=document.getElementById('bundleStatus'),files=[...document.getElementById('partFiles').files];status.textContent='';const byName=new Map(files.map(f=>[f.name.toLowerCase(),f]));const missing=expectedParts.filter(p=>!byName.has(p.name.toLowerCase()));if(missing.length){status.textContent='Mancano: '+missing.map(p=>p.name).join(', ');return}try{const enc=new TextEncoder(),entries=[],parts=[];for(const p of expectedParts){const f=byName.get(p.name.toLowerCase());const data=new Uint8Array(await f.arrayBuffer());entries.push({name:p.entry,data});parts.push({order:p.order,work_unit_id:p.work_unit_id,file_name:p.entry})}const manifest={protocol:'diez-response-bundle',protocol_version:1,project_id:projectId,prompt_pack_id:promptPackId,bundle_id:(crypto.randomUUID?crypto.randomUUID():Date.now().toString(16)+'-'+Math.random().toString(16).slice(2)),expected_parts:expectedParts.length,parts};entries.unshift({name:'response-bundle-manifest.json',data:enc.encode(JSON.stringify(manifest,null,2))});const blob=makeStoredZip(entries),a=document.createElement('a'),url=URL.createObjectURL(blob);a.href=url;a.download=bundleFileName;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),5000);status.textContent='Creato '+bundleFileName+' con '+expectedParts.length+' ZIP interni. Importa questo singolo file in Diez.'}catch(e){status.textContent='Bundle non creato: '+(e&&e.message?e.message:e)}}");
         html.AppendLine("load();</script></body></html>");
         return html.ToString().Trim();
     }
@@ -271,5 +314,5 @@ internal static class PromptPackCleanRoomQueueService
         return new string(chars).Trim('-');
     }
 
-    private sealed record LauncherTask(int Order, string WorkUnitCode, string ResponseFile, string TaskText);
+    private sealed record LauncherTask(int Order, string WorkUnitId, string WorkUnitCode, string ResponseFile, string TaskText);
 }
