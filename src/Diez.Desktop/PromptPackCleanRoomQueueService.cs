@@ -172,9 +172,11 @@ internal static class PromptPackCleanRoomQueueService
         sb.AppendLine("## Response ZIP contract");
         sb.AppendLine("Create `response-manifest.json` at ZIP root and a `content/` directory. Generate a NEW UUID for `package_id`.");
         sb.AppendLine();
-        sb.AppendLine($"If the image passes all HARD locks, use status `SUCCEEDED`, place the image at `content/{assetName}`, set `primary_asset` to that exact path, and set `failure_reason` to null.");
+        sb.AppendLine($"If the image passes all HARD locks, use status `COMPLETE`, place the image at `content/{assetName}`, set `primary_asset` to that exact path, and set `failure_reason` to null.");
         sb.AppendLine();
         sb.AppendLine("If the image fails any HARD lock or a clean generation is unavailable, use status `FAILED`, set `primary_asset` to null, include no image asset, and explain the exact failure in `failure_reason`.");
+        sb.AppendLine();
+        sb.AppendLine("Allowed item statuses are `COMPLETE`, `INCOMPLETE`, and `FAILED`; do not invent provider-specific success aliases.");
         sb.AppendLine();
         sb.AppendLine("The manifest must have this shape (success example; switch asset/status/failure fields as described above for FAILED):");
         sb.AppendLine("```json");
@@ -191,7 +193,7 @@ internal static class PromptPackCleanRoomQueueService
         sb.AppendLine($"      \"work_unit_id\": {JsonSerializer.Serialize(workUnitId)},");
         sb.AppendLine($"      \"candidate_version\": {candidateVersion},");
         sb.AppendLine("      \"content_type\": \"IMAGE\",");
-        sb.AppendLine("      \"status\": \"SUCCEEDED\",");
+        sb.AppendLine("      \"status\": \"COMPLETE\",");
         sb.AppendLine($"      \"primary_asset\": {JsonSerializer.Serialize("content/" + assetName)},");
         sb.AppendLine("      \"description\": \"short factual description\",");
         sb.AppendLine($"      \"render_request_id\": {JsonSerializer.Serialize(renderRequestId)},");
