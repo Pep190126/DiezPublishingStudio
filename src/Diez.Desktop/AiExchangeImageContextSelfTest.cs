@@ -119,7 +119,7 @@ internal static class AiExchangeImageContextSelfTest
                 "Orso in piedi sul tappetino", "authoritative_visual_source", "all unspecified elements",
                 "posizione del braccio destro", "Generate EXACTLY ONE image",
                 "DIEZ SOURCE-IMAGE / MODIFICATION CONTRACT", "PROVIDER EXECUTION PROFILE — OPENAI",
-                "COLORING PUBLICATION ACCEPTANCE GATE — HARD",
+                "COLORING PUBLICATION ACCEPTANCE GATE — HARD", "image_generation_prompt",
                 $"\"prompt_compiler_version\": \"{PromptEngineeringCompiler.Version}\""
             })
                 Require(manifest.Contains(required, StringComparison.OrdinalIgnoreCase), "Manifest correzione incompleto: " + required);
@@ -128,8 +128,9 @@ internal static class AiExchangeImageContextSelfTest
             foreach (var required in new[]
             {
                 "Foto utente: usa la postura delle gambe", "Riferimento per tratto e stile",
-                "Line Art dettagliata", "Sottile — Fine", "4K UHD", "2967", "3840", "17:22", "300",
-                "Massima / stampa", "Consistent", "#000000", "#FFFFFF", "COLORING_BOOK",
+                "Detailed line art", "Thin — Fine", "4K UHD", "2967", "3840", "17:22", "300",
+                "Maximum / print", "Consistent", "#000000", "#FFFFFF", "COLORING_BOOK",
+                "image_generation_prompt",
                 $"\"provider_compiler_version\": \"{PromptEngineeringCompiler.Version}\""
             })
                 Require(requestContext.Contains(required, StringComparison.OrdinalIgnoreCase), "Preset/contesto mancante: " + required);
@@ -137,9 +138,10 @@ internal static class AiExchangeImageContextSelfTest
             foreach (var forbidden in new[]
             {
                 "safe_margin", "SafeMargin", "bleed_amount", "BleedAmount",
-                "\"bleed\"", "\"Bleed\"", "\"orientation\"", "\"Orientation\"", "illustration_profile"
+                "\"bleed\"", "\"Bleed\"", "\"orientation\"", "\"Orientation\"", "illustration_profile",
+                "Line Art dettagliata", "Sottile — Fine", "Massima / stampa", "Dettaglio alto ma colorabile"
             })
-                Require(!requestContext.Contains(forbidden, StringComparison.Ordinal), "Dato non attivo ancora nel request-context: " + forbidden);
+                Require(!requestContext.Contains(forbidden, StringComparison.Ordinal), "Dato non attivo/localizzato ancora nel request-context: " + forbidden);
 
             var instructions = await ReadEntryAsync(zip, "instructions.md");
             foreach (var required in new[]
@@ -148,6 +150,8 @@ internal static class AiExchangeImageContextSelfTest
                 "base_version.file",
                 "descriptions guide the work but never replace a real image file",
                 "EXACTLY ONE image",
+                "IMAGE renderer routing — HARD",
+                "image_generation_prompt",
                 "Image-generation integrity — HARD",
                 "genuine image-generation/illustration capability",
                 "primitive SVG/Canvas/Pillow geometry",
