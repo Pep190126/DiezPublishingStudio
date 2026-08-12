@@ -24,7 +24,7 @@ internal static class VisionValidationPromptPackHardStyleService
         RewriteInstructions(EnsureZip(outputPath));
         return (
             true,
-            result.Message + " · Style match e composizione singola sono criteri HARD quando esplicitamente richiesti.",
+            result.Message + " · Style match, Bold & Easy, Cozy e composizione singola sono criteri HARD quando applicabili.",
             result.ValidationPackId);
     }
 
@@ -40,22 +40,11 @@ internal static class VisionValidationPromptPackHardStyleService
         using (var reader = new StreamReader(source, Encoding.UTF8, true))
             text = reader.ReadToEnd();
 
-        // Keep compatibility replacements for older instruction templates when they match.
         text = text.Replace(
             "- `composition_readability` — SOFT\n- `style_quality` — SOFT",
-            "- `single_composition` — HARD: exactly one unified composition unless the exact Work Unit explicitly requests multi-panel output\n- `style_match` — HARD when `expected.style` contains an explicitly selected style; a polished result in a materially different style is FAIL/HARD\n- `composition_readability` — SOFT only after single-composition compliance passes\n- `style_quality` — SOFT only for execution/taste differences inside the correctly matched selected style",
-            StringComparison.Ordinal);
-        text = text.Replace(
-            "3. Evaluate semantic subject match, environment match, MUST DO, MUST NOT DO, Book-Type fitness, item-specific overrides, visible text/artifacts, anatomy/geometry, composition/readability and publication quality.",
-            "3. Evaluate the exact atomic item subject, environment, MUST DO, MUST NOT DO, Book-Type fitness, item-specific overrides, visible text/artifacts, anatomy/geometry, single-composition compliance, explicit selected-style match and publication quality. Series-level wording never authorizes multiple sibling subjects inside one Work Unit.",
-            StringComparison.Ordinal);
-        text = text.Replace(
-            "5. A HARD FAIL means the visible image materially violates an explicit hard requirement or is the wrong visual/content for the requested item. One HARD FAIL makes `overall_status = FAIL`.",
-            "5. A HARD FAIL means the visible image materially violates an explicit hard requirement or is the wrong visual/content for the requested item. Explicit selected-style mismatch and unauthorized subdivision into multiple independent compositions are HARD failures. One HARD FAIL makes `overall_status = FAIL`.",
+            "- `single_composition` — HARD: exactly one unified composition unless the exact Work Unit explicitly requests multi-panel output\n- `style_match` — HARD when `expected.style` contains an explicitly selected style\n- `bold_easy_match` — HARD for both expected ON and expected OFF\n- `cozy_match` — HARD for both expected ON and expected OFF\n- `line_weight_match` — HARD for the selected contour weight, especially Thin/Fine and Very thin/Extra Fine\n- `composition_readability` — SOFT only after single-composition compliance passes\n- `style_quality` — SOFT only for execution/taste differences inside the correctly matched selected style",
             StringComparison.Ordinal);
 
-        // The base Vision template may evolve, so do not depend on exact replacement strings for the
-        // safety-critical policy. Append one explicit section unconditionally (once) to the final file.
         if (!text.Contains(HardPolicyMarker, StringComparison.Ordinal))
         {
             text = text.TrimEnd() + "\n\n" + $"""
@@ -63,14 +52,18 @@ internal static class VisionValidationPromptPackHardStyleService
 The real candidate pixels are authoritative. Evaluate the exact Work Unit, not the series as a whole.
 
 Required semantic checks:
-- `subject_match` — HARD: compare the visible primary subject with `expected.item_subject`, which is the atomic subject for this Work Unit. Series-level wording never authorizes multiple sibling subjects in one result.
-- `single_composition` — HARD: the candidate must contain exactly one unified primary composition unless this exact Work Unit explicitly requests otherwise. A canvas visibly subdivided into independent alternatives/regions is FAIL/HARD.
-- `style_match` — HARD whenever `expected.style` or the authoritative `generation_contract` declares a selected style. A professionally executed image in a materially different style is still FAIL/HARD.
-- For `Kawaii / Cartoon`, realistic natural-history/engraving-like rendering, dense realistic hatching and anatomically literal documentary treatment are a HARD `style_match` failure when the image does not visibly read as cute/cartoon.
-- `style_quality` — SOFT/REVIEW only for aesthetic or execution differences AFTER `style_match` has passed. Never use a soft `style_quality` opinion to excuse a failed selected-style match.
+- `subject_match` — HARD: compare the visible primary subject with `expected.item_subject`, the atomic subject for this Work Unit.
+- `single_composition` — HARD: exactly one unified primary composition unless this exact Work Unit explicitly requests otherwise.
+- `style_match` — HARD: the visible image must materially match `expected.style`. A polished image in a different style is still FAIL/HARD.
+- For `Kawaii`, realistic natural-history or engraving-like treatment, dense realistic hatching and anatomically literal documentary rendering are a HARD style mismatch when the page does not visibly read as Kawaii.
+- For `Cartoon`, documentary/naturalistic rendering and photographic anatomy are a HARD mismatch when cartoon construction is absent.
+- `bold_easy_match` — HARD in BOTH directions. If `expected.bold_easy=true`, the page must visibly satisfy the Bold & Easy profile. If false, the page must not be automatically simplified, enlarged or thickened into Bold & Easy against the selected style/line weight/complexity/density.
+- `cozy_match` — HARD in BOTH directions. If `expected.cozy=true`, the page must visibly read as warm, comforting, gentle and inviting. If false, do not impose a Cozy mood, homelike staging or comforting decorative treatment unless another explicit requirement independently demands it.
+- `line_weight_match` — HARD. Thin/Fine or Very thin/Extra Fine must remain visibly thin and must not be converted into Bold & Easy-like thick contours.
+- `style_quality` — SOFT/REVIEW only for aesthetic or execution differences AFTER `style_match` has passed.
 - `composition_readability` — SOFT only after `single_composition` has passed.
 
-One HARD failure forces `overall_status = FAIL` and blocks approval in Diez. Use REVIEW only for genuine ambiguity or soft quality judgment, not for a visible subject/style/composition mismatch.
+One HARD failure forces `overall_status = FAIL` and blocks approval in Diez. Use REVIEW only for genuine ambiguity or soft quality judgment, not for a visible subject/style/Bold&Easy/Cozy/line-weight/composition mismatch.
 """.Trim();
         }
 
