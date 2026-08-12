@@ -53,9 +53,16 @@ This package describes a Diez production job. Read `prompt-manifest.json` and us
 ## IMAGE renderer routing — HARD
 For every IMAGE Work Unit, `image_generation_prompt` is the ONLY prompt text that should be sent to the image-generation renderer. The longer `instruction`, the full manifest, `request-context.json`, transport rules and QA text are orchestration context for the agent and must NOT be pasted wholesale into the renderer prompt.
 
-Every IMAGE Work Unit requests EXACTLY ONE image. Process image Work Units independently and sequentially: ONE Work Unit → ONE `image_generation_prompt` → ONE image-generation call → ONE final primary composition. Never combine multiple Work Units into one renderer call, even when they belong to the same series. `series_count` is context only and must never become a triptych, grid, contact sheet, collage or multi-panel image.
+Every IMAGE Work Unit requests EXACTLY ONE image. Process image Work Units independently and sequentially: ONE Work Unit → ONE `image_generation_prompt` → ONE image-generation call → ONE final primary composition. Never combine multiple Work Units into one renderer call, even when they belong to the same series. `series_count` is context only and must never become multiple requested series items inside one rendered asset.
 
 Before invoking the renderer, verify that `image_generation_prompt_authoritative = true` and that the concise prompt contains a `PRIMARY SUBJECT — HARD LOCK`. The renderer result is invalid if that subject is not the dominant visible content. Do not try to repair a wrong-subject render merely by changing its description; regenerate the image or return the item as `FAILED`/`INCOMPLETE`.
+
+The renderer prompt must also contain `STYLE — HARD LOCK` and `COMPOSITION — HARD LOCK` when Diez emits them. The selected style and one-composition contract are execution requirements, not optional prose.
+
+## Selected style versus aesthetic preference
+- **STYLE MATCH — HARD:** when the project/user selected a named visual style, the finished image must visibly match that style. A technically polished image in a materially different style is a HARD failure.
+- **STYLE QUALITY / AESTHETIC PREFERENCE — SOFT/REVIEW:** after STYLE MATCH has passed, differences between valid professional executions inside that selected style remain human-review preferences unless they create an independent publication-readiness defect.
+- Example: if `Kawaii / Cartoon` is selected, realistic natural-history engraving is a HARD style mismatch; choosing between two competent Kawaii/Cartoon executions is SOFT/REVIEW.
 
 ## Image-generation integrity — HARD
 For image Work Units, use a genuine image-generation/illustration capability appropriate for publication-quality artwork. Do NOT substitute a crude programmatic drawing, primitive SVG/Canvas/Pillow geometry, placeholder icon, tracing sketch, or assembled circles/rectangles merely because that makes exact dimensions or black/white values easier to satisfy.
@@ -109,14 +116,16 @@ AUTHORITATIVE IMAGE RULE: user/current descriptions guide the work but never rep
 - Only the active Book Type prompt profile may influence this request; historical/inactive profiles must be ignored.
 - Provider-facing operational instructions use English. Localized UI/project metadata is secondary and must never override the authoritative Work Unit renderer brief.
 - For IMAGE Work Units, use `image_generation_prompt` and do not forward the long `instruction` to the renderer.
-- One Work Unit always means one renderer call and one requested image. `series_count` never authorizes a grid, collage, contact sheet, triptych or multiple alternatives.
+- One Work Unit always means one renderer call and one requested image. `series_count` never authorizes multiple series subjects or multiple alternative compositions in a single result.
 - `output_count_for_this_work_unit = 1` is a hard execution contract.
 - Current structured parameters and the current compiler baseline override stale generated prompt text. Generated technical blocks are not user-authored manual delta.
 - Professional quality gates remain mandatory even when the GUI contains only a few optional parameters.
 - For corrections, the actual base/input image plus preserve/change/add/remove are authoritative; descriptions assist but never replace image files.
 
 ## Completion check
-Before marking an image `COMPLETE`, inspect the actual returned asset rather than the intention behind it. Confirm that the `PRIMARY SUBJECT — HARD LOCK` is actually dominant and correct, then confirm item-specific constraints, Book-Type fit, professional illustration craft, composition, anatomy/geometry, prohibited content and the requested technical profile. If a HARD requirement is not satisfied, correct/regenerate the asset or return `INCOMPLETE/FAILED`; never describe a visibly non-compliant asset as compliant.
+Before marking an image `COMPLETE`, inspect the actual returned asset rather than the intention behind it. Confirm that the `PRIMARY SUBJECT — HARD LOCK` is actually dominant and correct, confirm `STYLE — HARD LOCK` visibly matches the selected style, and confirm `COMPOSITION — HARD LOCK` contains one unified primary scene. Then confirm item-specific constraints, Book-Type fit, professional illustration craft, anatomy/geometry, prohibited content and the requested technical profile. If a HARD requirement is not satisfied, correct/regenerate the asset or return `INCOMPLETE/FAILED`; never describe a visibly non-compliant asset as compliant.
+
+A result that passes the selected-style HARD match may still receive SOFT/REVIEW comments about aesthetic preference or relative execution quality inside that style. Those soft comments must never be used to excuse a failed selected-style match.
 """.Trim();
     }
 }
