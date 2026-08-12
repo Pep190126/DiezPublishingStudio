@@ -10,7 +10,7 @@ namespace DiezPublishingStudio;
 /// <summary>
 /// Makes the manual Prompt-Pack transport executable without asking the receiving agent to infer
 /// which orchestration fields should be sent to the image renderer. Every image Work Unit gets one
-/// visual-only prompt file, one unique render request id and an executor-owned fresh-session policy.
+/// visual-only prompt file, one unique render request id and an executor-owned fresh-call policy.
 /// </summary>
 internal static class PromptPackExecutionPlanService
 {
@@ -68,7 +68,7 @@ internal static class PromptPackExecutionPlanService
                 throw new InvalidOperationException("image_generation_prompt mancante per " + unit.WorkUnitId);
 
             // Final image-model boundary: remove routing/retry/audit language and forbidden-layout concept soup.
-            // Freshness is enforced by the executor/session, not by priming the visual model with process prose.
+            // Freshness is enforced by the executor/call boundary, not by priming the visual model with process prose.
             var authoritative = PromptPackRendererVisualBriefService.Build(basePrompt);
             PromptPackProviderFacingService.EnsureRendererPromptReady(authoritative, unit.Code);
             PromptPackRendererVisualBriefService.EnsureVisualOnly(authoritative);
@@ -110,7 +110,7 @@ internal static class PromptPackExecutionPlanService
                 ["renderer_prompt_scope"] = "VISUAL_ONLY",
                 ["fresh_generation_required"] = true,
                 ["fresh_context_owner"] = "EXECUTOR",
-                ["chat_session_policy"] = "NEW_ISOLATED_SESSION_PER_AI_ONLY_WORK_UNIT",
+                ["chat_session_policy"] = "NEW_RENDERER_CALL_NO_PRIOR_IMAGE_REFERENCE",
                 ["reuse_prior_generated_images_forbidden"] = true,
                 ["source_image_policy"] = sourcePolicy,
                 ["renderer_prompt_source"] = "prompt_file_verbatim",
@@ -142,7 +142,7 @@ internal static class PromptPackExecutionPlanService
             ["one_work_unit_per_renderer_call"] = true,
             ["fresh_generation_required"] = true,
             ["fresh_context_owner"] = "EXECUTOR",
-            ["chat_session_policy"] = "NEW_ISOLATED_SESSION_PER_AI_ONLY_WORK_UNIT",
+            ["chat_session_policy"] = "NEW_RENDERER_CALL_NO_PRIOR_IMAGE_REFERENCE",
             ["reuse_prior_generated_images_forbidden"] = true,
             ["atomic_subject_required"] = true,
             ["selected_style_is_hard"] = true
@@ -164,12 +164,12 @@ internal static class PromptPackExecutionPlanService
             ["package_version"] = packageVersion,
             ["prompt_pack_filename"] = promptPackFileName,
             ["response_filename"] = responseFileName,
-            ["renderer_prompt_source"] = "Read each prompt_file verbatim as VISUAL-ONLY model input; enforce routing/session policy outside the renderer prompt.",
+            ["renderer_prompt_source"] = "Read each prompt_file verbatim as VISUAL-ONLY model input; enforce routing/call isolation outside the renderer prompt.",
             ["renderer_prompt_scope"] = "VISUAL_ONLY",
             ["one_work_unit_per_renderer_call"] = true,
             ["fresh_generation_required"] = true,
             ["fresh_context_owner"] = "EXECUTOR",
-            ["chat_session_policy"] = "NEW_ISOLATED_SESSION_PER_AI_ONLY_WORK_UNIT",
+            ["chat_session_policy"] = "NEW_RENDERER_CALL_NO_PRIOR_IMAGE_REFERENCE",
             ["reuse_prior_generated_images_forbidden"] = true,
             ["atomic_subject_required"] = true,
             ["selected_style_is_hard"] = true,
@@ -200,11 +200,11 @@ This file is the entry point for manual execution. Do not infer the renderer pro
 1. Read `render-plan.json`.
 2. Process its `calls` strictly in order and independently.
 3. For each call, read the referenced `prompt_file` under `render-prompts/` VERBATIM. It is VISUAL-ONLY model input: never prepend/append routing, retry, IDs, audit text, manifest prose or conversation history to it.
-4. Freshness is the EXECUTOR'S responsibility. For every `AI_ONLY` Work Unit, create a genuinely isolated renderer context before sending the visual prompt. In chat-based image tools, use a brand-new chat/session (or an equivalent isolated image-generation context) for each Work Unit; merely sending a new prompt in the same visual conversation does NOT count as fresh isolation.
-5. For `AI_ONLY` / `BLANK_CANVAS_NO_INPUT_IMAGES`, no prior conversation image is an authorized renderer input. Never attach, reference, edit, restyle or continue a previous Work Unit image.
+4. Freshness is the EXECUTOR'S responsibility. For every `AI_ONLY` Work Unit, start a NEW image-generation invocation and send only that Work Unit's visual prompt, with NO image from a prior Work Unit attached, referenced, edited, continued or restyled. The same orchestration chat may be used only when the platform gives each image-generation invocation an isolated no-input renderer context. If the platform automatically carries prior visual state between calls, use a new chat/session or equivalent isolated context for that Work Unit.
+5. For `AI_ONLY` / `BLANK_CANVAS_NO_INPUT_IMAGES`, no prior conversation image is an authorized renderer input. A new text message that implicitly continues or references the previous generated image does NOT satisfy fresh isolation.
 6. Before rendering, verify that `PRIMARY SUBJECT — HARD LOCK` names one atomic subject for this Work Unit. Series quantity/layout language must not exist in the visual prompt. If it does, return FAILED with a prompt-routing error instead of rendering.
 7. After rendering, inspect the actual image against `PRIMARY SUBJECT — HARD LOCK`, `STYLE — HARD LOCK`, independent HARD profile states, line weight and `COMPOSITION — HARD LOCK`. A correct animal in the wrong selected style is NOT compliant.
-8. If a hard lock fails, discard the image and retry once from another isolated blank renderer context. Never repair a wrong result by editing the previous wrong render. If isolated routing cannot be guaranteed, return FAILED/INCOMPLETE and include no non-compliant asset.
+8. If a hard lock fails, discard the image and retry once with another new no-prior-image renderer invocation. Never repair a wrong result by editing the previous wrong render. If the platform cannot provide isolated no-input generation, return FAILED/INCOMPLETE and include no non-compliant asset.
 9. Preserve Diez `work_unit_id`, candidate version, `render_request_id` and `render_prompt_sha256` in the response manifest when possible. These are executor/audit metadata and must NOT be inserted into the image-model prompt or artwork.
 10. Return the package as `{responseFileName}`. File naming is for the user; Diez continues to bind results using stable internal IDs.
 
@@ -219,13 +219,13 @@ The long `instruction`, manifest, request-context, render routing and QA contrac
 {marker}
 - Start with `00-START-HERE.md`, then execute `render-plan.json`.
 - `render-prompts/*.txt` is VISUAL-ONLY image-model input. Routing/session/retry/audit metadata stays outside the renderer prompt.
-- Every AI_ONLY Work Unit requires a genuinely isolated fresh renderer context. In chat-based tools use a new chat/session or equivalent isolated generation context per Work Unit; a new message in the same visual conversation is not sufficient isolation.
-- For AI_ONLY, use a blank canvas/context with no prior conversation image attached, referenced, edited, continued or restyled.
+- Every AI_ONLY Work Unit requires a new image-generation invocation with no prior Work Unit image attached or referenced. The orchestration chat may remain the same only if the platform truly isolates renderer calls; when visual state is carried automatically, use a new chat/session or equivalent isolated context.
+- For AI_ONLY, use a blank no-input renderer context: never edit, continue, restyle or reference a previous Work Unit image.
 - `PRIMARY SUBJECT — HARD LOCK` must be one atomic subject for the current Work Unit. Never visualize the series count.
 - `STYLE — HARD LOCK` and the independent Coloring HARD profiles are explicit editorial requirements, not soft preferences.
 - `COMPOSITION — HARD LOCK` requires one unified scene. Layout-family exclusion wording is intentionally kept out of the visual prompt to avoid priming the model with forbidden concepts.
 - Never paste the long manifest, `instruction`, request-context, render request ID, retry rules or QA contract into the image renderer.
-- If fresh renderer routing is unavailable, return FAILED/INCOMPLETE rather than editing/reusing a previous image.
+- If isolated no-input image generation is unavailable, return FAILED/INCOMPLETE rather than editing/reusing a previous image.
 - Name the returned ZIP `{responseFileName}`; stable IDs remain authoritative internally.
 """.Trim();
     }
