@@ -120,7 +120,7 @@ internal static class PromptPackExecutionPlanSelfTest
             Require(start.Contains("VISUAL-ONLY", StringComparison.OrdinalIgnoreCase), "Runbook non separa il prompt visuale dall'orchestrazione.");
             Require(start.Contains("NEW image-generation invocation", StringComparison.OrdinalIgnoreCase), "Runbook non richiede una nuova chiamata image-generation per Work Unit.");
             Require(start.Contains("same orchestration chat may be used only when", StringComparison.OrdinalIgnoreCase), "Runbook non distingue call isolation da chat isolation.");
-            Require(start.Contains("automatically carries prior visual state", StringComparison.OrdinalIgnoreCase), "Runbook non richiede una nuova sessione quando il provider trascina stato visuale.");
+            Require(start.Contains("automatically carry prior visual state", StringComparison.OrdinalIgnoreCase), "Runbook non richiede una nuova sessione quando il provider trascina stato visuale.");
             Require(start.Contains("STYLE — HARD LOCK", StringComparison.Ordinal), "Runbook non verifica lo style hard lock.");
 
             var planText = await ReadAsync(zip, "render-plan.json");
@@ -214,7 +214,6 @@ internal static class PromptPackExecutionPlanSelfTest
                 Require(contextUnit.GetProperty("renderer_prompt_scope").GetString() == "VISUAL_ONLY", "Request-context WU non VISUAL_ONLY.");
             }
 
-            // Opposite-direction regression: independent dimensions remain bidirectional HARD.
             var p2 = BookTypePromptProfileService.LoadColoring(project);
             p2.LineWeight = "Spesso — Bold";
             p2.BoldEasy = true;
