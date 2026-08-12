@@ -4,19 +4,22 @@ internal static class VisionStyleHardGateSelfTest
 {
     public static void Run()
     {
-        var project = ProjectFileStore.Create("Vision Kawaii Style Regression");
+        var project = ProjectFileStore.Create("Vision Coloring HARD Regression");
         BookTypeProfileService.Set(project, BookTypeProfileService.ColoringBook);
         var profile = BookTypePromptProfileService.LoadColoring(project);
         profile.SubjectDescription = "3 animali diversi 3 immagini";
         profile.EnvironmentDescription = "jungla";
-        profile.Style = "Kawaii / Cartoon";
+        profile.Style = "Kawaii";
         profile.TargetAudience = "Bambini 6–9 anni";
         profile.Difficulty = "Facile";
-        profile.LineWeight = "Spesso — Bold";
-        profile.Complexity = "Bassa";
-        profile.ElementDensity = "Bassa";
+        profile.LineWeight = "Sottile — Fine";
+        profile.BoldEasy = true; // normalization/policy must force this OFF because line weight is thin.
+        profile.Complexity = "Media";
+        profile.ElementDensity = "Media";
         profile.Background = "Contestuale leggero";
         BookTypePromptProfileService.SaveColoring(project, profile);
+        ColoringBoldEasyPolicyStore.Save(project, true, profile.LineWeight);
+        ColoringCozyPolicyStore.Save(project, true);
 
         const string mustDo = "3 immagini di animali della jungla, riempi lo sfondo con ambientazione jungla";
         PromptPreparationSettingsStore.Save(project, new PromptPreparationSettings
@@ -72,20 +75,35 @@ internal static class VisionStyleHardGateSelfTest
 
         Require(request.Expected.ItemSubject.Equals("one monkey", StringComparison.OrdinalIgnoreCase),
             "Vision continua a usare il soggetto di serie invece del soggetto atomico IMG-001: " + request.Expected.ItemSubject);
-        Require(request.GenerationContract.Contains("STYLE — HARD LOCK: Kawaii / Cartoon", StringComparison.OrdinalIgnoreCase),
+        Require(request.Expected.Style.Equals("Kawaii", StringComparison.OrdinalIgnoreCase),
+            "Vision non usa lo stile singolo Kawaii.");
+        Require(!request.Expected.BoldEasy, "Linee Thin/Fine non forzano expected.bold_easy=false.");
+        Require(request.Expected.Cozy, "Cozy ON non arriva in expected.cozy.");
+        Require(request.GenerationContract.Contains("STYLE — HARD LOCK: Kawaii", StringComparison.OrdinalIgnoreCase),
             "Generation contract Vision non contiene STYLE hard lock Kawaii.");
+        Require(request.GenerationContract.Contains("BOLD & EASY — HARD: OFF", StringComparison.Ordinal),
+            "Generation contract Vision non contiene Bold & Easy OFF HARD.");
+        Require(request.GenerationContract.Contains("COZY — HARD: ON", StringComparison.Ordinal),
+            "Generation contract Vision non contiene Cozy ON HARD.");
+        Require(request.GenerationContract.Contains("Thin — Fine", StringComparison.OrdinalIgnoreCase),
+            "Generation contract Vision non conserva lo spessore Thin/Fine.");
         Require(request.GenerationContract.Contains("COMPOSITION — HARD LOCK", StringComparison.Ordinal),
             "Generation contract Vision non contiene composizione singola HARD.");
-        Require(request.GenerationContract.Contains("engraving", StringComparison.OrdinalIgnoreCase) &&
-                request.GenerationContract.Contains("cross-hatching", StringComparison.OrdinalIgnoreCase),
-            "Il Kawaii gate non vieta la resa realistica/incisione osservata nella prova fisica.");
+        Require(request.GenerationContract.Contains("realistic natural-history", StringComparison.OrdinalIgnoreCase),
+            "Il Kawaii gate non respinge la resa realistica osservata nella prova fisica.");
         Require(request.Expected.HardCriteria.Any(c => c.Contains("STYLE MATCH IS HARD", StringComparison.OrdinalIgnoreCase)),
             "Expected Vision non classifica lo style match come HARD.");
+        Require(request.Expected.HardCriteria.Any(c => c.Contains("BOLD & EASY MATCH IS HARD", StringComparison.OrdinalIgnoreCase)),
+            "Expected Vision non classifica Bold & Easy ON/OFF come HARD.");
+        Require(request.Expected.HardCriteria.Any(c => c.Contains("COZY MATCH IS HARD", StringComparison.OrdinalIgnoreCase)),
+            "Expected Vision non classifica Cozy ON/OFF come HARD.");
+        Require(request.Expected.HardCriteria.Any(c => c.Contains("LINE WEIGHT MATCH IS HARD", StringComparison.OrdinalIgnoreCase)),
+            "Expected Vision non classifica lo spessore linea come HARD.");
         Require(request.Expected.HardCriteria.Any(c => c.Contains("triptych", StringComparison.OrdinalIgnoreCase)),
             "Expected Vision non classifica il triptych come HARD.");
 
-        // Simulate a validator that correctly notices the mismatch but incorrectly labels it SOFT.
-        // Diez must enforce the project policy and promote the semantic mismatch to HARD/FAIL.
+        // Simulate a validator that detects all mismatches but incorrectly labels them SOFT.
+        // Diez must enforce project policy and promote each semantic mismatch to HARD/FAIL.
         VisionValidationStore.Apply(project, state, new VisionValidationResult
         {
             VersionId = version.VersionId,
@@ -95,37 +113,36 @@ internal static class VisionStyleHardGateSelfTest
             ProviderId = "self-test",
             OverallStatus = VisionValidationStatuses.Review,
             Confidence = 0.99,
-            ObservedDescription = "A realistic natural-history engraving of a monkey, tiger and elephant in three panels.",
-            Summary = "Subject family is recognizable but style and composition are wrong.",
+            ObservedDescription = "A realistic cold natural-history engraving with thick contours and three panels.",
+            Summary = "Subject family is recognizable but style, independent profiles, line weight and composition are wrong.",
             Checks =
             [
-                new VisionValidationCheck
-                {
-                    Key = "style_match",
-                    Status = VisionCheckStatuses.Fail,
-                    Severity = VisionSeverity.Soft,
-                    Confidence = 0.99,
-                    Evidence = "Realistic engraved anatomy and dense hatching; not Kawaii / Cartoon."
-                },
-                new VisionValidationCheck
-                {
-                    Key = "single_composition",
-                    Status = VisionCheckStatuses.Fail,
-                    Severity = VisionSeverity.Soft,
-                    Confidence = 0.99,
-                    Evidence = "Three separate bordered panels are visible."
-                }
+                Check("style_match", "Realistic engraved anatomy; not Kawaii."),
+                Check("bold_easy_match", "Visible thick simplified Bold & Easy-like contours despite expected OFF."),
+                Check("cozy_match", "Cold documentary mood despite expected Cozy ON."),
+                Check("line_weight_match", "Contours are thick despite Thin/Fine expectation."),
+                Check("single_composition", "Three separate bordered panels are visible.")
             ]
         });
 
         var stored = VisionValidationStore.Get(project, version.VersionId);
-        Require(stored is not null && stored.BlocksApproval, "Style/composition mismatch non blocca l'approvazione.");
-        Require(stored!.OverallStatus == VisionValidationStatuses.Fail, "HARD style/composition mismatch non forza overall FAIL.");
-        Require(stored.Checks.Where(c => c.Key is "style_match" or "single_composition").All(c => c.Severity == VisionSeverity.Hard),
-            "Diez non promuove style_match/single_composition a HARD.");
+        Require(stored is not null && stored.BlocksApproval, "HARD mismatches non bloccano l'approvazione.");
+        Require(stored!.OverallStatus == VisionValidationStatuses.Fail, "HARD mismatches non forzano overall FAIL.");
+        var hardKeys = new[] { "style_match", "bold_easy_match", "cozy_match", "line_weight_match", "single_composition" };
+        Require(stored.Checks.Where(c => hardKeys.Contains(c.Key, StringComparer.OrdinalIgnoreCase)).All(c => c.Severity == VisionSeverity.Hard),
+            "Diez non promuove tutti i controlli semantici autoritativi a HARD.");
         Require(version.Status == AiExchangeVersionStatuses.Incomplete,
-            "Candidate con style/composition HARD FAIL non viene bloccata come INCOMPLETE.");
+            "Candidate con HARD FAIL non viene bloccata come INCOMPLETE.");
     }
+
+    private static VisionValidationCheck Check(string key, string evidence) => new()
+    {
+        Key = key,
+        Status = VisionCheckStatuses.Fail,
+        Severity = VisionSeverity.Soft,
+        Confidence = 0.99,
+        Evidence = evidence
+    };
 
     private static void Require(bool condition, string message)
     {
