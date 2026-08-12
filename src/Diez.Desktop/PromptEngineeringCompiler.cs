@@ -20,6 +20,7 @@ internal static class PromptEngineeringCompiler
     {
         var request = PromptEngineeringEngine.BuildRequest(
             project, count, mustDo, mustNotDo, providerId, preferAdvancedModel);
+        StructuredSubjectPromptRequestService.Apply(project, request);
         var canonical = PromptEngineeringEngine.RenderSeries(request);
         var sb = new StringBuilder();
         sb.AppendLine($"DIEZ PROVIDER COMPILER v{Version}");
