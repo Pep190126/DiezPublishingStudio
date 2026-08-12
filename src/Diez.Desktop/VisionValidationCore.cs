@@ -67,6 +67,8 @@ internal sealed class VisionExpectedSpecification
     public string ItemMustDo { get; set; } = string.Empty;
     public string ItemMustNotDo { get; set; } = string.Empty;
     public string Style { get; set; } = string.Empty;
+    public bool BoldEasy { get; set; }
+    public bool Cozy { get; set; }
     public string Audience { get; set; } = string.Empty;
     public string Difficulty { get; set; } = string.Empty;
     public string ColorMode { get; set; } = string.Empty;
@@ -295,7 +297,11 @@ internal static class VisionValidationStore
 
     private static VisionValidationCheck ApplyHardPolicy(PreviewProject project, VisionValidationCheck check)
     {
-        if (string.Equals(check.Key, "style_match", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(check.Key, "style_match", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(check.Key, "bold_easy_match", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(check.Key, "cozy_match", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(check.Key, "line_weight_match", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(check.Key, "single_composition", StringComparison.OrdinalIgnoreCase))
             check.Severity = VisionSeverity.Hard;
 
         // Compatibility with older validators that used style_quality for both match and taste:
@@ -304,16 +310,13 @@ internal static class VisionValidationStore
             check.Status == VisionCheckStatuses.Fail &&
             !string.IsNullOrWhiteSpace(SelectedStyle(project)))
             check.Severity = VisionSeverity.Hard;
-
-        if (string.Equals(check.Key, "single_composition", StringComparison.OrdinalIgnoreCase))
-            check.Severity = VisionSeverity.Hard;
         return check;
     }
 
     private static string SelectedStyle(PreviewProject project)
     {
         if (string.Equals(BookTypeProfileService.Get(project), BookTypeProfileService.ColoringBook, StringComparison.OrdinalIgnoreCase))
-            return BookTypePromptProfileService.LoadColoring(project).Style ?? string.Empty;
+            return ColoringIndependentHardProfileService.Resolve(project).Style;
         return ImageCollectionPromptProfileService.Load(project).RenderingStyle ?? string.Empty;
     }
 }
@@ -344,6 +347,8 @@ internal static class VisionValidationSpecificationBuilder
         var atomicSubject = PromptPackProviderFacingService.ResolveAtomicSubject(request, position);
         var generationContract = PromptPackProviderFacingService.BuildImageGenerationPrompt(
             project, unit, Math.Max(1, seriesCount), position, settings);
+        var isColoring = string.Equals(request.BookType, BookTypeProfileService.ColoringBook, StringComparison.OrdinalIgnoreCase);
+        var hardProfile = isColoring ? ColoringIndependentHardProfileService.Resolve(project) : null;
 
         return new VisionValidationRequest
         {
@@ -370,12 +375,14 @@ internal static class VisionValidationSpecificationBuilder
                 ItemEnvironment = item?.Environment ?? request.Environment,
                 ItemMustDo = item?.MustDo ?? string.Empty,
                 ItemMustNotDo = item?.MustNotDo ?? string.Empty,
-                Style = request.Style,
+                Style = isColoring ? hardProfile!.Style : request.RenderingStyle,
+                BoldEasy = isColoring && hardProfile!.BoldEasy,
+                Cozy = isColoring && hardProfile!.Cozy,
                 Audience = request.Audience,
                 Difficulty = request.Difficulty,
                 ColorMode = request.ColorMode,
                 DetailLevel = request.DetailLevel,
-                LineWeightOrTreatment = string.IsNullOrWhiteSpace(request.LineWeight) ? request.LineTreatment : request.LineWeight,
+                LineWeightOrTreatment = isColoring ? hardProfile!.LineWeight : request.LineTreatment,
                 Background = request.Background,
                 Viewpoint = request.Viewpoint,
                 ConsistencyRules = request.ConsistencyRules,
@@ -383,13 +390,13 @@ internal static class VisionValidationSpecificationBuilder
                 PixelWidth = request.Technical.PixelWidth,
                 PixelHeight = request.Technical.PixelHeight,
                 Dpi = request.Technical.Dpi,
-                HardCriteria = HardCriteria(request),
+                HardCriteria = HardCriteria(request, hardProfile),
                 QualityCriteria = QualityCriteria(request.BookType)
             }
         };
     }
 
-    private static List<string> HardCriteria(PromptEngineeringRequest request)
+    private static List<string> HardCriteria(PromptEngineeringRequest request, ColoringIndependentHardProfile? hardProfile)
     {
         var criteria = new List<string>();
         if (string.Equals(request.BookType, BookTypeProfileService.ColoringBook, StringComparison.OrdinalIgnoreCase))
@@ -423,13 +430,28 @@ internal static class VisionValidationSpecificationBuilder
 
         var style = PromptEnglishNormalizer.NormalizeProviderFacing(
             string.Equals(request.BookType, BookTypeProfileService.ColoringBook, StringComparison.OrdinalIgnoreCase)
-                ? request.Style
+                ? hardProfile?.Style
                 : request.RenderingStyle);
         if (!string.IsNullOrWhiteSpace(style))
         {
             criteria.Add($"STYLE MATCH IS HARD: the visible artwork must materially match the selected style '{style}'. A polished image in a different style is a HARD failure, not a taste preference.");
-            if (style.Contains("kawaii", StringComparison.OrdinalIgnoreCase) || style.Contains("cartoon", StringComparison.OrdinalIgnoreCase))
-                criteria.Add("For Kawaii / Cartoon, realistic natural-history rendering, engraving/etching, dense cross-hatching, photographic/anatomically literal proportions or heavy realistic texture is a HARD style mismatch. The image must visibly use cute/cartoon simplification, rounded/stylized forms, expressive friendly features and simplified proportions/details.");
+            if (style.Contains("kawaii", StringComparison.OrdinalIgnoreCase))
+                criteria.Add("For Kawaii, realistic natural-history rendering, engraving/etching, dense cross-hatching, photographic/anatomically literal proportions or heavy realistic texture is a HARD style mismatch. The image must visibly use cute simplification, rounded/stylized forms, expressive friendly features and simplified proportions/details.");
+            if (style.Contains("cartoon", StringComparison.OrdinalIgnoreCase))
+                criteria.Add("For Cartoon, documentary/naturalistic rendering, photographic anatomy or realistic engraving is a HARD style mismatch. The image must visibly use stylized proportions, expressive features and intentional cartoon shape language.");
+        }
+
+        if (hardProfile is not null)
+        {
+            criteria.Add(hardProfile.BoldEasy
+                ? "BOLD & EASY MATCH IS HARD: expected.bold_easy=true. The artwork must visibly use large simple readable forms, broad colorable regions, restrained interior detail and easy-to-follow contours."
+                : "BOLD & EASY MATCH IS HARD: expected.bold_easy=false. The artwork must NOT be automatically converted to a Bold & Easy simplification profile; respect the selected style, line weight, complexity and density.");
+            criteria.Add(hardProfile.Cozy
+                ? "COZY MATCH IS HARD: expected.cozy=true. The finished page must visibly communicate a warm, comforting, gentle, inviting mood rather than a cold, harsh, threatening, clinical or documentary mood."
+                : "COZY MATCH IS HARD: expected.cozy=false. Do not impose a Cozy mood, homelike staging or comforting decorative treatment unless independently required by another explicit request.");
+            criteria.Add(BookTypePromptProfileService.IsThinLineWeight(hardProfile.LineWeight)
+                ? "LINE WEIGHT MATCH IS HARD: Thin/Fine or Very thin/Extra Fine contours must remain visibly thin. Thick Bold & Easy-like contours are a HARD mismatch."
+                : $"LINE WEIGHT MATCH IS HARD: the visible contour weight must materially respect the selected line weight '{PromptEnglishNormalizer.NormalizeProviderFacing(hardProfile.LineWeight)}'.");
         }
         return criteria;
     }
@@ -446,7 +468,7 @@ internal static class VisionValidationSpecificationBuilder
                 "Colorable regions and detail density appropriate to audience/difficulty.",
                 "Background supports the subject without meaningless filler or visual clutter.",
                 "No random floating symbols, pseudo-writing, decorative artifacts or accidental duplicated details.",
-                "Within the required selected style, execution quality and aesthetic preference may be reviewed softly unless publication fitness is obviously broken.",
+                "Within the required selected style and independent HARD profiles, execution quality and aesthetic preference may be reviewed softly unless publication fitness is obviously broken.",
                 "Overall page quality should be credible for a commercially published coloring book."
             ];
         }
