@@ -118,8 +118,9 @@ internal static class PromptPackExecutionPlanSelfTest
             var start = await ReadAsync(zip, "00-START-HERE.md");
             Require(start.Contains(expectedResponseName, StringComparison.Ordinal), "Nome response non presente nel runbook.");
             Require(start.Contains("VISUAL-ONLY", StringComparison.OrdinalIgnoreCase), "Runbook non separa il prompt visuale dall'orchestrazione.");
-            Require(start.Contains("brand-new chat/session", StringComparison.OrdinalIgnoreCase), "Runbook non richiede una sessione chat realmente isolata per AI_ONLY.");
-            Require(start.Contains("does NOT count as fresh isolation", StringComparison.OrdinalIgnoreCase), "Runbook non vieta il falso fresh nella stessa conversazione visuale.");
+            Require(start.Contains("NEW image-generation invocation", StringComparison.OrdinalIgnoreCase), "Runbook non richiede una nuova chiamata image-generation per Work Unit.");
+            Require(start.Contains("same orchestration chat may be used only when", StringComparison.OrdinalIgnoreCase), "Runbook non distingue call isolation da chat isolation.");
+            Require(start.Contains("automatically carries prior visual state", StringComparison.OrdinalIgnoreCase), "Runbook non richiede una nuova sessione quando il provider trascina stato visuale.");
             Require(start.Contains("STYLE — HARD LOCK", StringComparison.Ordinal), "Runbook non verifica lo style hard lock.");
 
             var planText = await ReadAsync(zip, "render-plan.json");
@@ -130,7 +131,7 @@ internal static class PromptPackExecutionPlanSelfTest
             Require(plan.RootElement.GetProperty("response_filename").GetString() == expectedResponseName, "Nome response errato nel render plan.");
             Require(plan.RootElement.GetProperty("renderer_prompt_scope").GetString() == "VISUAL_ONLY", "Renderer prompt non dichiarato VISUAL_ONLY.");
             Require(plan.RootElement.GetProperty("fresh_context_owner").GetString() == "EXECUTOR", "Fresh context non assegnato all'executor.");
-            Require(plan.RootElement.GetProperty("chat_session_policy").GetString() == "NEW_ISOLATED_SESSION_PER_AI_ONLY_WORK_UNIT", "Policy sessione isolata mancante.");
+            Require(plan.RootElement.GetProperty("chat_session_policy").GetString() == "NEW_RENDERER_CALL_NO_PRIOR_IMAGE_REFERENCE", "Policy renderer-call isolation mancante.");
             Require(plan.RootElement.GetProperty("atomic_subject_required").GetBoolean(), "atomic_subject_required non attivo.");
             Require(plan.RootElement.GetProperty("selected_style_is_hard").GetBoolean(), "selected_style_is_hard non attivo.");
             var calls = plan.RootElement.GetProperty("calls").EnumerateArray().ToList();
@@ -145,7 +146,7 @@ internal static class PromptPackExecutionPlanSelfTest
                 var call = calls[i];
                 Require(call.GetProperty("fresh_generation_required").GetBoolean(), "fresh_generation_required non true.");
                 Require(call.GetProperty("fresh_context_owner").GetString() == "EXECUTOR", "Fresh context per call non è executor-owned.");
-                Require(call.GetProperty("chat_session_policy").GetString() == "NEW_ISOLATED_SESSION_PER_AI_ONLY_WORK_UNIT", "Policy fresh chat per call mancante.");
+                Require(call.GetProperty("chat_session_policy").GetString() == "NEW_RENDERER_CALL_NO_PRIOR_IMAGE_REFERENCE", "Policy fresh renderer call per Work Unit mancante.");
                 Require(call.GetProperty("renderer_prompt_scope").GetString() == "VISUAL_ONLY", "Prompt per call non VISUAL_ONLY.");
                 Require(call.GetProperty("reuse_prior_generated_images_forbidden").GetBoolean(), "Divieto riuso immagini precedenti non true.");
                 Require(call.GetProperty("source_image_policy").GetString() == "BLANK_CANVAS_NO_INPUT_IMAGES", "AI_ONLY non parte da blank canvas.");
