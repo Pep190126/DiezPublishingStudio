@@ -94,6 +94,18 @@ internal static class AiExchangeResponseFailureStore
         Save(project, state);
     }
 
+    /// <summary>
+    /// A later real asset for the same Work Unit supersedes FAILED attempts at the same or older
+    /// candidate version. Newer FAILED attempts remain visible and keep priority over older assets.
+    /// </summary>
+    public static void ClearSupersededByAsset(PreviewProject project, Guid workUnitId, int candidateVersion)
+    {
+        var state = Load(project);
+        var removed = state.Records.RemoveAll(r =>
+            r.WorkUnitId == workUnitId && r.CandidateVersion <= candidateVersion);
+        if (removed > 0) Save(project, state);
+    }
+
     private static void Save(PreviewProject project, State state)
     {
         var entity = project.Entities.FirstOrDefault(e =>
