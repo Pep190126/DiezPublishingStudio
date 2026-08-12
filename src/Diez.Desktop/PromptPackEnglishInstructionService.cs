@@ -26,7 +26,7 @@ internal static class PromptPackEnglishInstructionService
     internal static string BuildText(PreviewProject project)
     {
         var settings = PromptPreparationSettingsStore.Load(project);
-        return $"""
+        return $$"""
 # Diez Publishing Studio — Prompt Pack v1
 
 This package describes a Diez production job. Read `prompt-manifest.json` and use only the materials required for the current Work Units under `inputs/`.
@@ -61,7 +61,7 @@ The publication-readiness gate in each `work_units[].instruction` is a HARD Book
 
 ## Minimum response manifest
 ```json
-{{
+{
   "protocol": "diez-response",
   "protocol_version": 1,
   "project_id": "<project id>",
@@ -70,16 +70,16 @@ The publication-readiness gate in each `work_units[].instruction` is a HARD Book
   "package_id": "<unique package id>",
   "partial": true,
   "items": [
-    {{
+    {
       "work_unit_id": "<id>",
       "candidate_version": 1,
       "content_type": "IMAGE|TEXT|STRUCTURED_DATA|DOCUMENT",
       "status": "COMPLETE|INCOMPLETE|FAILED",
       "primary_asset": "content/file.ext",
       "description": "required factual description for image assets"
-    }}
+    }
   ]
-}}
+}
 ```
 
 Diez reconstructs packages automatically through stable IDs. The user must not have to rename or manually associate returned files.
@@ -96,9 +96,9 @@ Diez reconstructs packages automatically through stable IDs. The user must not h
 AUTHORITATIVE IMAGE RULE: user/current descriptions guide the work but never replace a real image file. For corrections, use `base_version.file` as visual authority and apply preserve/change/add/remove to that real asset.
 
 ## Diez Prompt Engineering — AUTHORITATIVE
-- Semantic engine: {PromptEngineeringEngine.EngineVersion}; provider compiler: {PromptEngineeringCompiler.Version}.
-- Active Book Type: {BookTypeProfileService.Get(project)}.
-- Target renderer: {settings.ProviderId}.
+- Semantic engine: {{PromptEngineeringEngine.EngineVersion}}; provider compiler: {{PromptEngineeringCompiler.Version}}.
+- Active Book Type: {{BookTypeProfileService.Get(project)}}.
+- Target renderer: {{settings.ProviderId}}.
 - Only the active Book Type prompt profile may influence this request; historical/inactive profiles must be ignored.
 - Provider-facing operational instructions use English. Localized UI/project metadata is secondary and must never override the authoritative Work Unit instruction.
 - Every `work_units[].instruction` requests EXACTLY ONE image. `series_count` is context only and never authorizes a grid, collage, contact sheet or multiple alternatives.
