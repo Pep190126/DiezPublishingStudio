@@ -85,6 +85,7 @@ internal static class CustomStyleLibraryService
 
     private static string LibraryPath() => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "DiezPublishingStudio",
+        ProductInfo.ProductName,
+        "config",
         "custom-styles.json");
 }
