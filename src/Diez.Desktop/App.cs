@@ -83,7 +83,7 @@ public sealed class App : Application
                     }
                     catch (Exception ex)
                     {
-                        try { File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "ui-raster-error.txt", ex.ToString()); } catch { }
+                        try { File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "ui-raster-error.txt"), ex.ToString()); } catch { }
                         Environment.Exit(3);
                     }
                 }, DispatcherPriority.Loaded);
