@@ -105,6 +105,8 @@ TECHNICAL OUTPUT: target raster 2550 × 3300 px; 300 DPI print context.
                 Require(text.Contains("ONE generation attempt", StringComparison.OrdinalIgnoreCase), "Task non impedisce retry contaminanti nella stessa chat.");
                 Require(text.Contains($"PRIMARY SUBJECT — HARD LOCK: one {subjects[i]}", StringComparison.OrdinalIgnoreCase), "Prompt visuale sbagliato nel task.");
                 Require(text.Contains("\"partial\": true", StringComparison.Ordinal), "Contratto partial response assente.");
+                Require(text.Contains("\"status\": \"COMPLETE\"", StringComparison.Ordinal), "Il task non usa lo status canonico COMPLETE.");
+                Require(!text.Contains("SUCCEEDED", StringComparison.OrdinalIgnoreCase), "Il task contiene ancora l'alias non canonico SUCCEEDED.");
                 Require(text.Contains(expectedResponse, StringComparison.Ordinal), "Nome ZIP parziale assente dal task.");
                 for (var j = 0; j < subjects.Length; j++)
                     if (j != i)
