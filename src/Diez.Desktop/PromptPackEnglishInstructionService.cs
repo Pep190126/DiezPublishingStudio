@@ -57,12 +57,15 @@ Every IMAGE Work Unit requests EXACTLY ONE image. Process image Work Units indep
 
 Before invoking the renderer, verify that `image_generation_prompt_authoritative = true` and that the concise prompt contains a `PRIMARY SUBJECT — HARD LOCK`. The renderer result is invalid if that subject is not the dominant visible content. Do not try to repair a wrong-subject render merely by changing its description; regenerate the image or return the item as `FAILED`/`INCOMPLETE`.
 
-The renderer prompt must also contain `STYLE — HARD LOCK` and `COMPOSITION — HARD LOCK` when Diez emits them. The selected style and one-composition contract are execution requirements, not optional prose.
+For Coloring Work Units, the renderer prompt must also contain `STYLE — HARD LOCK`, `BOLD & EASY — HARD: ON|OFF`, `COZY — HARD: ON|OFF`, the authoritative line-weight requirement and `COMPOSITION — HARD LOCK`. These are independent execution requirements, not optional prose.
 
-## Selected style versus aesthetic preference
-- **STYLE MATCH — HARD:** when the project/user selected a named visual style, the finished image must visibly match that style. A technically polished image in a materially different style is a HARD failure.
-- **STYLE QUALITY / AESTHETIC PREFERENCE — SOFT/REVIEW:** after STYLE MATCH has passed, differences between valid professional executions inside that selected style remain human-review preferences unless they create an independent publication-readiness defect.
-- Example: if `Kawaii / Cartoon` is selected, realistic natural-history engraving is a HARD style mismatch; choosing between two competent Kawaii/Cartoon executions is SOFT/REVIEW.
+## Selected style and independent HARD profiles
+- **STYLE MATCH — HARD:** the finished image must visibly match the one selected visual style. A technically polished image in a materially different style is a HARD failure.
+- **BOLD & EASY — HARD ON/OFF:** ON requires a visible Bold & Easy production profile. OFF is equally authoritative: do not automatically enlarge/oversimplify forms, reduce detail or thicken contours into Bold & Easy against the selected style, line weight, complexity or density.
+- **COZY — HARD ON/OFF:** ON requires a visibly warm, comforting, gentle and inviting mood. OFF is equally authoritative: do not automatically turn staging, atmosphere or decoration into a Cozy treatment unless another explicit requirement independently demands a similar trait.
+- **LINE WEIGHT — HARD:** Thin/Fine and Very thin/Extra Fine must remain visibly thin and cannot be converted into Bold & Easy-like thick contours.
+- **STYLE QUALITY / AESTHETIC PREFERENCE — SOFT/REVIEW:** after all applicable HARD matches have passed, differences between valid professional executions inside the selected style remain human-review preferences unless they create an independent publication-readiness defect.
+- Example: if `Kawaii` is selected, realistic natural-history engraving is a HARD style mismatch. `Cartoon` is a separate style choice and must not be silently substituted for Kawaii.
 
 ## Image-generation integrity — HARD
 For image Work Units, use a genuine image-generation/illustration capability appropriate for publication-quality artwork. Do NOT substitute a crude programmatic drawing, primitive SVG/Canvas/Pillow geometry, placeholder icon, tracing sketch, or assembled circles/rectangles merely because that makes exact dimensions or black/white values easier to satisfy.
@@ -71,7 +74,7 @@ For Coloring Book work, create a professionally illustrated coloring page FIRST.
 
 If the current environment cannot actually generate or edit an image at the required professional level, return `INCOMPLETE` or `FAILED` with a concise explanation. Never fabricate a low-effort placeholder and label it `COMPLETE`.
 
-The publication-readiness gate in each `work_units[].instruction` is a HARD Book-Type requirement. Obvious rough-draft, scribble-like, placeholder, primitive-geometric or amateur execution is not acceptable even when dimensions, DPI and pure black/white raster checks are technically correct. Simple Preschool/Bold & Easy artwork is valid only when the simplicity is intentional, polished, balanced, expressive and professionally resolved.
+The publication-readiness gate in each `work_units[].instruction` is a HARD Book-Type requirement. Obvious rough-draft, scribble-like, placeholder, primitive-geometric or amateur execution is not acceptable even when dimensions, DPI and pure black/white raster checks are technically correct. Simple artwork is valid only when the simplicity is intentional, polished, balanced, expressive and professionally resolved.
 
 ## Minimum response manifest
 ```json
@@ -123,9 +126,9 @@ AUTHORITATIVE IMAGE RULE: user/current descriptions guide the work but never rep
 - For corrections, the actual base/input image plus preserve/change/add/remove are authoritative; descriptions assist but never replace image files.
 
 ## Completion check
-Before marking an image `COMPLETE`, inspect the actual returned asset rather than the intention behind it. Confirm that the `PRIMARY SUBJECT — HARD LOCK` is actually dominant and correct, confirm `STYLE — HARD LOCK` visibly matches the selected style, and confirm `COMPOSITION — HARD LOCK` contains one unified primary scene. Then confirm item-specific constraints, Book-Type fit, professional illustration craft, anatomy/geometry, prohibited content and the requested technical profile. If a HARD requirement is not satisfied, correct/regenerate the asset or return `INCOMPLETE/FAILED`; never describe a visibly non-compliant asset as compliant.
+Before marking an image `COMPLETE`, inspect the actual returned asset rather than the intention behind it. Confirm that the `PRIMARY SUBJECT — HARD LOCK` is actually dominant and correct; confirm `STYLE — HARD LOCK`; for Coloring confirm the exact `BOLD & EASY` ON/OFF state, exact `COZY` ON/OFF state and line weight; and confirm `COMPOSITION — HARD LOCK` contains one unified primary scene. Then confirm item-specific constraints, Book-Type fit, professional illustration craft, anatomy/geometry, prohibited content and the requested technical profile. If a HARD requirement is not satisfied, correct/regenerate the asset or return `INCOMPLETE/FAILED`; never describe a visibly non-compliant asset as compliant.
 
-A result that passes the selected-style HARD match may still receive SOFT/REVIEW comments about aesthetic preference or relative execution quality inside that style. Those soft comments must never be used to excuse a failed selected-style match.
+A result that passes all applicable HARD matches may still receive SOFT/REVIEW comments about aesthetic preference or relative execution quality inside the selected style. Those soft comments must never be used to excuse a failed style, Bold & Easy, Cozy, line-weight or composition match.
 """.Trim();
     }
 }
