@@ -43,9 +43,9 @@ internal static class SingleWindowPromptTargetAiUi
             p.Children.OfType<Button>().Any(b => string.Equals(b.Content?.ToString(), "Prepara prompt", StringComparison.Ordinal)));
         if (actionRow is null) return;
 
-        var legacyPrepare = actionRow.Children.OfType<Button>().FirstOrDefault(b =>
-            string.Equals(b.Content?.ToString(), "Prepara prompt", StringComparison.Ordinal));
-        if (legacyPrepare is not null) legacyPrepare.IsVisible = false;
+        foreach (var legacyPrepare in actionRow.Children.OfType<Button>().Where(b =>
+                     string.Equals(b.Content?.ToString(), "Prepara prompt", StringComparison.Ordinal)).ToList())
+            legacyPrepare.IsVisible = false;
 
         var next = actionRow.Children.OfType<Button>().FirstOrDefault(b =>
             (b.Content?.ToString() ?? string.Empty).Contains("Prompt Pack", StringComparison.OrdinalIgnoreCase));
@@ -96,7 +96,7 @@ internal static class SingleWindowPromptTargetAiUi
                 new TextBlock { Text = "Motore prompt / AI destinataria", FontSize = 17 },
                 new TextBlock
                 {
-                    Text = "Diez compila un brief tecnico in inglese da un modello canonico. Il nucleo professionale non dipende dal numero di campi compilati; OpenAI, Gemini e Altro applicano strategie di esecuzione differenti sopra gli stessi vincoli editoriali.",
+                    Text = "Diez compila il prompt provider-facing dal modello canonico. Le specifiche tecniche generate da Diez sono in inglese; i vecchi blocchi italiani non vengono più ripristinati nell'editor.",
                     TextWrapping = Avalonia.Media.TextWrapping.Wrap,
                     MaxWidth = 760
                 },
@@ -152,7 +152,7 @@ internal static class SingleWindowPromptTargetAiUi
             try { prompt.Text = value; }
             finally { suppressPromptEvents = false; }
             SaveMaster(manual: false);
-            status.Text = $"Prompt compilato · engine v{PromptEngineeringEngine.EngineVersion} · renderer {Selected().Label}.";
+            status.Text = $"Prompt canonico compilato · engine v{PromptEngineeringEngine.EngineVersion} · renderer {Selected().Label} · specifiche tecniche Diez in inglese.";
         }
 
         void RefreshNext()
@@ -203,7 +203,7 @@ internal static class SingleWindowPromptTargetAiUi
         {
             if (!initialized || suppressPromptEvents) return;
             SaveMaster(manual: true);
-            status.Text = "PROMPT modificato manualmente: Diez preserverà questo testo. Se cambieranno parametri strutturati, i nuovi hard constraint resteranno comunque autoritativi nell'export.";
+            status.Text = "PROMPT modificato manualmente: Diez preserverà il delta dell'utente; i vincoli strutturati correnti restano autoritativi nell'export.";
             RefreshNext();
         };
         prepare.Click += async (_, _) =>
@@ -216,8 +216,6 @@ internal static class SingleWindowPromptTargetAiUi
             RefreshNext();
         };
 
-        // The legacy host pre-populates PromptEditor. Trust it only when engine metadata proves that
-        // it was compiled from the current values; otherwise replace it once with the canonical compiler.
         var existing = PromptMasterStateStore.LoadForCurrentBook(project);
         var metadata = PromptMasterMetadataStore.Load(project);
         var currentMatches = existing is not null && PromptMasterMetadataStore.MatchesCurrent(
@@ -228,7 +226,7 @@ internal static class SingleWindowPromptTargetAiUi
             mustNotDo.Text,
             Selected().Id,
             advanced.IsChecked == true);
-        if (currentMatches && !string.IsNullOrWhiteSpace(existing!.Prompt))
+        if (currentMatches && !string.IsNullOrWhiteSpace(existing!.Prompt) && !LooksLikeLegacyGeneratedPrompt(existing.Prompt))
         {
             suppressPromptEvents = true;
             try { prompt.Text = existing.Prompt; }
@@ -237,11 +235,28 @@ internal static class SingleWindowPromptTargetAiUi
                 ? "Prompt manuale corrente ripristinato."
                 : $"Prompt engine v{PromptEngineeringEngine.EngineVersion} corrente ripristinato.";
         }
-        else SetCompiledPrompt(CompileCurrent());
+        else
+        {
+            SetCompiledPrompt(CompileCurrent());
+            if (existing is not null && LooksLikeLegacyGeneratedPrompt(existing.Prompt))
+                status.Text = "Vecchio prompt generato in italiano rilevato e sostituito con il compilatore canonico provider-facing.";
+        }
 
         initialized = true;
         suppressPromptEvents = false;
         RefreshNext();
+    }
+
+    internal static bool LooksLikeLegacyGeneratedPrompt(string? value)
+    {
+        var text = value ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(text)) return false;
+        if (text.Contains("SPECIFICHE TECNICHE:", StringComparison.OrdinalIgnoreCase)) return true;
+        if (text.Contains("REGOLE COMUNI DEL PROGETTO:", StringComparison.OrdinalIgnoreCase)) return true;
+        if (text.Contains("PROFILO EDITORIALE COLORING BOOK:", StringComparison.OrdinalIgnoreCase)) return true;
+        if (text.Contains("VINCOLO CROMATICO ASSOLUTO", StringComparison.OrdinalIgnoreCase)) return true;
+        return !text.Contains("DIEZ PROVIDER COMPILER", StringComparison.OrdinalIgnoreCase) &&
+               (text.Contains("DEVE FARE:", StringComparison.OrdinalIgnoreCase) || text.Contains("NON DEVE FARE:", StringComparison.OrdinalIgnoreCase));
     }
 
     private static TextBox? NamedTextBox(Control root, string name) =>
