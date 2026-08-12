@@ -26,6 +26,18 @@ internal static class SingleWindowV11ContractProbe
 
             var typePage = pageHost.Content as Control ?? throw new InvalidOperationException("Pagina Tipo libro assente.");
             AssertText(typePage, "Quale libro stai preparando?");
+            var bookTitle = RequireEditor(typePage, "DiezBookTitle");
+            if (!bookTitle.IsVisible || !bookTitle.IsEnabled || bookTitle.IsReadOnly)
+                throw new InvalidOperationException("Titolo del libro non visibile/editabile nella pagina Tipo libro.");
+            bookTitle.Text = "Animali della Giungla";
+            await WaitForLayoutAsync();
+            if (!string.Equals(project.EditionMetadata.Title, "Animali della Giungla", StringComparison.Ordinal))
+                throw new InvalidOperationException("Titolo del libro non collegato ai metadati del progetto.");
+            if (BookPackageNamingService.PromptPackFileName(project, 1) != "diez-animali-della-giungla-prompt-pack-v001.zip")
+                throw new InvalidOperationException("Titolo del libro non alimenta il naming Prompt Pack.");
+            if (BookPackageNamingService.ResponseFileName(project, 1) != "diez-animali-della-giungla-response-v001.zip")
+                throw new InvalidOperationException("Titolo del libro non alimenta il naming Response.");
+
             var back = Field<Button>(host, "_back") ?? throw new InvalidOperationException("Pulsante Indietro host assente.");
             if (!back.IsEnabled) throw new InvalidOperationException("Indietro è disabilitato nella pagina Tipo libro.");
 
@@ -36,6 +48,9 @@ internal static class SingleWindowV11ContractProbe
             SingleWindowNativeV11Ui.ShowBookType(window, host);
             await WaitForLayoutAsync();
             AssertText(pageHost.Content as Control, "Quale libro stai preparando?");
+            var titleAgain = RequireEditor(pageHost.Content as Control ?? throw new InvalidOperationException("Pagina Tipo libro assente al ritorno."), "DiezBookTitle");
+            if (!string.Equals(titleAgain.Text, "Animali della Giungla", StringComparison.Ordinal))
+                throw new InvalidOperationException("Titolo del libro non resta disponibile tornando nella pagina Tipo libro.");
 
             SingleWindowNativeV11Ui.ShowQuantity(window, host);
             await WaitForLayoutAsync();
@@ -125,7 +140,7 @@ internal static class SingleWindowV11ContractProbe
                 technicalPrompt.Contains("Margine di sicurezza creativo", StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException("Il prompt contiene ancora Orientamento o Margine di sicurezza.");
             if (!technicalPrompt.Contains("Coerenza trim/aspect ratio", StringComparison.OrdinalIgnoreCase))
-                throw new InvalidOperationException("Il prompt non contiene il controllo di coerenza trim/aspect ratio.");
+                throw new InvalidOperationException("Il blocco tecnico UI non contiene il controllo di coerenza trim/aspect ratio.");
 
             SingleWindowNativeV11Ui.ShowPrompt(window, host, 12);
             await WaitForLayoutAsync();
@@ -138,7 +153,6 @@ internal static class SingleWindowV11ContractProbe
             var promptEditor = RequireEditor(promptPage, "PromptEditor");
             RequireNativeEditor(promptEditor, "PROMPT");
 
-            // Exercise the actual provider UI path, not only the compiler self-test.
             SingleWindowPromptTargetAiUi.EnsureCurrentPage(window);
             await WaitForLayoutAsync();
             var provider = RequireCombo(promptPage, "PromptTargetAi");
@@ -156,11 +170,21 @@ internal static class SingleWindowV11ContractProbe
                          "PROVIDER EXECUTION PROFILE — OPENAI IMAGE GENERATION",
                          "COMMERCIAL COLORING BOOK",
                          "PROFESSIONAL QUALITY GATE",
+                         "TECHNICAL OUTPUT SPECIFICATION",
+                         "Image aspect ratio",
+                         "Rendering quality",
                          "pure black #000000",
                          "pure white #FFFFFF"
                      })
                 if (!openAiPrompt.Contains(required, StringComparison.OrdinalIgnoreCase))
                     throw new InvalidOperationException("Prompt OpenAI GUI incompleto: " + required);
+            foreach (var forbidden in new[]
+                     {
+                         "SPECIFICHE TECNICHE:", "Formato pagina / trim finale", "Qualità rendering",
+                         "Livello tecnico di dettaglio", "Risoluzione target effettiva", "REGOLE COMUNI DEL PROGETTO:"
+                     })
+                if (openAiPrompt.Contains(forbidden, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException("Prompt OpenAI GUI contiene ancora specifiche generate in italiano: " + forbidden);
 
             SelectByText(provider, "Gemini");
             await WaitForLayoutAsync();
@@ -172,10 +196,14 @@ internal static class SingleWindowV11ContractProbe
                          "PROVIDER EXECUTION PROFILE — GEMINI NATIVE IMAGE GENERATION",
                          "ONE coherent scene concept",
                          "COMMERCIAL COLORING BOOK",
-                         "PROFESSIONAL QUALITY GATE"
+                         "PROFESSIONAL QUALITY GATE",
+                         "TECHNICAL OUTPUT SPECIFICATION"
                      })
                 if (!geminiPrompt.Contains(required, StringComparison.OrdinalIgnoreCase))
                     throw new InvalidOperationException("Prompt Gemini GUI incompleto: " + required);
+            foreach (var forbidden in new[] { "SPECIFICHE TECNICHE:", "Qualità rendering", "Risoluzione target effettiva" })
+                if (geminiPrompt.Contains(forbidden, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException("Prompt Gemini GUI contiene ancora specifiche generate in italiano: " + forbidden);
             if (string.Equals(openAiPrompt, geminiPrompt, StringComparison.Ordinal))
                 throw new InvalidOperationException("La GUI produce lo stesso prompt per OpenAI e Gemini.");
 
