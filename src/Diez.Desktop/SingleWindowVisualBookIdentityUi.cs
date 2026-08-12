@@ -1,12 +1,13 @@
 using System.Reflection;
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Media;
 
 namespace DiezPublishingStudio;
 
 /// <summary>
-/// The current image-series host was born as the Coloring vertical slice.
-/// This adapter keeps its visible identity aligned when the same mechanics are reused
-/// by Image Collection or Illustrated Book, without duplicating navigation code.
+/// Keeps the visible visual-book identity aligned across reused single-window pages and owns the
+/// human-facing book title field shown on the Book Type screen. Internal project identity remains ProjectId.
 /// </summary>
 internal static class SingleWindowVisualBookIdentityUi
 {
@@ -28,14 +29,16 @@ internal static class SingleWindowVisualBookIdentityUi
     internal static void Apply(MainWindow window)
     {
         if (!TryProject(window, out var project)) return;
+        var host = SingleWindowEntryPointUi.GetHost(window);
+        var pageHost = host.GetType().GetField("_pageHost", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(host) as ContentControl;
+        if (pageHost?.Content is not Control page) return;
+
+        EnsureBookTitleField(project, page);
+
         var type = BookTypeProfileService.Get(project);
         if (string.Equals(type, BookTypeProfileService.ColoringBook, StringComparison.OrdinalIgnoreCase)) return;
         if (!string.Equals(type, BookTypeProfileService.ImageCollection, StringComparison.OrdinalIgnoreCase) &&
             !string.Equals(type, BookTypeProfileService.IllustratedBook, StringComparison.OrdinalIgnoreCase)) return;
-
-        var host = SingleWindowEntryPointUi.GetHost(window);
-        var pageHost = host.GetType().GetField("_pageHost", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(host) as ContentControl;
-        if (pageHost?.Content is not Control page) return;
 
         var isIllustrated = string.Equals(type, BookTypeProfileService.IllustratedBook, StringComparison.OrdinalIgnoreCase);
         var visibleName = isIllustrated ? "Libro illustrato · Illustrazioni" : "Raccolta immagini";
@@ -67,6 +70,54 @@ internal static class SingleWindowVisualBookIdentityUi
         }
     }
 
+    private static void EnsureBookTitleField(PreviewProject project, Control page)
+    {
+        if (Descendants(page).OfType<TextBox>().Any(t => string.Equals(t.Name, "DiezBookTitle", StringComparison.Ordinal))) return;
+        var root = Descendants(page).OfType<StackPanel>().FirstOrDefault(panel =>
+            panel.Children.OfType<TextBlock>().Any(text =>
+                (text.Text ?? string.Empty).Contains("Quale libro stai preparando?", StringComparison.OrdinalIgnoreCase)));
+        if (root is null) return;
+
+        var title = new TextBox
+        {
+            Name = "DiezBookTitle",
+            Text = project.EditionMetadata?.Title ?? string.Empty,
+            Watermark = "Titolo del libro",
+            MinHeight = 40,
+            MaxWidth = 620,
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
+            Background = Brushes.White,
+            Foreground = Brushes.Black,
+            BorderBrush = Brushes.Gray,
+            BorderThickness = new Thickness(2),
+            Padding = new Thickness(9, 7)
+        };
+        title.TextChanged += (_, _) => project.EditionMetadata.Title = (title.Text ?? string.Empty).Trim();
+
+        var field = new StackPanel
+        {
+            Name = "DiezBookTitleField",
+            Spacing = 4,
+            Children =
+            {
+                new TextBlock { Text = "Titolo del libro", FontSize = 15 },
+                title,
+                new TextBlock
+                {
+                    Text = "Serve per nomi file leggibili (diez-[titolo]-prompt-pack/response-vNNN). L'identità interna del progetto resta l'ID Diez.",
+                    FontSize = 12,
+                    TextWrapping = TextWrapping.Wrap
+                }
+            }
+        };
+
+        var comboIndex = root.Children
+            .Select((child, index) => (child, index))
+            .FirstOrDefault(x => x.child is ComboBox).index;
+        if (comboIndex <= 0 || comboIndex > root.Children.Count) root.Children.Add(field);
+        else root.Children.Insert(comboIndex, field);
+    }
+
     private static void RewritePrompt(TextBox prompt, bool illustrated)
     {
         var text = prompt.Text ?? string.Empty;
@@ -78,7 +129,6 @@ internal static class SingleWindowVisualBookIdentityUi
             : text.Replace("per un Coloring Book", "per una Raccolta immagini", StringComparison.OrdinalIgnoreCase)
                   .Replace("Output Coloring Book", "Output Raccolta immagini", StringComparison.OrdinalIgnoreCase);
 
-        // Never carry Coloring-only binary-color instructions into a non-Coloring project.
         rewritten = RemoveColoringBinaryLines(rewritten);
         if (!string.Equals(rewritten, text, StringComparison.Ordinal)) prompt.Text = rewritten;
     }
