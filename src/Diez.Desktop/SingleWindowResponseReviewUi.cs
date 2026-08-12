@@ -83,9 +83,9 @@ internal static class SingleWindowResponseReviewUi
             var state = AiExchangeStateStore.Load(project);
             var version = LatestVersion(state, row.Unit);
             var failure = AiExchangeResponseFailureStore.Latest(project, row.Unit.WorkUnitId);
-            if (version is null && failure is not null)
+            if (FailureIsCurrent(version, failure))
             {
-                info.Text = $"{row.Unit.Code} · v{failure.CandidateVersion} · FAILED · nessun asset accettato";
+                info.Text = $"{row.Unit.Code} · v{failure!.CandidateVersion} · FAILED · nessun asset accettato";
                 var lines = new List<string>
                 {
                     "Esito provider: FAILED",
@@ -94,13 +94,15 @@ internal static class SingleWindowResponseReviewUi
                 if (!string.IsNullOrWhiteSpace(failure.Description)) lines.Add("Descrizione provider: " + failure.Description);
                 if (!string.IsNullOrWhiteSpace(failure.RenderRequestId)) lines.Add("render_request_id: " + failure.RenderRequestId);
                 if (!string.IsNullOrWhiteSpace(failure.RenderPromptSha256)) lines.Add("render_prompt_sha256: " + failure.RenderPromptSha256);
+                if (version is not null)
+                    lines.Add($"Nota: esiste una Candidate precedente v{version.VersionNumber}, ma il tentativo corrente v{failure.CandidateVersion} è FAILED e resta lo stato mostrato.");
                 audit.Text = string.Join(Environment.NewLine, lines);
                 description.Text = failure.Description;
                 description.IsEnabled = false;
                 save.IsEnabled = false;
                 approve.IsEnabled = false;
                 SetPreview(host, Placeholder(
-                    "FAILED — nessun asset incluso. Il renderer ha restituito un risultato non conforme e Diez lo ha correttamente scartato; non c'è un'immagine da approvare o visualizzare."));
+                    "FAILED — nessun asset incluso. Il renderer ha restituito un risultato non conforme e Diez lo ha correttamente scartato; non c'è un'immagine corrente da approvare o visualizzare."));
                 return;
             }
 
@@ -142,7 +144,8 @@ internal static class SingleWindowResponseReviewUi
             if (row is null) return;
             var state = AiExchangeStateStore.Load(project);
             var version = LatestVersion(state, row.Unit);
-            if (version is null) return;
+            var failure = AiExchangeResponseFailureStore.Latest(project, row.Unit.WorkUnitId);
+            if (version is null || FailureIsCurrent(version, failure)) return;
             version.Description = (description.Text ?? string.Empty).Trim();
             version.DescriptionStatus = string.IsNullOrWhiteSpace(version.Description)
                 ? AiExchangeDescriptionStatuses.Missing
@@ -163,7 +166,8 @@ internal static class SingleWindowResponseReviewUi
             if (row is null) return;
             var state = AiExchangeStateStore.Load(project);
             var version = LatestVersion(state, row.Unit);
-            if (version is null) return;
+            var failure = AiExchangeResponseFailureStore.Latest(project, row.Unit.WorkUnitId);
+            if (version is null || FailureIsCurrent(version, failure)) return;
             if (!AiExchangeApprovalService.Approve(project, state, version.VersionId, out var message))
             {
                 info.Text = message;
@@ -225,6 +229,9 @@ internal static class SingleWindowResponseReviewUi
         SingleWindowVisionValidationUi.EnsureCurrentPage(window);
         if (rows.Count > 0) list.SelectedIndex = 0;
     }
+
+    internal static bool FailureIsCurrent(AiExchangeVersion? version, AiExchangeResponseFailureStore.Record? failure) =>
+        failure is not null && (version is null || failure.CandidateVersion >= version.VersionNumber);
 
     private static AiExchangeVersion? LatestVersion(AiExchangeState state, AiExchangeWorkUnit unit) =>
         state.Versions
@@ -311,8 +318,8 @@ internal static class SingleWindowResponseReviewUi
 
         public override string ToString()
         {
+            if (FailureIsCurrent(Version, Failure)) return $"{Unit.Code} · v{Failure!.CandidateVersion} · FAILED";
             if (Version is not null) return $"{Unit.Code} · v{Version.VersionNumber} · {Version.Status}";
-            if (Failure is not null) return $"{Unit.Code} · v{Failure.CandidateVersion} · FAILED";
             return $"{Unit.Code} · nessun Response";
         }
     }
