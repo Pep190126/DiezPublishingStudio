@@ -40,35 +40,56 @@ internal static class SingleWindowResponseReviewUiContractProbe
                     .Max();
                 var failedVersion = latestVersion + 1;
                 failedVersions[unit.WorkUnitId] = failedVersion;
+                var packageId = "UI-CONTRACT-PACKAGE";
+                var promptPackId = Guid.NewGuid();
+                var renderRequestId = Guid.NewGuid().ToString("D");
+                const string reason = "Renderer produced three bordered panels; one-composition hard lock failed.";
                 AiExchangeResponseFailureStore.RecordFailure(
                     project,
-                    "UI-CONTRACT-PACKAGE",
-                    Guid.NewGuid(),
+                    packageId,
+                    promptPackId,
                     unit.WorkUnitId,
                     failedVersion,
                     "Triptych rejected.",
-                    "Renderer produced three bordered panels; one-composition hard lock failed.",
-                    Guid.NewGuid().ToString("D"),
+                    reason,
+                    renderRequestId,
                     new string('a', 64));
-                RequireFailure(project, unit, failedVersion, "immediatamente dopo RecordFailure");
+                if (!AiExchangeResponseFailureStore.RecordFailureVersion(
+                        state,
+                        unit,
+                        packageId,
+                        promptPackId,
+                        failedVersion,
+                        "Triptych rejected.",
+                        reason,
+                        renderRequestId,
+                        new string('a', 64),
+                        null))
+                    throw new InvalidOperationException(unit.Code + ": FAILED centrale non registrabile.");
+                RequireFailure(project, state, unit, failedVersion, "immediatamente dopo RecordFailure");
             }
+            AiExchangeStateStore.Save(project, state);
             await ProjectFileStore.SaveAsync(path, project);
 
+            var memoryState = AiExchangeStateStore.Load(project);
             foreach (var unit in units)
-                RequireFailure(project, unit, failedVersions[unit.WorkUnitId], "dopo ProjectFileStore.SaveAsync in memoria");
+                RequireFailure(project, memoryState, unit, failedVersions[unit.WorkUnitId], "dopo ProjectFileStore.SaveAsync in memoria");
 
             var reloaded = await ProjectFileStore.LoadAsync(path);
+            var reloadedState = AiExchangeStateStore.Load(reloaded);
             foreach (var unit in units)
-                RequireFailure(reloaded, unit, failedVersions[unit.WorkUnitId], "dopo reload fisico del .diez");
+                RequireFailure(reloaded, reloadedState, unit, failedVersions[unit.WorkUnitId], "dopo reload fisico del .diez");
 
             var sessionProject = typeof(MainWindow).GetField("_project", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(window) as PreviewProject
                 ?? throw new InvalidOperationException("Progetto sessione assente prima della Review.");
+            var sessionState = AiExchangeStateStore.Load(sessionProject);
             foreach (var unit in units)
-                RequireFailure(sessionProject, unit, failedVersions[unit.WorkUnitId], "nella sessione MainWindow prima della Review");
+                RequireFailure(sessionProject, sessionState, unit, failedVersions[unit.WorkUnitId], "nella sessione MainWindow prima della Review");
 
             SingleWindowResponseReviewUi.Open(window);
+            var afterOpenState = AiExchangeStateStore.Load(project);
             foreach (var unit in units)
-                RequireFailure(project, unit, failedVersions[unit.WorkUnitId], "subito dopo apertura sincrona della Review");
+                RequireFailure(project, afterOpenState, unit, failedVersions[unit.WorkUnitId], "subito dopo apertura sincrona della Review");
             await WaitAsync(260);
             if (pageHost.Content is not Grid root || root.Name != "DiezResponseReviewPage")
                 throw new InvalidOperationException("Response Review non usa la pagina sicura dedicata.");
@@ -103,13 +124,24 @@ internal static class SingleWindowResponseReviewUiContractProbe
         }
     }
 
-    private static void RequireFailure(PreviewProject project, AiExchangeWorkUnit unit, int expectedVersion, string stage)
+    private static void RequireFailure(
+        PreviewProject project,
+        AiExchangeState state,
+        AiExchangeWorkUnit unit,
+        int expectedVersion,
+        string stage)
     {
-        var failure = AiExchangeResponseFailureStore.Latest(project, unit.WorkUnitId);
+        var failure = AiExchangeResponseFailureStore.Latest(project, state, unit.WorkUnitId);
         if (failure is null)
             throw new InvalidOperationException($"{unit.Code}: FAILED perso {stage}. Entity kinds: {string.Join(", ", project.Entities.Select(e => e.Kind))}");
         if (failure.CandidateVersion != expectedVersion)
             throw new InvalidOperationException($"{unit.Code}: FAILED v{failure.CandidateVersion} invece di v{expectedVersion} {stage}.");
+        var central = state.Versions.FirstOrDefault(v =>
+            v.WorkUnitId == unit.WorkUnitId &&
+            v.VersionNumber == expectedVersion &&
+            AiExchangeResponseFailureStore.IsFailureVersion(v));
+        if (central is null)
+            throw new InvalidOperationException($"{unit.Code}: audit FAILED centrale assente {stage}.");
     }
 
     private static async Task WaitAsync(int ms)
