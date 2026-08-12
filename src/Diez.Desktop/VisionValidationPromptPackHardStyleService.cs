@@ -20,10 +20,10 @@ internal static class VisionValidationPromptPackHardStyleService
             project, projectPath, exchange, versionIds, outputPath);
         if (!result.Success) return result;
         RewriteInstructions(EnsureZip(outputPath));
-        return result with
-        {
-            Message = result.Message + " · Style match e composizione singola sono criteri HARD quando esplicitamente richiesti."
-        };
+        return (
+            true,
+            result.Message + " · Style match e composizione singola sono criteri HARD quando esplicitamente richiesti.",
+            result.ValidationPackId);
     }
 
     internal static void RewriteInstructions(string zipPath)
