@@ -11,6 +11,7 @@ internal static class PromptEnglishNormalizer
 {
     private static readonly (string Source, string Target)[] Replacements =
     [
+        ("Bianco e nero puro — esclusivamente #000000 e #FFFFFF", "Pure black and white — exclusively #000000 and #FFFFFF"),
         ("3 immagini separate di animali della jungla", "3 separate images of jungle animals"),
         ("3 immagini separate di animali della giungla", "3 separate images of jungle animals"),
         ("3 immagini, una per ogni animale", "3 images, one per animal"),
