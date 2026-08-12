@@ -11,7 +11,7 @@ namespace DiezPublishingStudio;
 internal static class PromptPackRendererVisualBriefService
 {
     private static readonly Regex SeriesLayoutOrRoutingDirective = new(
-        @"(?i)(?:\b\d+\s+(?:images?|immagini|illustrations?|illustrazioni|panels?|pannelli)\b|\b(?:one|una|un['’]?unica?)\s+(?:image|immagine)\b.{0,40}\b\d+\s+(?:illustrations?|illustrazioni|images?|immagini)\b|\b(?:one|una|un['’]?)\s*(?:image|immagine)\s+(?:per|for)\s+(?:each|every|ogni)\s+(?:animal|animale|subject|soggetto)\b|\b(?:triptych|trittico|contact\s+sheet|collage|multi[- ]?panel|griglia|grid)\b)",
+        @"(?i)(?:\b\d+\s+(?:images?|immagini|illustrations?|illustrazioni|panels?|pannelli)\b|\b(?:one|una|un['’]?unica?)\s+(?:image|immagine)\b.{0,40}\b\d+\s+(?:illustrations?|illustrazioni|images?|immagini)\b|\b(?:one|una|un['’]?)\s*(?:image|immagine)\s+(?:(?:for)\s+(?:each|every)\s+|(?:per)\s+(?:ogni\s+)?)(?:animals?|animali|animale|subjects?|soggetti|soggetto)\b|\b(?:triptych|trittico|contact\s+sheet|collage|multi[- ]?panel|griglia|grid)\b)",
         RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     private static readonly string[] OperationalMarkers =
