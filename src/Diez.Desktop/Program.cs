@@ -37,6 +37,7 @@ internal static class Program
                 AiExchangeApiSelfTest.RunAsync().GetAwaiter().GetResult();
                 AiExchangeImageContextSelfTest.RunAsync().GetAwaiter().GetResult();
                 PromptEngineeringSelfTest.Run();
+                MultiSubjectProfileSelfTest.Run();
                 PromptPackRendererVisualBriefSelfTest.Run();
                 PromptPackRegressionSelfTest.RunAsync().GetAwaiter().GetResult();
                 PromptPackExecutionPlanSelfTest.RunAsync().GetAwaiter().GetResult();
