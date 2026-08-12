@@ -2,24 +2,49 @@ using System.Reflection;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
-using Avalonia.Media;
+using Avalonia.Threading;
 
 namespace DiezPublishingStudio;
 
 /// <summary>
-/// Adds the independent Bold & Easy HARD parameter to the native Coloring profile.
-/// The visual style remains a separate single-choice control. Fine/thin line weights force
-/// Bold & Easy OFF and disable the contradictory ON choice while those line weights are active.
+/// Adds two independent bidirectional HARD Coloring parameters: Bold & Easy and Cozy.
+/// Visual Style stays a separate single-choice dimension. Thin/fine line weights force Bold & Easy OFF;
+/// Cozy remains independently selectable ON/OFF with either thin or thick line work.
 /// </summary>
 internal static class SingleWindowColoringStylePolicyUi
 {
-    private const string ControlName = "ColoringBoldEasyHard";
-    private const string StatusName = "ColoringBoldEasyHardStatus";
-    private static readonly HashSet<Control> WiredLineControls = [];
-    private static readonly HashSet<Control> WiredBoldControls = [];
+    private const string BoldControlName = "ColoringBoldEasyHard";
+    private const string BoldStatusName = "ColoringBoldEasyHardStatus";
+    private const string CozyControlName = "ColoringCozyHard";
+    private const string CozyStatusName = "ColoringCozyHardStatus";
 
-    private const string OnLabel = "ON — Bold & Easy HARD";
-    private const string OffLabel = "OFF — No Bold & Easy HARD";
+    private const string BoldOnLabel = "ON — Bold & Easy HARD";
+    private const string BoldOffLabel = "OFF — No Bold & Easy HARD";
+    private const string CozyOnLabel = "ON — Cozy HARD";
+    private const string CozyOffLabel = "OFF — No Cozy HARD";
+
+    private static readonly HashSet<MainWindow> Attached = [];
+    private static readonly HashSet<Control> Wired = [];
+
+    public static void Attach(MainWindow window)
+    {
+        if (!Attached.Add(window)) return;
+        object host;
+        try { host = SingleWindowEntryPointUi.GetHost(window); }
+        catch { return; }
+        var pageHost = host.GetType().GetField("_pageHost", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(host) as ContentControl;
+        if (pageHost is not null)
+        {
+            pageHost.PropertyChanged += (_, e) =>
+            {
+                if (e.Property != ContentControl.ContentProperty) return;
+                Dispatcher.UIThread.Post(() => Refresh(window), DispatcherPriority.Loaded);
+                Dispatcher.UIThread.Post(() => Refresh(window), DispatcherPriority.Background);
+            };
+        }
+        window.Closed += (_, _) => Attached.Remove(window);
+        Refresh(window);
+    }
 
     public static void Refresh(MainWindow window)
     {
@@ -30,9 +55,6 @@ internal static class SingleWindowColoringStylePolicyUi
         var pageHost = host.GetType().GetField("_pageHost", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(host) as ContentControl;
         if (pageHost?.Content is not Control page) return;
 
-        // After leaving the quantity/profile page, re-synchronize the profile property from the independent
-        // policy store. This prevents the native page's older captured profile object from overwriting a
-        // freshly changed Bold & Easy value during its normal save sequence.
         if (!Descendants(page).Any(c => string.Equals(c.Name, "DiezNativeColoringProfile", StringComparison.Ordinal)))
         {
             SyncPersistedProfile(project, path);
@@ -47,33 +69,26 @@ internal static class SingleWindowColoringStylePolicyUi
             string.Equals(c.Name, "ColoringStyle", StringComparison.Ordinal));
         if (profilePanel is null || line is null || style is null) return;
 
-        // The style ComboBox already reads BookTypePromptProfileService.ColoringStyles, so the expanded
-        // one-style-per-entry catalogue is automatically authoritative here.
-        var bold = Descendants(page).OfType<ComboBox>().FirstOrDefault(c =>
-            string.Equals(c.Name, ControlName, StringComparison.Ordinal));
-        var status = Descendants(page).OfType<TextBlock>().FirstOrDefault(t =>
-            string.Equals(t.Name, StatusName, StringComparison.Ordinal));
+        var hard = ColoringIndependentHardProfileService.Resolve(project);
+        var styles = ColoringIndependentHardProfileService.SelectableStyles;
+        style.ItemsSource = styles;
+        style.SelectedItem = styles.FirstOrDefault(x => string.Equals(x, hard.Style, StringComparison.OrdinalIgnoreCase))
+                             ?? "Clean Line Art";
 
+        var bold = Descendants(page).OfType<ComboBox>().FirstOrDefault(c => string.Equals(c.Name, BoldControlName, StringComparison.Ordinal));
+        var boldStatus = Descendants(page).OfType<TextBlock>().FirstOrDefault(t => string.Equals(t.Name, BoldStatusName, StringComparison.Ordinal));
         if (bold is null)
         {
-            var p = BookTypePromptProfileService.LoadColoring(project);
-            var enabled = ColoringBoldEasyPolicyStore.Resolve(project, line.SelectedItem?.ToString() ?? p.LineWeight, p.BoldEasy);
             bold = new ComboBox
             {
-                Name = ControlName,
-                ItemsSource = new[] { OnLabel, OffLabel },
-                SelectedItem = enabled ? OnLabel : OffLabel,
-                Width = 290,
+                Name = BoldControlName,
+                ItemsSource = new[] { BoldOnLabel, BoldOffLabel },
+                SelectedItem = hard.BoldEasy ? BoldOnLabel : BoldOffLabel,
+                Width = 310,
                 HorizontalAlignment = HorizontalAlignment.Left
             };
-            status = new TextBlock
-            {
-                Name = StatusName,
-                TextWrapping = TextWrapping.Wrap,
-                MaxWidth = 780
-            };
-
-            var block = new StackPanel
+            boldStatus = new TextBlock { Name = BoldStatusName, TextWrapping = TextWrapping.Wrap, MaxWidth = 780 };
+            InsertAfterStyle(profilePanel, style, new StackPanel
             {
                 Name = "ColoringBoldEasyHardBlock",
                 Spacing = 5,
@@ -81,91 +96,129 @@ internal static class SingleWindowColoringStylePolicyUi
                 {
                     new TextBlock { Text = "Bold & Easy — parametro indipendente HARD", FontSize = 14 },
                     bold,
-                    status
+                    boldStatus
                 }
-            };
-
-            var styleContainer = FindDirectContainer(profilePanel, style);
-            var insertIndex = styleContainer is null ? 2 : profilePanel.Children.IndexOf(styleContainer) + 1;
-            profilePanel.Children.Insert(Math.Clamp(insertIndex, 0, profilePanel.Children.Count), block);
+            });
         }
 
-        if (WiredBoldControls.Add(bold))
+        var cozy = Descendants(page).OfType<ComboBox>().FirstOrDefault(c => string.Equals(c.Name, CozyControlName, StringComparison.Ordinal));
+        var cozyStatus = Descendants(page).OfType<TextBlock>().FirstOrDefault(t => string.Equals(t.Name, CozyStatusName, StringComparison.Ordinal));
+        if (cozy is null)
         {
-            bold.SelectionChanged += async (_, _) =>
+            cozy = new ComboBox
             {
-                var currentLine = line.SelectedItem?.ToString() ?? string.Empty;
-                var requested = string.Equals(bold.SelectedItem?.ToString(), OnLabel, StringComparison.Ordinal);
-                if (BookTypePromptProfileService.IsThinLineWeight(currentLine)) requested = false;
-                ColoringBoldEasyPolicyStore.Save(project, requested, currentLine);
-                var p = BookTypePromptProfileService.LoadColoring(project);
-                p.BoldEasy = requested;
-                p.LineWeight = currentLine;
-                BookTypePromptProfileService.SaveColoring(project, p);
-                try { await ProjectFileStore.SaveAsync(path, project); } catch { }
-                ApplyConstraint(project, line, bold, status!);
+                Name = CozyControlName,
+                ItemsSource = new[] { CozyOnLabel, CozyOffLabel },
+                SelectedItem = hard.Cozy ? CozyOnLabel : CozyOffLabel,
+                Width = 310,
+                HorizontalAlignment = HorizontalAlignment.Left
             };
+            cozyStatus = new TextBlock { Name = CozyStatusName, TextWrapping = TextWrapping.Wrap, MaxWidth = 780 };
+            var boldBlock = Descendants(profilePanel).OfType<StackPanel>()
+                .FirstOrDefault(x => string.Equals(x.Name, "ColoringBoldEasyHardBlock", StringComparison.Ordinal));
+            var index = boldBlock is null ? 2 : profilePanel.Children.IndexOf(boldBlock) + 1;
+            profilePanel.Children.Insert(Math.Clamp(index, 0, profilePanel.Children.Count), new StackPanel
+            {
+                Name = "ColoringCozyHardBlock",
+                Spacing = 5,
+                Children =
+                {
+                    new TextBlock { Text = "Cozy — parametro indipendente HARD", FontSize = 14 },
+                    cozy,
+                    cozyStatus
+                }
+            });
         }
 
-        if (WiredLineControls.Add(line))
+        ApplyConstraints(line, bold, boldStatus!, cozy, cozyStatus!);
+
+        void Persist()
         {
-            line.SelectionChanged += async (_, _) =>
-            {
-                ApplyConstraint(project, line, bold, status!);
-                var currentLine = line.SelectedItem?.ToString() ?? string.Empty;
-                var enabled = string.Equals(bold.SelectedItem?.ToString(), OnLabel, StringComparison.Ordinal);
-                ColoringBoldEasyPolicyStore.Save(project, enabled, currentLine);
-                var p = BookTypePromptProfileService.LoadColoring(project);
-                p.BoldEasy = enabled;
-                p.LineWeight = currentLine;
-                BookTypePromptProfileService.SaveColoring(project, p);
-                try { await ProjectFileStore.SaveAsync(path, project); } catch { }
-            };
+            var lineWeight = line.SelectedItem?.ToString() ?? hard.LineWeight;
+            var boldEnabled = string.Equals(bold.SelectedItem?.ToString(), BoldOnLabel, StringComparison.Ordinal);
+            if (BookTypePromptProfileService.IsThinLineWeight(lineWeight)) boldEnabled = false;
+            var cozyEnabled = string.Equals(cozy.SelectedItem?.ToString(), CozyOnLabel, StringComparison.Ordinal);
+            ColoringIndependentHardProfileService.PersistResolvedState(
+                project,
+                style.SelectedItem?.ToString(),
+                lineWeight,
+                boldEnabled,
+                cozyEnabled);
+            _ = ProjectFileStore.SaveAsync(path, project);
         }
 
-        ApplyConstraint(project, line, bold, status!);
+        if (Wired.Add(style))
+            style.SelectionChanged += (_, _) => Persist();
+        if (Wired.Add(bold))
+            bold.SelectionChanged += (_, _) =>
+            {
+                ApplyConstraints(line, bold, boldStatus!, cozy, cozyStatus!);
+                Persist();
+            };
+        if (Wired.Add(cozy))
+            cozy.SelectionChanged += (_, _) =>
+            {
+                ApplyConstraints(line, bold, boldStatus!, cozy, cozyStatus!);
+                Persist();
+            };
+        if (Wired.Add(line))
+            line.SelectionChanged += (_, _) =>
+            {
+                ApplyConstraints(line, bold, boldStatus!, cozy, cozyStatus!);
+                Persist();
+            };
     }
 
-    private static void ApplyConstraint(PreviewProject project, ComboBox line, ComboBox bold, TextBlock status)
+    private static void ApplyConstraints(
+        ComboBox line,
+        ComboBox bold,
+        TextBlock boldStatus,
+        ComboBox cozy,
+        TextBlock cozyStatus)
     {
         var lineWeight = line.SelectedItem?.ToString() ?? string.Empty;
         var thin = BookTypePromptProfileService.IsThinLineWeight(lineWeight);
         if (thin)
         {
-            if (!string.Equals(bold.SelectedItem?.ToString(), OffLabel, StringComparison.Ordinal))
-                bold.SelectedItem = OffLabel;
+            if (!string.Equals(bold.SelectedItem?.ToString(), BoldOffLabel, StringComparison.Ordinal))
+                bold.SelectedItem = BoldOffLabel;
             bold.IsEnabled = false;
-            status.Text = "HARD: con linee Sottile/Fine o Molto sottile/Extra Fine, Bold & Easy è forzato OFF. Il renderer non può ispessire o semplificare la tavola in stile Bold & Easy.";
-            ColoringBoldEasyPolicyStore.Save(project, false, lineWeight);
+            boldStatus.Text = "HARD OFF: linee Sottile/Fine o Molto sottile/Extra Fine vietano Bold & Easy. Il renderer non può ispessire né semplificare la tavola in Bold & Easy.";
         }
         else
         {
             bold.IsEnabled = true;
-            status.Text = string.Equals(bold.SelectedItem?.ToString(), OnLabel, StringComparison.Ordinal)
+            boldStatus.Text = string.Equals(bold.SelectedItem?.ToString(), BoldOnLabel, StringComparison.Ordinal)
                 ? "HARD ON: Bold & Easy deve essere visibilmente rispettato oltre allo stile selezionato."
-                : "HARD OFF: il renderer non deve applicare automaticamente la semplificazione Bold & Easy; stile, spessore, complessità e densità restano autoritativi.";
+                : "HARD OFF: niente semplificazione o ispessimento automatico Bold & Easy; stile, spessore, complessità e densità restano autoritativi.";
         }
+
+        cozy.IsEnabled = true;
+        cozyStatus.Text = string.Equals(cozy.SelectedItem?.ToString(), CozyOnLabel, StringComparison.Ordinal)
+            ? "HARD ON: la pagina deve risultare visibilmente Cozy, oltre allo stile selezionato."
+            : "HARD OFF: il renderer non deve trasformare automaticamente atmosfera, scena o decorazioni in una resa Cozy.";
+    }
+
+    private static void InsertAfterStyle(StackPanel root, Control style, Control block)
+    {
+        var styleContainer = FindDirectContainer(root, style);
+        var index = styleContainer is null ? 2 : root.Children.IndexOf(styleContainer) + 1;
+        root.Children.Insert(Math.Clamp(index, 0, root.Children.Count), block);
     }
 
     private static Control? FindDirectContainer(StackPanel root, Control descendant)
     {
         foreach (var child in root.Children.OfType<Control>())
-        {
             if (ReferenceEquals(child, descendant) || Descendants(child).Any(c => ReferenceEquals(c, descendant)))
                 return child;
-        }
         return null;
     }
 
     private static void SyncPersistedProfile(PreviewProject project, string path)
     {
-        if (!ColoringBoldEasyPolicyStore.TryLoad(project, out var enabled)) return;
         if (!string.Equals(BookTypeProfileService.Get(project), BookTypeProfileService.ColoringBook, StringComparison.OrdinalIgnoreCase)) return;
-        var p = BookTypePromptProfileService.LoadColoring(project);
-        var effective = BookTypePromptProfileService.IsThinLineWeight(p.LineWeight) ? false : enabled;
-        if (p.BoldEasy == effective) return;
-        p.BoldEasy = effective;
-        BookTypePromptProfileService.SaveColoring(project, p);
+        var hard = ColoringIndependentHardProfileService.Resolve(project);
+        ColoringIndependentHardProfileService.PersistResolvedState(project, hard.Style, hard.LineWeight, hard.BoldEasy, hard.Cozy);
         _ = ProjectFileStore.SaveAsync(path, project);
     }
 
