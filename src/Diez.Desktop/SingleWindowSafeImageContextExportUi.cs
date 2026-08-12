@@ -13,6 +13,7 @@ internal static class SingleWindowSafeImageContextExportUi
 {
     private const string SafeButtonName = "DiezSafeImageContextExport";
     private const string SafeImportName = "DiezSafeImageContextImport";
+    private const string SafeReviewName = "DiezSafeResponseReview";
 
     public static void Attach(MainWindow window)
     {
@@ -38,7 +39,9 @@ internal static class SingleWindowSafeImageContextExportUi
             b.IsVisible && string.Equals(b.Content?.ToString(), "Crea Prompt Pack ZIP", StringComparison.Ordinal));
         var oldImport = Descendants(page).OfType<Button>().FirstOrDefault(b =>
             b.IsVisible && string.Equals(b.Content?.ToString(), "Importa risultati AI", StringComparison.Ordinal));
-        var row = oldExport?.Parent as StackPanel ?? oldImport?.Parent as StackPanel;
+        var oldReview = Descendants(page).OfType<Button>().FirstOrDefault(b =>
+            b.IsVisible && string.Equals(b.Content?.ToString(), "Controlla risultati", StringComparison.Ordinal));
+        var row = oldExport?.Parent as StackPanel ?? oldImport?.Parent as StackPanel ?? oldReview?.Parent as StackPanel;
         if (row is null) return;
 
         if (oldExport is not null && !Descendants(page).Any(c => string.Equals(c.Name, SafeButtonName, StringComparison.Ordinal)))
@@ -107,7 +110,7 @@ internal static class SingleWindowSafeImageContextExportUi
                 HorizontalContentAlignment = HorizontalAlignment.Center
             };
             ToolTip.SetTip(safeImport,
-                "Verifica manifest e asset di ogni Work Unit prima dell'import e controlla la Candidate risultante dopo l'ingest. Il nome file è solo leggibile: gli ID interni restano autoritativi.");
+                "Verifica manifest e asset di ogni Work Unit prima dell'import. Anche i FAILED senza asset vengono registrati e mostrati nella revisione. Il nome file è solo leggibile: gli ID interni restano autoritativi.");
             safeImport.Click += async (_, _) =>
             {
                 var files = await window.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
@@ -122,11 +125,28 @@ internal static class SingleWindowSafeImageContextExportUi
                 var result = await AiExchangeResponseImportV2.ImportAsync(
                     project, path, state, files.Select(f => f.Path.LocalPath));
                 SetStatus(window, result.Message);
-                SingleWindowEntryPointUi.Invoke(host, "OpenReview");
+                SingleWindowResponseReviewUi.Open(window);
             };
 
             var index = row.Children.IndexOf(oldImport);
             row.Children.Insert(index < 0 ? row.Children.Count : index + 1, safeImport);
+        }
+
+        if (oldReview is not null && !Descendants(page).Any(c => string.Equals(c.Name, SafeReviewName, StringComparison.Ordinal)))
+        {
+            oldReview.IsVisible = false;
+            var safeReview = new Button
+            {
+                Name = SafeReviewName,
+                Content = "Controlla risultati",
+                Width = 175,
+                HorizontalContentAlignment = HorizontalAlignment.Center
+            };
+            ToolTip.SetTip(safeReview,
+                "Apre la revisione scrollabile: Candidate con asset e FAILED provider senza asset restano stati distinti e auditabili.");
+            safeReview.Click += (_, _) => SingleWindowResponseReviewUi.Open(window);
+            var index = row.Children.IndexOf(oldReview);
+            row.Children.Insert(index < 0 ? row.Children.Count : index + 1, safeReview);
         }
     }
 
