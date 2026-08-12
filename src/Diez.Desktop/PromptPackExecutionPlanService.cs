@@ -14,7 +14,7 @@ namespace DiezPublishingStudio;
 /// </summary>
 internal static class PromptPackExecutionPlanService
 {
-    public const string ProtocolVersion = "1.4";
+    public const string ProtocolVersion = "1.3";
     private const string ManifestName = "prompt-manifest.json";
     private const string ContextName = "request-context.json";
     private const string InstructionsName = "instructions.md";
@@ -110,7 +110,8 @@ internal static class PromptPackExecutionPlanService
                 ["renderer_prompt_scope"] = "VISUAL_ONLY",
                 ["fresh_generation_required"] = true,
                 ["fresh_context_owner"] = "EXECUTOR",
-                ["chat_session_policy"] = "NEW_TEMPORARY_OR_NEW_BLANK_CHAT",
+                ["chat_session_policy"] = "NEW_RENDERER_CALL_NO_PRIOR_IMAGE_REFERENCE",
+                ["clean_room_chat_policy"] = "NEW_TEMPORARY_OR_NEW_BLANK_CHAT",
                 ["reuse_prior_generated_images_forbidden"] = true,
                 ["source_image_policy"] = sourcePolicy,
                 ["renderer_prompt_source"] = "prompt_file_verbatim",
@@ -138,13 +139,15 @@ internal static class PromptPackExecutionPlanService
             ["start_here"] = StartName,
             ["render_plan"] = PlanName,
             ["clean_room_queue"] = PromptPackCleanRoomQueueService.QueueFileName,
+            ["clean_room_queue_version"] = PromptPackCleanRoomQueueService.QueueProtocolVersion,
             ["clean_room_launcher"] = PromptPackCleanRoomQueueService.LauncherFileName,
             ["renderer_prompt_source"] = "render-prompts/*.txt",
             ["renderer_prompt_scope"] = "VISUAL_ONLY",
             ["one_work_unit_per_renderer_call"] = true,
             ["fresh_generation_required"] = true,
             ["fresh_context_owner"] = "EXECUTOR",
-            ["chat_session_policy"] = "GUIDED_TEMPORARY_OR_NEW_BLANK_CHAT_PER_WORK_UNIT",
+            ["chat_session_policy"] = "NEW_RENDERER_CALL_NO_PRIOR_IMAGE_REFERENCE",
+            ["clean_room_chat_policy"] = "GUIDED_TEMPORARY_OR_NEW_BLANK_CHAT_PER_WORK_UNIT",
             ["same_chat_renderer_isolation_certified"] = false,
             ["partial_response_allowed"] = true,
             ["partial_response_import"] = "MULTI_SELECT_ONCE",
@@ -170,13 +173,15 @@ internal static class PromptPackExecutionPlanService
             ["prompt_pack_filename"] = promptPackFileName,
             ["response_filename"] = responseFileName,
             ["clean_room_queue"] = PromptPackCleanRoomQueueService.QueueFileName,
+            ["clean_room_queue_version"] = PromptPackCleanRoomQueueService.QueueProtocolVersion,
             ["clean_room_launcher"] = PromptPackCleanRoomQueueService.LauncherFileName,
             ["renderer_prompt_source"] = "Read each prompt_file verbatim as VISUAL-ONLY model input; enforce clean-room routing outside the renderer prompt.",
             ["renderer_prompt_scope"] = "VISUAL_ONLY",
             ["one_work_unit_per_renderer_call"] = true,
             ["fresh_generation_required"] = true,
             ["fresh_context_owner"] = "EXECUTOR",
-            ["chat_session_policy"] = "GUIDED_TEMPORARY_OR_NEW_BLANK_CHAT_PER_WORK_UNIT",
+            ["chat_session_policy"] = "NEW_RENDERER_CALL_NO_PRIOR_IMAGE_REFERENCE",
+            ["clean_room_chat_policy"] = "GUIDED_TEMPORARY_OR_NEW_BLANK_CHAT_PER_WORK_UNIT",
             ["same_chat_renderer_isolation_certified"] = false,
             ["partial_response_allowed"] = true,
             ["partial_response_import"] = "MULTI_SELECT_ONCE",
@@ -186,9 +191,6 @@ internal static class PromptPackExecutionPlanService
             ["calls"] = calls
         };
 
-        // A single Prompt Pack now contains a guided clean-room queue. The user executes one disposable
-        // clean chat at a time and downloads one partial Response per Work Unit; Diez already supports
-        // importing all partial ZIPs together and reconciling them on the same request snapshot.
         PromptPackCleanRoomQueueService.Apply(archive, project, packageVersion, manifest, calls);
 
         ReplaceObject(archive, ManifestName, manifest);
@@ -221,6 +223,8 @@ For each task:
 5. Download the partial Response ZIP named `diez-...-response-v{version:D3}-part-NNN.zip`, close/abandon that clean chat, then return to the launcher for the next task.
 6. When all tasks are done, go back to Diez → `Importa risultati AI` and multi-select ALL partial Response ZIPs in one operation. Diez aggregates them on the same Prompt Pack/snapshot and opens one unified Review page.
 
+Compatibility/audit note: the same orchestration chat may be used only when a platform truly gives each image-generation invocation an isolated no-input renderer context. The physical ChatGPT tests showed that a platform may automatically carry prior visual state, so the clean-room queue is the default manual path here. Every task still represents a NEW image-generation invocation at the renderer boundary.
+
 `render-plan.json` and `{PromptPackCleanRoomQueueService.QueueFileName}` remain the machine-readable audit contracts. `render-prompts/*.txt` remains VISUAL-ONLY image-model input. The long manifest/instructions/request-context are never renderer prompts.
 """.Trim();
 
@@ -231,7 +235,7 @@ For each task:
         return (existing ?? string.Empty).TrimEnd() + "\n\n" + $"""
 {marker}
 - Prefer `{PromptPackCleanRoomQueueService.LauncherFileName}` as the human entry point; it guides the entire batch as one queue.
-- Every AI_ONLY Work Unit runs in a NEW Temporary Chat or NEW blank chat because same-chat image isolation is NOT certified by the physical transport tests.
+- Every AI_ONLY Work Unit requires a new image-generation invocation with no prior Work Unit image attached or referenced. For the manual ChatGPT path, use a NEW Temporary Chat or NEW blank chat per Work Unit because same-chat renderer isolation is not certified by the physical tests.
 - `render-prompts/*.txt` is VISUAL-ONLY image-model input. Never forward routing/session/retry/audit metadata to the image renderer.
 - One clean-room task performs one image-generation attempt. A non-compliant result becomes a partial FAILED response rather than an edit/retry inside a contaminated visual conversation.
 - Each task returns a PARTIAL Response ZIP named `diez-...-response-vNNN-part-NNN.zip` with exactly one Work Unit and `partial=true`.
