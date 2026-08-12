@@ -179,6 +179,16 @@ internal static class AiExchangeResponseImportV2
                         details.Add($"{code}: ingest terminato ma Candidate v{item.CandidateVersion} non presente nello stato Diez.");
                         continue;
                     }
+
+                    // A real asset at this candidate version supersedes FAILED attempts for the same
+                    // or older version. A later FAILED response can still become current again.
+                    if (localAssetPath is not null)
+                    {
+                        AiExchangeResponseFailureStore.ClearSupersededByAsset(
+                            project, item.WorkUnitId, item.CandidateVersion);
+                        changed = true;
+                    }
+
                     if (image && !version.MaterialId.HasValue)
                     {
                         incomplete++;
