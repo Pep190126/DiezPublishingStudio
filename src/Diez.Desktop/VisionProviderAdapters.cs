@@ -417,6 +417,7 @@ internal static class VisionValidationDirectService
             await File.WriteAllBytesAsync(tempFile, bytes, cancellationToken);
             var request = VisionValidationSpecificationBuilder.Build(
                 project, exchange, unit, version, Guid.NewGuid(), tempFile, seriesCount, providerTarget);
+            VisionStructuredSubjectService.Apply(project, unit, request);
             var result = await adapter.ValidateAsync(request, tempFile, cancellationToken);
             if (result.VersionId != request.VersionId ||
                 result.WorkUnitId != request.WorkUnitId ||
