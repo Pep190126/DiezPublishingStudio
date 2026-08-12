@@ -53,7 +53,7 @@ This package describes a Diez production job. Read `prompt-manifest.json` and us
 ## IMAGE renderer routing — HARD
 For every IMAGE Work Unit, `image_generation_prompt` is the ONLY prompt text that should be sent to the image-generation renderer. The longer `instruction`, the full manifest, `request-context.json`, transport rules and QA text are orchestration context for the agent and must NOT be pasted wholesale into the renderer prompt.
 
-Process image Work Units independently and sequentially: ONE Work Unit → ONE `image_generation_prompt` → ONE image-generation call → ONE final primary composition. Never combine multiple Work Units into one renderer call, even when they belong to the same series. `series_count` is context only and must never become a triptych, grid, contact sheet, collage or multi-panel image.
+Every IMAGE Work Unit requests EXACTLY ONE image. Process image Work Units independently and sequentially: ONE Work Unit → ONE `image_generation_prompt` → ONE image-generation call → ONE final primary composition. Never combine multiple Work Units into one renderer call, even when they belong to the same series. `series_count` is context only and must never become a triptych, grid, contact sheet, collage or multi-panel image.
 
 Before invoking the renderer, verify that `image_generation_prompt_authoritative = true` and that the concise prompt contains a `PRIMARY SUBJECT — HARD LOCK`. The renderer result is invalid if that subject is not the dominant visible content. Do not try to repair a wrong-subject render merely by changing its description; regenerate the image or return the item as `FAILED`/`INCOMPLETE`.
 
