@@ -55,7 +55,7 @@ internal static class PromptPackRendererVisualBriefService
 
             if (line.StartsWith("BOLD & EASY — HARD:", StringComparison.OrdinalIgnoreCase))
             {
-                var on = line.Contains("ON", StringComparison.OrdinalIgnoreCase);
+                var on = line.StartsWith("BOLD & EASY — HARD: ON", StringComparison.OrdinalIgnoreCase);
                 output.Add(on
                     ? "BOLD & EASY — HARD: ON. Use large simple readable forms, broad colorable regions, restrained interior detail, low visual clutter and confident easy-to-follow contours."
                     : "BOLD & EASY — HARD: OFF. Keep the selected style, line weight, complexity and density at their normal treatment without a Bold & Easy production profile.");
@@ -64,7 +64,7 @@ internal static class PromptPackRendererVisualBriefService
 
             if (line.StartsWith("COZY — HARD:", StringComparison.OrdinalIgnoreCase))
             {
-                var on = line.Contains("ON", StringComparison.OrdinalIgnoreCase);
+                var on = line.StartsWith("COZY — HARD: ON", StringComparison.OrdinalIgnoreCase);
                 output.Add(on
                     ? "COZY — HARD: ON. Use a warm, comforting, gentle and inviting mood with friendly staging, soft approachable shape language and calm supporting details."
                     : "COZY — HARD: OFF. Follow the selected style and requested scene without adding an independent Cozy treatment.");
