@@ -129,7 +129,7 @@ jobs:
             "consistency-free-strategies=USER,AI,MIXED", "consistency-free-user=description-required",
             "consistency-free-ai=description-optional", "consistency-free-mixed=description-required",
             "bleed=image-generation-removed", "prompt-editors=native-3", "undo=ctrl-z", "redo=ctrl-y",
-            "prompt-semantic-engine=3.0", "prompt-provider-compiler=3.1", "prompt-profile-isolation=yes",
+            "prompt-semantic-engine=3.0", "prompt-provider-compiler=3.2", "prompt-profile-isolation=yes",
             "prompt-work-unit-output=1", "visual-context=V3", "response-import=audited-v2",
             "visual-prompt-pipeline=single-source"
           )) {
@@ -220,7 +220,7 @@ jobs:
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
-          name: DiezPublishingStudio-Setup-1.0.0-rc8-SW-FLOW-12-PromptCompiler31
+          name: DiezPublishingStudio-Setup-1.0.0-rc8-SW-FLOW-12-PromptCompiler32-PublicationGate
           path: artifacts/installer/DiezPublishingStudio-Setup.exe
           if-no-files-found: error
           retention-days: 90
