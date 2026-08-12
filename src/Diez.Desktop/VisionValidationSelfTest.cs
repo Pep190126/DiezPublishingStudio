@@ -21,9 +21,13 @@ internal static class VisionValidationSelfTest
             var profile = BookTypePromptProfileService.LoadColoring(project);
             profile.SubjectDescription = "jungle elephant";
             profile.EnvironmentDescription = "simple jungle foliage";
-            profile.Style = "Bold & Easy";
+            profile.Style = "Clean Line Art";
+            profile.BoldEasy = true;
+            profile.LineWeight = "Spesso — Bold";
             profile.TargetAudience = "Bambini 6–9 anni";
             BookTypePromptProfileService.SaveColoring(project, profile);
+            ColoringBoldEasyPolicyStore.Save(project, true, profile.LineWeight);
+            ColoringCozyPolicyStore.Save(project, false);
             PromptPreparationSettingsStore.Save(project, new PromptPreparationSettings
             {
                 ProviderId = PromptEngineeringProviderIds.OpenAi,
@@ -77,12 +81,18 @@ internal static class VisionValidationSelfTest
                     "La specifica semantica del soggetto di serie non arriva al controllo Vision.");
                 Require(manifest.Contains("PRIMARY SUBJECT — HARD LOCK: one elephant", StringComparison.OrdinalIgnoreCase),
                     "Vision non riceve il soggetto atomico autorevole della Work Unit.");
-                Require(manifest.Contains("STYLE — HARD LOCK: Bold & Easy", StringComparison.OrdinalIgnoreCase),
-                    "Vision non riceve lo stile selezionato come HARD LOCK.");
+                Require(manifest.Contains("STYLE — HARD LOCK: Clean Line Art", StringComparison.OrdinalIgnoreCase),
+                    "Vision non riceve lo stile singolo selezionato come HARD LOCK.");
+                Require(manifest.Contains("BOLD & EASY — HARD: ON", StringComparison.Ordinal),
+                    "Vision non riceve Bold & Easy ON come HARD LOCK indipendente.");
+                Require(manifest.Contains("COZY — HARD: OFF", StringComparison.Ordinal),
+                    "Vision non riceve Cozy OFF come HARD LOCK indipendente.");
                 Require(manifest.Contains("COMPOSITION — HARD LOCK", StringComparison.Ordinal),
                     "Vision non riceve il vincolo di composizione singola autorevole.");
                 Require(manifest.Contains("no village, no lake", StringComparison.OrdinalIgnoreCase),
                     "MUST NOT DO non arriva al controllo Vision.");
+                Require(!manifest.Contains("STYLE — HARD LOCK: Bold & Easy", StringComparison.OrdinalIgnoreCase),
+                    "Bold & Easy viene ancora trattato come stile invece che parametro indipendente.");
                 Require(!manifest.Contains("COMMERCIAL COLORING BOOK", StringComparison.OrdinalIgnoreCase),
                     "Vision dipende ancora dal vecchio contratto lungo invece del renderer brief per Work Unit.");
                 Require(instructions.Contains("inspect the REAL candidate image", StringComparison.OrdinalIgnoreCase),
@@ -91,9 +101,12 @@ internal static class VisionValidationSelfTest
                         instructions.Contains("Never infer compliance", StringComparison.OrdinalIgnoreCase),
                     "La descrizione dichiarata dal generatore non è esplicitamente esclusa come prova di conformità.");
                 Require(instructions.Contains("style_match", StringComparison.OrdinalIgnoreCase) &&
-                        instructions.Contains("HARD", StringComparison.OrdinalIgnoreCase) &&
-                        instructions.Contains("single_composition", StringComparison.OrdinalIgnoreCase),
-                    "Le istruzioni Vision manuali non classificano stile selezionato/composizione singola come HARD.");
+                        instructions.Contains("bold_easy_match", StringComparison.OrdinalIgnoreCase) &&
+                        instructions.Contains("cozy_match", StringComparison.OrdinalIgnoreCase) &&
+                        instructions.Contains("line_weight_match", StringComparison.OrdinalIgnoreCase) &&
+                        instructions.Contains("single_composition", StringComparison.OrdinalIgnoreCase) &&
+                        instructions.Contains("HARD", StringComparison.OrdinalIgnoreCase),
+                    "Le istruzioni Vision manuali non classificano tutti i profili semantici autoritativi come HARD.");
             }
 
             var passZip = Path.Combine(root, "vision-pass.zip");
@@ -101,12 +114,15 @@ internal static class VisionValidationSelfTest
                 PromptEngineeringProviderIds.OpenAi, version, unit,
                 VisionValidationStatuses.Pass, 0.96,
                 "A black-and-white coloring page showing a friendly elephant among simple jungle leaves.",
-                "Requested subject and book type are visually aligned.",
+                "Requested subject and hard profiles are visually aligned.",
                 [
                     Check("subject_match", VisionCheckStatuses.Pass, VisionSeverity.Hard, 0.99, "One elephant is clearly visible."),
                     Check("must_not_do", VisionCheckStatuses.Pass, VisionSeverity.Hard, 0.98, "No village or lake is visible."),
                     Check("book_type_fit", VisionCheckStatuses.Pass, VisionSeverity.Hard, 0.97, "The asset is a coloring-page illustration."),
-                    Check("style_match", VisionCheckStatuses.Pass, VisionSeverity.Hard, 0.95, "The artwork visibly follows the selected Bold & Easy style."),
+                    Check("style_match", VisionCheckStatuses.Pass, VisionSeverity.Hard, 0.95, "The artwork visibly follows Clean Line Art."),
+                    Check("bold_easy_match", VisionCheckStatuses.Pass, VisionSeverity.Hard, 0.95, "Bold & Easy ON is visibly satisfied."),
+                    Check("cozy_match", VisionCheckStatuses.Pass, VisionSeverity.Hard, 0.95, "Cozy OFF is respected; no imposed Cozy treatment."),
+                    Check("line_weight_match", VisionCheckStatuses.Pass, VisionSeverity.Hard, 0.95, "The selected thick contour weight is respected."),
                     Check("single_composition", VisionCheckStatuses.Pass, VisionSeverity.Hard, 0.99, "One unified scene is visible."),
                     Check("publication_quality", VisionCheckStatuses.Pass, VisionSeverity.Soft, 0.91, "Clear focal subject and usable composition.")
                 ]);
