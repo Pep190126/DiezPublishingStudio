@@ -14,6 +14,8 @@ internal static class SingleWindowSubjectStyleUi
     private const string CustomSaveName = "ColoringSaveCustomStyle";
     private static readonly HashSet<MainWindow> Attached = [];
     private static readonly HashSet<Control> Wired = [];
+    private static readonly HashSet<StackPanel> SubjectRefreshGuards = [];
+    private static readonly HashSet<StackPanel> ConsistencyRefreshGuards = [];
 
     private static readonly (string Key, string Label)[] SubjectCriteria =
     [
@@ -59,19 +61,19 @@ internal static class SingleWindowSubjectStyleUi
 
     private static void EnsureSubjectUi(PreviewProject project, string path, StackPanel root, Control page, TextBox subject)
     {
-        var model = MultiSubjectProfileService.Load(project);
+        var currentModel = MultiSubjectProfileService.Load(project);
         var existing = Descendants(page).OfType<StackPanel>().FirstOrDefault(x => x.Name == SubjectBarName);
         if (existing is not null)
         {
-            RefreshSubjectState(project, subject, existing, model, false);
+            RefreshSubjectState(project, subject, existing, currentModel, false);
             return;
         }
 
-        var enabled = new CheckBox { Name = "MultiSubjectEnabled", Content = "Multi-soggetto/personaggio", IsChecked = model.Enabled };
+        var enabled = new CheckBox { Name = "MultiSubjectEnabled", Content = "Multi-soggetto/personaggio", IsChecked = currentModel.Enabled };
         var count = new NumericUpDown
         {
             Name = "MultiSubjectCount",
-            Value = model.RequestedCount,
+            Value = currentModel.RequestedCount,
             Minimum = 1,
             Maximum = MultiSubjectProfileService.MaxSubjects,
             Increment = 1,
@@ -118,26 +120,19 @@ internal static class SingleWindowSubjectStyleUi
         var insert = subjectContainer is null ? 2 : root.Children.IndexOf(subjectContainer);
         root.Children.Insert(Math.Clamp(insert, 0, root.Children.Count), bar);
 
-        var changing = false;
-        async Task PersistAsync()
+        async Task PersistAsync(MultiSubjectProfile model, string reason)
         {
             MultiSubjectProfileService.Save(project, model);
-            await SafeProjectAutosave.SaveAsync(path, project, "multi-subject-profile");
+            await SafeProjectAutosave.SaveAsync(path, project, reason);
         }
 
-        void RefreshLocal(bool setText = true)
-        {
-            changing = true;
-            try
-            {
-                RefreshSubjectState(project, subject, bar, model, setText);
-            }
-            finally { changing = false; }
-        }
+        void RefreshFrom(MultiSubjectProfile model, bool setText = true) =>
+            RefreshSubjectState(project, subject, bar, model, setText);
 
         enabled.IsCheckedChanged += async (_, _) =>
         {
-            if (changing) return;
+            if (SubjectRefreshGuards.Contains(bar)) return;
+            var model = MultiSubjectProfileService.Load(project);
             if (enabled.IsChecked == true)
             {
                 model.GroupDescription = subject.Text ?? model.GroupDescription;
@@ -151,64 +146,72 @@ internal static class SingleWindowSubjectStyleUi
                 model.Enabled = false;
                 WriteGroupDescription(project, model.GroupDescription);
             }
-            await PersistAsync();
-            RefreshLocal();
+            await PersistAsync(model, "multi-subject-toggle");
+            RefreshFrom(model);
         };
 
         count.ValueChanged += async (_, _) =>
         {
-            if (changing || enabled.IsChecked != true) return;
+            if (SubjectRefreshGuards.Contains(bar) || enabled.IsChecked != true) return;
+            var model = MultiSubjectProfileService.Load(project);
             MultiSubjectProfileService.SetCount(model, (int)(count.Value ?? 1));
-            await PersistAsync();
-            RefreshLocal();
+            await PersistAsync(model, "multi-subject-count");
+            RefreshFrom(model);
         };
 
         selector.SelectionChanged += async (_, _) =>
         {
-            if (changing || selector.SelectedItem is not SubjectChoice choice) return;
+            if (SubjectRefreshGuards.Contains(bar) || selector.SelectedItem is not SubjectChoice choice) return;
+            var model = MultiSubjectProfileService.Load(project);
             var current = MultiSubjectProfileService.ActiveSubject(model);
             if (current is not null) current.Description = subject.Text ?? current.Description;
+            if (!MultiSubjectProfileService.ActiveSubjects(model).Any(x => string.Equals(x.SubjectId, choice.Id, StringComparison.OrdinalIgnoreCase))) return;
             model.ActiveSubjectId = choice.Id;
-            await PersistAsync();
-            RefreshLocal();
+            await PersistAsync(model, "multi-subject-select");
+            RefreshFrom(model);
         };
 
         name.LostFocus += async (_, _) =>
         {
-            if (changing || !model.Enabled) return;
+            if (SubjectRefreshGuards.Contains(bar)) return;
+            var model = MultiSubjectProfileService.Load(project);
+            if (!model.Enabled) return;
             var current = MultiSubjectProfileService.ActiveSubject(model);
             if (current is null) return;
             if (!MultiSubjectProfileService.TryRename(model, current, name.Text, out var error))
             {
                 status.Text = error;
-                changing = true;
-                name.Text = current.Name;
-                changing = false;
+                SubjectRefreshGuards.Add(bar);
+                try { name.Text = current.Name; }
+                finally { SubjectRefreshGuards.Remove(bar); }
                 return;
             }
             status.Text = string.Empty;
-            await PersistAsync();
-            RefreshLocal(false);
+            await PersistAsync(model, "multi-subject-rename");
+            RefreshFrom(model, false);
         };
 
         add.Click += async (_, _) =>
         {
+            var model = MultiSubjectProfileService.Load(project);
             if (!model.Enabled) return;
             MultiSubjectProfileService.Add(model);
-            await PersistAsync();
-            RefreshLocal();
+            await PersistAsync(model, "multi-subject-add");
+            RefreshFrom(model);
         };
         remove.Click += async (_, _) =>
         {
+            var model = MultiSubjectProfileService.Load(project);
             if (!model.Enabled) return;
             MultiSubjectProfileService.RemoveFromActiveCast(model, model.ActiveSubjectId);
-            await PersistAsync();
-            RefreshLocal();
+            await PersistAsync(model, "multi-subject-remove");
+            RefreshFrom(model);
         };
 
         subject.TextChanged += async (_, _) =>
         {
-            if (changing) return;
+            if (SubjectRefreshGuards.Contains(bar)) return;
+            var model = MultiSubjectProfileService.Load(project);
             if (model.Enabled)
             {
                 var current = MultiSubjectProfileService.ActiveSubject(model);
@@ -219,51 +222,59 @@ internal static class SingleWindowSubjectStyleUi
                 model.GroupDescription = subject.Text ?? string.Empty;
                 WriteGroupDescription(project, model.GroupDescription);
             }
-            await PersistAsync();
+            await PersistAsync(model, "multi-subject-description");
         };
 
-        RefreshLocal();
+        RefreshFrom(currentModel);
     }
 
     private static void RefreshSubjectState(PreviewProject project, TextBox subject, StackPanel bar, MultiSubjectProfile model, bool setText)
     {
-        var enabled = Descendants(bar).OfType<CheckBox>().First(x => x.Name == "MultiSubjectEnabled");
-        var count = Descendants(bar).OfType<NumericUpDown>().First(x => x.Name == "MultiSubjectCount");
-        var selector = Descendants(bar).OfType<ComboBox>().First(x => x.Name == "MultiSubjectSelector");
-        var name = Descendants(bar).OfType<TextBox>().First(x => x.Name == "MultiSubjectName");
-        var add = Descendants(bar).OfType<Button>().First(x => x.Name == "MultiSubjectAdd");
-        var remove = Descendants(bar).OfType<Button>().First(x => x.Name == "MultiSubjectRemove");
-        var status = Descendants(bar).OfType<TextBlock>().First(x => x.Name == "MultiSubjectStatus");
-
-        enabled.IsChecked = model.Enabled;
-        count.Value = model.RequestedCount;
-        var active = MultiSubjectProfileService.ActiveSubjects(model);
-        var choices = active.Select(x => new SubjectChoice(x.SubjectId, x.Name, !string.IsNullOrWhiteSpace(x.Description))).ToArray();
-        selector.ItemsSource = choices;
-        var current = MultiSubjectProfileService.ActiveSubject(model);
-        selector.SelectedItem = current is null ? null : choices.FirstOrDefault(x => string.Equals(x.Id, current.SubjectId, StringComparison.OrdinalIgnoreCase));
-        name.Text = current?.Name ?? string.Empty;
-
-        count.IsVisible = selector.IsVisible = name.IsVisible = add.IsVisible = remove.IsVisible = model.Enabled;
-        count.IsEnabled = selector.IsEnabled = name.IsEnabled = add.IsEnabled = model.Enabled;
-        remove.IsEnabled = model.Enabled && active.Count > 1;
-        status.Text = model.Enabled
-            ? $"{active.Count}/{MultiSubjectProfileService.MaxSubjects} soggetti attivi. Nome e descrizione restano legati a un SubjectId stabile."
-            : "Facoltativo. Se resta OFF, usa il campo sotto solo per temi/gruppi (es. animali, fiori, piante, veicoli).";
-
-        var label = FindLabelFor(subject);
-        if (model.Enabled && current is not null)
+        SubjectRefreshGuards.Add(bar);
+        try
         {
-            if (label is not null) label.Text = "Descrizione — " + current.Name;
-            subject.Watermark = "Descrivi solo questo soggetto/personaggio: aspetto, segni distintivi, età/proporzioni, caratteristiche da mantenere. Facoltativo.";
-            if (setText && !string.Equals(subject.Text, current.Description, StringComparison.Ordinal)) subject.Text = current.Description;
+            var enabled = Descendants(bar).OfType<CheckBox>().First(x => x.Name == "MultiSubjectEnabled");
+            var count = Descendants(bar).OfType<NumericUpDown>().First(x => x.Name == "MultiSubjectCount");
+            var selector = Descendants(bar).OfType<ComboBox>().First(x => x.Name == "MultiSubjectSelector");
+            var name = Descendants(bar).OfType<TextBox>().First(x => x.Name == "MultiSubjectName");
+            var add = Descendants(bar).OfType<Button>().First(x => x.Name == "MultiSubjectAdd");
+            var remove = Descendants(bar).OfType<Button>().First(x => x.Name == "MultiSubjectRemove");
+            var status = Descendants(bar).OfType<TextBlock>().First(x => x.Name == "MultiSubjectStatus");
+
+            enabled.IsChecked = model.Enabled;
+            count.Value = model.RequestedCount;
+            var active = MultiSubjectProfileService.ActiveSubjects(model);
+            var choices = active.Select(x => new SubjectChoice(x.SubjectId, x.Name, !string.IsNullOrWhiteSpace(x.Description))).ToArray();
+            selector.ItemsSource = choices;
+            var current = MultiSubjectProfileService.ActiveSubject(model);
+            selector.SelectedItem = current is null ? null : choices.FirstOrDefault(x => string.Equals(x.Id, current.SubjectId, StringComparison.OrdinalIgnoreCase));
+            name.Text = current?.Name ?? string.Empty;
+
+            count.IsVisible = selector.IsVisible = name.IsVisible = add.IsVisible = remove.IsVisible = model.Enabled;
+            count.IsEnabled = selector.IsEnabled = name.IsEnabled = add.IsEnabled = model.Enabled;
+            remove.IsEnabled = model.Enabled && active.Count > 1;
+            status.Text = model.Enabled
+                ? $"{active.Count}/{MultiSubjectProfileService.MaxSubjects} soggetti attivi. Nome e descrizione restano legati a un SubjectId stabile."
+                : "Facoltativo. Se resta OFF, usa il campo sotto solo per temi/gruppi (es. animali, fiori, piante, veicoli).";
+
+            var label = FindLabelFor(subject);
+            if (model.Enabled && current is not null)
+            {
+                if (label is not null) label.Text = "Descrizione — " + current.Name;
+                subject.Watermark = "Descrivi solo questo soggetto/personaggio: aspetto, segni distintivi, età/proporzioni, caratteristiche da mantenere. Facoltativo.";
+                if (setText && !string.Equals(subject.Text, current.Description, StringComparison.Ordinal)) subject.Text = current.Description;
+            }
+            else
+            {
+                if (label is not null) label.Text = "Tema / gruppo di soggetti";
+                subject.Watermark = "Es. animali della giungla, fiori tropicali, piante grasse, dinosauri, veicoli. Usa gruppi/temi, non una lista di personaggi singoli.";
+                var group = string.IsNullOrWhiteSpace(model.GroupDescription) ? ReadGroupDescription(project) : model.GroupDescription;
+                if (setText && !string.Equals(subject.Text, group, StringComparison.Ordinal)) subject.Text = group;
+            }
         }
-        else
+        finally
         {
-            if (label is not null) label.Text = "Tema / gruppo di soggetti";
-            subject.Watermark = "Es. animali della giungla, fiori tropicali, piante grasse, dinosauri, veicoli. Usa gruppi/temi, non una lista di personaggi singoli.";
-            var group = string.IsNullOrWhiteSpace(model.GroupDescription) ? ReadGroupDescription(project) : model.GroupDescription;
-            if (setText && !string.Equals(subject.Text, group, StringComparison.Ordinal)) subject.Text = group;
+            SubjectRefreshGuards.Remove(bar);
         }
     }
 
@@ -275,7 +286,7 @@ internal static class SingleWindowSubjectStyleUi
         var existing = Descendants(panel).OfType<StackPanel>().FirstOrDefault(x => x.Name == ConsistencyScopeName);
         if (existing is null)
         {
-            existing = BuildSubjectConsistencyScope(project, path, model);
+            existing = BuildSubjectConsistencyScope(project, path);
             panel.Children.Insert(Math.Min(2, panel.Children.Count), existing);
         }
         existing.IsVisible = model.Enabled;
@@ -290,7 +301,7 @@ internal static class SingleWindowSubjectStyleUi
         if (model.Enabled) RefreshSubjectConsistencyScope(project, path, existing, model);
     }
 
-    private static StackPanel BuildSubjectConsistencyScope(PreviewProject project, string path, MultiSubjectProfile model)
+    private static StackPanel BuildSubjectConsistencyScope(PreviewProject project, string path)
     {
         var selector = new ComboBox { Name = "ConsistencySubjectSelector", Width = 220, HorizontalAlignment = HorizontalAlignment.Left };
         var body = new StackPanel { Name = "ConsistencySubjectBody", Spacing = 7 };
@@ -309,8 +320,9 @@ internal static class SingleWindowSubjectStyleUi
         };
         selector.SelectionChanged += async (_, _) =>
         {
-            if (selector.SelectedItem is not SubjectChoice choice) return;
+            if (ConsistencyRefreshGuards.Contains(scope) || selector.SelectedItem is not SubjectChoice choice) return;
             var current = MultiSubjectProfileService.Load(project);
+            if (!MultiSubjectProfileService.ActiveSubjects(current).Any(x => string.Equals(x.SubjectId, choice.Id, StringComparison.OrdinalIgnoreCase))) return;
             current.ActiveSubjectId = choice.Id;
             MultiSubjectProfileService.Save(project, current);
             await SafeProjectAutosave.SaveAsync(path, project, "subject-consistency-select");
@@ -321,29 +333,40 @@ internal static class SingleWindowSubjectStyleUi
 
     private static void RefreshSubjectConsistencyScope(PreviewProject project, string path, StackPanel scope, MultiSubjectProfile model)
     {
-        var selector = Descendants(scope).OfType<ComboBox>().First(x => x.Name == "ConsistencySubjectSelector");
-        var body = Descendants(scope).OfType<StackPanel>().First(x => x.Name == "ConsistencySubjectBody");
-        var active = MultiSubjectProfileService.ActiveSubjects(model);
-        var current = MultiSubjectProfileService.ActiveSubject(model);
-        var choices = active.Select(x => new SubjectChoice(x.SubjectId, x.Name, !string.IsNullOrWhiteSpace(x.Description))).ToArray();
-        selector.ItemsSource = choices;
-        selector.SelectedItem = current is null ? null : choices.FirstOrDefault(x => string.Equals(x.Id, current.SubjectId, StringComparison.OrdinalIgnoreCase));
-        body.Children.Clear();
-        if (current is null) return;
-        MultiSubjectProfileService.EnsureConsistencyDefaults(current);
-
-        body.Children.Add(new TextBlock
+        ConsistencyRefreshGuards.Add(scope);
+        try
         {
-            Text = $"Identità / aspetto fisico — Da mantenere (HARD) · {current.Name}",
-            TextWrapping = TextWrapping.Wrap
-        });
-        foreach (var (key, label) in SubjectCriteria)
-            body.Children.Add(BuildConsistencyRuleEditor(project, path, model, current, key, label));
+            var selector = Descendants(scope).OfType<ComboBox>().First(x => x.Name == "ConsistencySubjectSelector");
+            var body = Descendants(scope).OfType<StackPanel>().First(x => x.Name == "ConsistencySubjectBody");
+            var active = MultiSubjectProfileService.ActiveSubjects(model);
+            var current = MultiSubjectProfileService.ActiveSubject(model);
+            var choices = active.Select(x => new SubjectChoice(x.SubjectId, x.Name, !string.IsNullOrWhiteSpace(x.Description))).ToArray();
+            selector.ItemsSource = choices;
+            selector.SelectedItem = current is null ? null : choices.FirstOrDefault(x => string.Equals(x.Id, current.SubjectId, StringComparison.OrdinalIgnoreCase));
+            body.Children.Clear();
+            if (current is null) return;
+            MultiSubjectProfileService.EnsureConsistencyDefaults(current);
+
+            body.Children.Add(new TextBlock
+            {
+                Text = $"Identità / aspetto fisico — Da mantenere (HARD) · {current.Name}",
+                TextWrapping = TextWrapping.Wrap
+            });
+            foreach (var (key, label) in SubjectCriteria)
+                body.Children.Add(BuildConsistencyRuleEditor(project, path, current.SubjectId, key, label));
+        }
+        finally
+        {
+            ConsistencyRefreshGuards.Remove(scope);
+        }
     }
 
     private static Control BuildConsistencyRuleEditor(
-        PreviewProject project, string path, MultiSubjectProfile model, MultiSubjectDefinition subject, string key, string label)
+        PreviewProject project, string path, string subjectId, string key, string label)
     {
+        var model = MultiSubjectProfileService.Load(project);
+        var subject = model.Subjects.First(x => string.Equals(x.SubjectId, subjectId, StringComparison.OrdinalIgnoreCase));
+        MultiSubjectProfileService.EnsureConsistencyDefaults(subject);
         var rule = subject.Consistency[key];
         var levels = new[] { new Choice("LOCKED", "Da mantenere"), new Choice("PREFERRED", "Preferibilmente coerente"), new Choice("FREE", "Può variare") };
         var strategies = new[] { new Choice("USER", "La definisco io"), new Choice("AI", "La decide l’AI"), new Choice("MIXED", "Mista: do indicazioni e l’AI completa") };
@@ -362,34 +385,36 @@ internal static class SingleWindowSubjectStyleUi
         level.SelectedItem = levels.First(x => x.Value == rule.Level);
         strategy.SelectedItem = strategies.First(x => x.Value == rule.Strategy);
 
-        void Visibility()
+        void Visibility(string currentLevel)
         {
-            var free = rule.Level == "FREE";
+            var free = currentLevel == "FREE";
             strategy.IsVisible = free;
             variation.IsVisible = free;
         }
-        async Task SaveAsync()
+        async Task SaveRuleAsync(Action<SubjectConsistencyRule> update)
         {
-            MultiSubjectProfileService.Save(project, model);
+            var live = MultiSubjectProfileService.Load(project);
+            var liveSubject = live.Subjects.FirstOrDefault(x => string.Equals(x.SubjectId, subjectId, StringComparison.OrdinalIgnoreCase));
+            if (liveSubject is null) return;
+            MultiSubjectProfileService.EnsureConsistencyDefaults(liveSubject);
+            update(liveSubject.Consistency[key]);
+            MultiSubjectProfileService.Save(project, live);
             await SafeProjectAutosave.SaveAsync(path, project, "subject-consistency");
         }
         level.SelectionChanged += async (_, _) =>
         {
-            if (level.SelectedItem is Choice selected) rule.Level = selected.Value;
-            Visibility();
-            await SaveAsync();
+            if (level.SelectedItem is not Choice selected) return;
+            Visibility(selected.Value);
+            await SaveRuleAsync(r => r.Level = selected.Value);
         };
         strategy.SelectionChanged += async (_, _) =>
         {
-            if (strategy.SelectedItem is Choice selected) rule.Strategy = selected.Value;
-            await SaveAsync();
+            if (strategy.SelectedItem is Choice selected)
+                await SaveRuleAsync(r => r.Strategy = selected.Value);
         };
         variation.TextChanged += async (_, _) =>
-        {
-            rule.Variation = variation.Text ?? string.Empty;
-            await SaveAsync();
-        };
-        Visibility();
+            await SaveRuleAsync(r => r.Variation = variation.Text ?? string.Empty);
+        Visibility(rule.Level);
         return new StackPanel
         {
             Spacing = 4,
