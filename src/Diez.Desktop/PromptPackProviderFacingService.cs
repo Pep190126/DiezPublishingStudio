@@ -78,7 +78,7 @@ internal static class PromptPackProviderFacingService
         var item = request.ItemOverrides.FirstOrDefault(x => x.ItemIndex == index);
 
         var rawSubject = !string.IsNullOrWhiteSpace(item?.Subject) ? item!.Subject : request.Subject;
-        var subject = ResolveConcreteSubject(rawSubject, request.BookType, index, total);
+        var subject = ResolveConcreteSubject(rawSubject, request.BookType, index);
         var environment = PromptEnglishNormalizer.NormalizeProviderFacing(
             !string.IsNullOrWhiteSpace(item?.Environment) ? item!.Environment : request.Environment);
 
@@ -134,12 +134,27 @@ internal static class PromptPackProviderFacingService
         root["critical_rule"] = "For corrections/edits, the real base image file is the authoritative visual source. Descriptions guide the AI but never replace the actual image file.";
         root["profile_isolation_rule"] = "Only the active Book Type profile belongs to this request; historical visual profiles and profiles from other Book Types are excluded.";
 
-        if (root["image_presets"] is JsonObject presets)
+        if (root["image_presets"] is not JsonObject presets) return;
+
+        NormalizeStrings(presets);
+
+        // The enhancer creates a human-readable prompt before the final compiler runs. Once the finalizer has
+        // produced effective_visual_prompt, every secondary prompt copy must converge on that exact final text.
+        var effective = presets["effective_visual_prompt"]?.ToString() ?? string.Empty;
+        if (!string.IsNullOrWhiteSpace(effective))
         {
-            NormalizeStrings(presets);
-            if (presets["technical_image_specs"] is JsonObject technical)
-                NormalizeStrings(technical);
+            effective = DecontaminateLongPrompt(effective);
+            presets["effective_visual_prompt"] = effective;
+            if (presets["effective_presets"] is JsonObject effectivePresets)
+                effectivePresets["human_readable_visual_prompt"] = effective;
         }
+
+        var canonical = presets["canonical_visual_prompt"]?.ToString() ?? string.Empty;
+        if (!string.IsNullOrWhiteSpace(canonical))
+            presets["canonical_visual_prompt"] = DecontaminateLongPrompt(canonical);
+
+        if (presets["technical_image_specs"] is JsonObject technical)
+            NormalizeStrings(technical);
     }
 
     private static void AppendTechnical(StringBuilder sb, PromptEngineeringTechnicalSpec technical)
@@ -159,7 +174,7 @@ internal static class PromptPackProviderFacingService
             sb.AppendLine("TECHNICAL OUTPUT: " + string.Join("; ", parts) + ". Preserve aspect ratio and never stretch the artwork.");
     }
 
-    private static string ResolveConcreteSubject(string? rawSubject, string bookType, int index, int total)
+    private static string ResolveConcreteSubject(string? rawSubject, string bookType, int index)
     {
         var normalized = PromptEnglishNormalizer.NormalizeProviderFacing(rawSubject);
         if (string.Equals(bookType, BookTypeProfileService.ColoringBook, StringComparison.OrdinalIgnoreCase) &&
@@ -202,9 +217,15 @@ internal static class PromptPackProviderFacingService
         foreach (var key in node.Select(x => x.Key).ToList())
         {
             if (node[key] is JsonValue value && value.TryGetValue<string>(out var text))
-                node[key] = PromptEnglishNormalizer.NormalizeProviderFacing(text);
+            {
+                node[key] = key.Contains("prompt", StringComparison.OrdinalIgnoreCase)
+                    ? DecontaminateLongPrompt(text)
+                    : PromptEnglishNormalizer.NormalizeProviderFacing(text);
+            }
             else if (node[key] is JsonObject child)
+            {
                 NormalizeStrings(child);
+            }
             else if (node[key] is JsonArray array)
             {
                 foreach (var item in array.OfType<JsonObject>()) NormalizeStrings(item);
