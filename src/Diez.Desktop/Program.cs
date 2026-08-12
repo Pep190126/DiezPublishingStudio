@@ -43,6 +43,7 @@ internal static class Program
                 PromptManualReconciliationSelfTest.Run();
                 VisualPromptIsolationSelfTest.RunAsync().GetAwaiter().GetResult();
                 AiExchangeThreeImageImportSelfTest.RunAsync().GetAwaiter().GetResult();
+                AiExchangeResponseBundleSelfTest.RunAsync().GetAwaiter().GetResult();
                 AiExchangeFailedResponseImportSelfTest.RunAsync().GetAwaiter().GetResult();
                 VisualAssetValidationSelfTest.RunAsync().GetAwaiter().GetResult();
                 VisionValidationSelfTest.RunAsync().GetAwaiter().GetResult();
