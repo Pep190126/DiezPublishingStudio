@@ -5,8 +5,8 @@ namespace DiezPublishingStudio;
 
 /// <summary>
 /// Starts the native SW-FLOW-11 logical workflow inside the existing physical MainWindow.
-/// Normal desktop startup stays on Home and enters the workflow only from the explicit navigation command.
-/// Headless CI keeps automatic entry so deterministic contracts retain coverage.
+/// Startup deliberately stays on the stable Home screen. Entering the logical workflow is user-driven in
+/// the installed app and explicit in UI contract probes, so Window.Opened never mutates the page host.
 /// </summary>
 internal static class SingleWindowV5StartupUi
 {
@@ -16,9 +16,6 @@ internal static class SingleWindowV5StartupUi
     {
         window.KeyDown += HandleEditorShortcuts;
         window.Closed += (_, _) => window.KeyDown -= HandleEditorShortcuts;
-
-        if (Environment.GetCommandLineArgs().Any(a => string.Equals(a, "--ui-headless-ci", StringComparison.OrdinalIgnoreCase)))
-            window.Opened += (_, _) => ShowStart(window);
     }
 
     internal static void ShowStart(MainWindow window)
