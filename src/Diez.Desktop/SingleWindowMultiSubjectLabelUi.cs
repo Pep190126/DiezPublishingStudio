@@ -101,13 +101,14 @@ internal static class SingleWindowMultiSubjectLabelUi
         var characterLevel = Descendants(panel).OfType<ComboBox>().FirstOrDefault(x => x.Name == "ConsistencyLevel_character");
         if (characterLevel is null) return;
 
+        characterLevel.IsVisible = !multiEnabled;
+        characterLevel.IsEnabled = !multiEnabled;
+
         var directBlock = panel.Children
             .OfType<Control>()
             .FirstOrDefault(child => ReferenceEquals(child, characterLevel) || Descendants(child).Any(x => ReferenceEquals(x, characterLevel)));
         if (directBlock is not null)
             directBlock.IsVisible = !multiEnabled;
-        else
-            characterLevel.IsVisible = !multiEnabled;
     }
 
     private static bool TrySession(MainWindow window, out PreviewProject project)
