@@ -29,6 +29,7 @@ internal static class MultiSubjectUiContractProbe
             SingleWindowColoringStylePolicyUi.Refresh(window);
             SingleWindowSubjectStyleUi.Refresh(window);
             SingleWindowMultiSubjectLabelUi.Refresh(window);
+            SingleWindowCustomStyleConsentUi.Refresh(window);
             await WaitAsync();
 
             var page = pageHost.Content as Control ?? throw new InvalidOperationException("Multi-subject probe: pagina Quantità assente.");
@@ -134,6 +135,7 @@ internal static class MultiSubjectUiContractProbe
             Select(style, "Custom");
             await WaitAsync();
             SingleWindowSubjectStyleUi.Refresh(window);
+            SingleWindowCustomStyleConsentUi.Refresh(window);
             await WaitAsync();
             var custom = Require<TextBox>(page, "ColoringCustomStyleNotes");
             var saveCustom = Require<CheckBox>(page, "ColoringSaveCustomStyle");
