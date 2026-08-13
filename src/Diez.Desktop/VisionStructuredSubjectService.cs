@@ -57,10 +57,6 @@ internal static class VisionStructuredSubjectService
             try { root = JsonNode.Parse(reader.ReadToEnd())?.AsObject(); }
             catch { return; }
         }
-        if (root?["requests"] is not JsonArray requests && root?["items"] is not JsonArray)
-        {
-            // Current Vision pack serializes requests under items; older packs used requests.
-        }
         var requestArray = root?["requests"] as JsonArray ?? root?["items"] as JsonArray;
         if (requestArray is null) return;
 
@@ -98,7 +94,7 @@ internal static class VisionStructuredSubjectService
                 request["scene_name"] = scene.Name;
                 request["scene_assignment"] = "STRUCTURED_SCENE_BY_STABLE_POSITION";
                 request["scene_participant_subject_ids"] = new JsonArray(participants.Select(x => JsonValue.Create(x.SubjectId)).ToArray());
-                request["scene_participant_subject_names"] = new JsonArray(participantNames.Select(JsonValue.Create).ToArray());
+                request["scene_participant_subject_names"] = new JsonArray(participantNames.Select(x => JsonValue.Create(x)).ToArray());
             }
         }
 
@@ -106,7 +102,7 @@ internal static class VisionStructuredSubjectService
         var replacement = zip.CreateEntry("vision-manifest.json", CompressionLevel.Optimal);
         using var target = replacement.Open();
         using var writer = new StreamWriter(target, new UTF8Encoding(false));
-        writer.Write(root.ToJsonString(JsonOptions));
+        writer.Write(root!.ToJsonString(JsonOptions));
     }
 
     private static void ApplyScene(PreviewProject project, AiExchangeWorkUnit unit, VisionValidationRequest request)
