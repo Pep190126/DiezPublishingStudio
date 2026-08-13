@@ -213,7 +213,9 @@ internal static class SingleWindowStructuredSceneUi
 
             count.IsVisible = selector.IsVisible = name.IsVisible = add.IsVisible = remove.IsVisible = description.IsVisible = label.IsVisible = model.Enabled;
             remove.IsEnabled = model.Enabled && active.Count > 1;
-            var participants = current is null ? [] : StructuredSceneProfileService.Participants(project, current);
+            IReadOnlyList<MultiSubjectDefinition> participants = current is null
+                ? Array.Empty<MultiSubjectDefinition>()
+                : StructuredSceneProfileService.Participants(project, current);
             status.Text = model.Enabled
                 ? $"{active.Count} scene attive · SceneId stabile. Partecipanti: {(participants.Count == 0 ? "nessuno assegnato" : string.Join(", ", participants.Select(x => x.Name)))}."
                 : "Facoltativo. Se OFF, le Work Unit continuano a usare il flusso soggetto/tema senza SceneId strutturato.";
@@ -226,6 +228,12 @@ internal static class SingleWindowStructuredSceneUi
         var multi = MultiSubjectProfileService.Load(project);
         var scenes = StructuredSceneProfileService.Load(project);
         var body = Descendants(page).OfType<StackPanel>().FirstOrDefault(x => x.Name == "ConsistencySubjectBody");
+        if (body is not null)
+        {
+            var coSceneLevel = Descendants(body).OfType<ComboBox>().FirstOrDefault(x => x.Name == "SubjectConsistencyLevel_co_scene");
+            var coSceneRow = coSceneLevel is null ? null : DirectChildContaining(body, coSceneLevel);
+            if (coSceneRow is not null) coSceneRow.IsVisible = !scenes.Enabled;
+        }
         if (body is null || !multi.Enabled || !scenes.Enabled)
         {
             var stale = Descendants(page).OfType<StackPanel>().FirstOrDefault(x => x.Name == MembershipPanelName);
