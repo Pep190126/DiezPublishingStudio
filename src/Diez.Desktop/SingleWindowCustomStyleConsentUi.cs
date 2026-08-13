@@ -64,12 +64,15 @@ internal static class SingleWindowCustomStyleConsentUi
 
         var selectable = ColoringIndependentHardProfileService.SelectableStyles.ToArray();
         var persisted = BookTypePromptProfileService.LoadColoring(project);
+        var customState = ColoringCustomHardStyleStore.LoadState(project);
         var beforeCatalogReset = style.SelectedItem?.ToString() ?? string.Empty;
-        var desiredSelection = selectable.Contains(beforeCatalogReset, StringComparer.OrdinalIgnoreCase)
-            ? selectable.First(x => string.Equals(x, beforeCatalogReset, StringComparison.OrdinalIgnoreCase))
-            : string.Equals(persisted.Style, "Custom", StringComparison.OrdinalIgnoreCase)
-                ? "Custom"
-                : selectable.FirstOrDefault(x => string.Equals(x, persisted.Style, StringComparison.OrdinalIgnoreCase)) ?? "Clean Line Art";
+        var desiredSelection = customState.IsActive
+            ? "Custom"
+            : selectable.Contains(beforeCatalogReset, StringComparer.OrdinalIgnoreCase)
+                ? selectable.First(x => string.Equals(x, beforeCatalogReset, StringComparison.OrdinalIgnoreCase))
+                : string.Equals(persisted.Style, "Custom", StringComparison.OrdinalIgnoreCase)
+                    ? "Custom"
+                    : selectable.FirstOrDefault(x => string.Equals(x, persisted.Style, StringComparison.OrdinalIgnoreCase)) ?? "Clean Line Art";
 
         Applying.Add(style);
         try
@@ -80,9 +83,9 @@ internal static class SingleWindowCustomStyleConsentUi
         }
         finally { Applying.Remove(style); }
 
-        if (string.Equals(persisted.Style, "Custom", StringComparison.OrdinalIgnoreCase))
+        if (customState.IsActive || string.Equals(persisted.Style, "Custom", StringComparison.OrdinalIgnoreCase))
         {
-            var hardDefinition = ColoringCustomHardStyleStore.Load(project);
+            var hardDefinition = customState.Definition;
             if (!string.IsNullOrWhiteSpace(hardDefinition) && !string.Equals(custom.Text, hardDefinition, StringComparison.Ordinal))
             {
                 Applying.Add(custom);
@@ -105,13 +108,22 @@ internal static class SingleWindowCustomStyleConsentUi
                     profile.Style = "Custom";
                     profile.CustomStyleNotes = definition;
                     BookTypePromptProfileService.SaveColoring(project, profile);
-                    ColoringCustomHardStyleStore.Save(project, definition);
+                    ColoringCustomHardStyleStore.Activate(project, definition);
                     Applying.Add(custom);
                     try { custom.Text = definition; }
                     finally { Applying.Remove(custom); }
                 }
+                else if (string.Equals(selected, "Custom", StringComparison.OrdinalIgnoreCase))
+                {
+                    profile.Style = "Custom";
+                    BookTypePromptProfileService.SaveColoring(project, profile);
+                    var existing = ColoringCustomHardStyleStore.LoadState(project).Definition;
+                    if (!string.IsNullOrWhiteSpace(existing))
+                        ColoringCustomHardStyleStore.Activate(project, existing);
+                }
                 else
                 {
+                    ColoringCustomHardStyleStore.Deactivate(project);
                     profile.Style = BookTypePromptProfileService.NormalizeColoringStyle(selected);
                     BookTypePromptProfileService.SaveColoring(project, profile);
                 }
@@ -132,6 +144,7 @@ internal static class SingleWindowCustomStyleConsentUi
                 var selected = style.SelectedItem?.ToString() ?? string.Empty;
                 var profile = BookTypePromptProfileService.LoadColoring(project);
                 var customSelected = container.IsVisible ||
+                                     ColoringCustomHardStyleStore.LoadState(project).IsActive ||
                                      string.Equals(profile.Style, "Custom", StringComparison.OrdinalIgnoreCase) ||
                                      string.Equals(selected, "Custom", StringComparison.OrdinalIgnoreCase) ||
                                      CustomStyleLibraryService.TryResolve(selected, out _);
@@ -141,7 +154,7 @@ internal static class SingleWindowCustomStyleConsentUi
                 profile.Style = "Custom";
                 profile.CustomStyleNotes = definition;
                 BookTypePromptProfileService.SaveColoring(project, profile);
-                ColoringCustomHardStyleStore.Save(project, definition);
+                ColoringCustomHardStyleStore.Activate(project, definition);
 
                 if (!string.Equals(selected, "Custom", StringComparison.OrdinalIgnoreCase))
                 {
@@ -188,13 +201,16 @@ internal static class SingleWindowCustomStyleConsentUi
     {
         var selected = style.SelectedItem?.ToString() ?? string.Empty;
         var persisted = BookTypePromptProfileService.LoadColoring(project);
+        var customState = ColoringCustomHardStyleStore.LoadState(project);
         var reusable = CustomStyleLibraryService.TryResolve(selected, out _);
-        var customSelected = string.Equals(selected, "Custom", StringComparison.OrdinalIgnoreCase) ||
+        var customSelected = customState.IsActive ||
+                             string.Equals(selected, "Custom", StringComparison.OrdinalIgnoreCase) ||
                              reusable ||
                              string.Equals(persisted.Style, "Custom", StringComparison.OrdinalIgnoreCase);
         container.IsVisible = customSelected;
         custom.IsVisible = customSelected;
-        consent.IsVisible = string.Equals(selected, "Custom", StringComparison.OrdinalIgnoreCase) ||
+        consent.IsVisible = customState.IsActive ||
+                            string.Equals(selected, "Custom", StringComparison.OrdinalIgnoreCase) ||
                             string.Equals(persisted.Style, "Custom", StringComparison.OrdinalIgnoreCase);
     }
 
