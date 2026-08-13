@@ -301,7 +301,8 @@ internal static class VisionValidationStore
             string.Equals(check.Key, "bold_easy_match", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(check.Key, "cozy_match", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(check.Key, "line_weight_match", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(check.Key, "single_composition", StringComparison.OrdinalIgnoreCase))
+            string.Equals(check.Key, "single_composition", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(check.Key, "scene_participants_match", StringComparison.OrdinalIgnoreCase))
             check.Severity = VisionSeverity.Hard;
 
         // Compatibility with older validators that used style_quality for both match and taste:
