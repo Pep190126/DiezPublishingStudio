@@ -15,6 +15,8 @@ internal static class SingleWindowPhysicalScreenshotProbe
         var pageHost = host.GetType().GetField("_pageHost", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(host) as ContentControl
             ?? throw new InvalidOperationException("PageHost raster non disponibile.");
         var tempPath = Path.Combine(Path.GetTempPath(), "diez-ui-raster-" + Guid.NewGuid().ToString("N") + ".diez");
+        var evidenceDirectory = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "ui-evidence"));
+        Directory.CreateDirectory(evidenceDirectory);
         try
         {
             var project = ProjectFileStore.Create("Raster UI Contract");
@@ -36,7 +38,7 @@ internal static class SingleWindowPhysicalScreenshotProbe
                 FindTextBox(quantity, "VisualEnvironmentInstructions").Text = "TEST AMBIENTAZIONE VISIBILE";
             }
             await WaitAsync();
-            await SaveWindowAsync(window, Path.Combine(AppContext.BaseDirectory, "ui-quantity.png"));
+            await SaveWindowAsync(window, Path.Combine(evidenceDirectory, "ui-quantity.png"));
 
             if (pageHost.Content is Control consistencyPage)
             {
@@ -61,11 +63,11 @@ internal static class SingleWindowPhysicalScreenshotProbe
 
                 BringBridgeIntoView(variation);
                 await WaitAsync();
-                await SaveWindowAsync(window, Path.Combine(AppContext.BaseDirectory, "ui-consistent-variation.png"));
+                await SaveWindowAsync(window, Path.Combine(evidenceDirectory, "ui-consistent-variation.png"));
 
                 BringBridgeIntoView(notes);
                 await WaitAsync();
-                await SaveWindowAsync(window, Path.Combine(AppContext.BaseDirectory, "ui-consistent-notes.png"));
+                await SaveWindowAsync(window, Path.Combine(evidenceDirectory, "ui-consistent-notes.png"));
             }
 
             SingleWindowNativeV11Ui.ShowPrompt(window, host, 12);
@@ -77,7 +79,7 @@ internal static class SingleWindowPhysicalScreenshotProbe
                 FindTextBox(prompt, "PromptEditor").Text = "TEST PROMPT VISIBILE";
             }
             await WaitAsync();
-            await SaveWindowAsync(window, Path.Combine(AppContext.BaseDirectory, "ui-prompt.png"));
+            await SaveWindowAsync(window, Path.Combine(evidenceDirectory, "ui-prompt.png"));
         }
         finally
         {
