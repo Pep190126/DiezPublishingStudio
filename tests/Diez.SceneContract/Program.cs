@@ -17,7 +17,7 @@ public static class Program
     public static int Main()
     {
         using var session = HeadlessUnitTestSession.StartNew(typeof(Program));
-        return session.Dispatch(async () =>
+        return session.Dispatch(() =>
         {
             MainWindow? window = null;
             try
@@ -31,11 +31,8 @@ public static class Program
                 SingleWindowMultiSubjectLabelUi.Attach(window);
                 SingleWindowStructuredSceneUi.Attach(window);
 
-                // This contract verifies the real control tree, events and persistence, not raster layout.
-                // Avoid Window.Show(): it would enqueue render/layout work unrelated to the Scene behavior and
-                // make Avalonia's isolated-session teardown depend on font/render services after the probe ends.
-                await StructuredSceneUiContractProbeV2.RunAsync(window);
-                Console.WriteLine("STRUCTURED SCENE CONTRACT: OK");
+                StructuredSceneUiContractProbeV3.Run(window);
+                Console.WriteLine("STRUCTURED SCENE CONTRACT V3: OK");
                 return 0;
             }
             catch (Exception ex)
