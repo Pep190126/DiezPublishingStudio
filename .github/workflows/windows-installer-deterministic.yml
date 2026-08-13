@@ -137,7 +137,7 @@ jobs:
           Set-Content -Path $configMarker -Value "config-again"
           $removeDrop = Start-Process -FilePath $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLEANOLD=1", "/KEEPWORKDATA=0", $dirArg -Wait -PassThru
           if ($removeDrop.ExitCode -ne 0) { throw "Remove/reinstall drop-work failed with code $($removeDrop.ExitCode)" }
-          if (Test-Path $configMarker -or Test-Path $workMarker) { throw "KEEPWORKDATA=0 retained data" }
+          if ((Test-Path $configMarker) -or (Test-Path $workMarker)) { throw "KEEPWORKDATA=0 retained data" }
           if (!(Test-Path $exe)) { throw "Installed executable missing after final reinstall" }
           if (!(Test-Path $uninstallKey)) { throw "Uninstall registry entry missing" }
 
