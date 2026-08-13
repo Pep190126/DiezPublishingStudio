@@ -9,7 +9,7 @@ namespace DiezPublishingStudio;
 /// </summary>
 internal static class VisionValidationPromptPackHardStyleService
 {
-    private const string HardPolicyMarker = "## Diez 3.4 semantic HARD policy";
+    private const string HardPolicyMarker = "## Diez 3.6 semantic HARD policy";
 
     public static async Task<(bool Success, string Message, Guid ValidationPackId)> BuildAsync(
         PreviewProject project,
@@ -26,7 +26,7 @@ internal static class VisionValidationPromptPackHardStyleService
         RewriteInstructions(zipPath);
         return (
             true,
-            result.Message + " · Style match, Bold & Easy, Cozy, soggetto strutturato e composizione singola sono criteri HARD quando applicabili.",
+            result.Message + " · Style match, Bold & Easy, Cozy, soggetto/scena strutturati e composizione singola sono criteri HARD quando applicabili.",
             result.ValidationPackId);
     }
 
@@ -44,7 +44,7 @@ internal static class VisionValidationPromptPackHardStyleService
 
         text = text.Replace(
             "- `composition_readability` — SOFT\n- `style_quality` — SOFT",
-            "- `single_composition` — HARD: exactly one unified composition unless the exact Work Unit explicitly requests multi-panel output\n- `style_match` — HARD when `expected.style` contains an explicitly selected style\n- `bold_easy_match` — HARD for both expected ON and expected OFF\n- `cozy_match` — HARD for both expected ON and expected OFF\n- `line_weight_match` — HARD for the selected contour weight, especially Thin/Fine and Very thin/Extra Fine\n- `composition_readability` — SOFT only after single-composition compliance passes\n- `style_quality` — SOFT only for execution/taste differences inside the correctly matched selected style",
+            "- `single_composition` — HARD: exactly one unified composition unless the exact Work Unit explicitly requests multi-panel output\n- `scene_participants_match` — HARD when structured scene participants are expected: every listed participant must be visibly present in the same scene and unassigned cast members must not be introduced as substitutes\n- `style_match` — HARD when `expected.style` contains an explicitly selected style\n- `bold_easy_match` — HARD for both expected ON and expected OFF\n- `cozy_match` — HARD for both expected ON and expected OFF\n- `line_weight_match` — HARD for the selected contour weight, especially Thin/Fine and Very thin/Extra Fine\n- `composition_readability` — SOFT only after single-composition compliance passes\n- `style_quality` — SOFT only for execution/taste differences inside the correctly matched selected style",
             StringComparison.Ordinal);
 
         if (!text.Contains(HardPolicyMarker, StringComparison.Ordinal))
@@ -55,6 +55,7 @@ The real candidate pixels are authoritative. Evaluate the exact Work Unit, not t
 
 Required semantic checks:
 - `subject_match` — HARD: compare the visible primary subject with `expected.item_subject`, the atomic/structured subject for this Work Unit. When structured multi-subject mode is active, `subject_id` is trusted Diez audit metadata and `subject_name` / `expected.item_subject` identify that exact subject profile.
+- `scene_participants_match` — HARD when structured scene participants are declared in the expected specification or consistency rules. Every selected participant must be visibly present in the SAME unified scene, with no substitution by another structured cast member. Return NA only when no structured scene participants are expected.
 - `single_composition` — HARD: exactly one unified primary composition unless this exact Work Unit explicitly requests otherwise.
 - `style_match` — HARD: the visible image must materially match `expected.style`. A polished image in a different style is still FAIL/HARD.
 - For `Kawaii`, realistic natural-history or engraving-like treatment, dense realistic hatching and anatomically literal documentary rendering are a HARD style mismatch when the page does not visibly read as Kawaii.
@@ -65,7 +66,7 @@ Required semantic checks:
 - `style_quality` — SOFT/REVIEW only for aesthetic or execution differences AFTER `style_match` has passed.
 - `composition_readability` — SOFT only after `single_composition` has passed.
 
-One HARD failure forces `overall_status = FAIL` and blocks approval in Diez. Use REVIEW only for genuine ambiguity or soft quality judgment, not for a visible subject/style/Bold&Easy/Cozy/line-weight/composition mismatch.
+One HARD failure forces `overall_status = FAIL` and blocks approval in Diez. Use REVIEW only for genuine ambiguity or soft quality judgment, not for a visible subject/scene/style/Bold&Easy/Cozy/line-weight/composition mismatch.
 """.Trim();
         }
 
