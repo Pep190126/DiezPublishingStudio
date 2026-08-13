@@ -5,10 +5,12 @@ namespace DiezPublishingStudio;
 /// <summary>
 /// Stable semantic prompt + provider-specific execution guidance.
 /// Provider differences change execution strategy without weakening Book Type constraints.
+/// v3.6 adds a deterministic creative-director synthesis layer: user choices are transformed into
+/// visual hierarchy/composition/craft instructions before the canonical audit specification.
 /// </summary>
 internal static class PromptEngineeringCompiler
 {
-    public const string Version = "3.5";
+    public const string Version = "3.6";
 
     public static string BuildSeriesPrompt(
         PreviewProject project,
@@ -33,6 +35,10 @@ internal static class PromptEngineeringCompiler
             sb.AppendLine();
         }
 
+        sb.AppendLine("=== SYNTHESIZED CREATIVE DIRECTOR BRIEF ===");
+        sb.AppendLine(VisualPromptIntentSynthesizer.BuildSeriesDirection(project, request));
+        sb.AppendLine();
+
         if (string.Equals(request.BookType, BookTypeProfileService.ColoringBook, StringComparison.OrdinalIgnoreCase))
         {
             var hard = ColoringIndependentHardProfileService.Resolve(project);
@@ -48,6 +54,7 @@ internal static class PromptEngineeringCompiler
         }
 
         AppendStructuredSubjectContract(sb, project);
+        AppendStructuredSceneContract(sb, project, request);
 
         sb.AppendLine("=== CANONICAL DIEZ PRODUCTION SPECIFICATION ===");
         sb.AppendLine(canonical.Trim());
@@ -70,12 +77,34 @@ internal static class PromptEngineeringCompiler
             if (!string.IsNullOrWhiteSpace(subject.Description))
                 sb.AppendLine($"  Identity definition — HARD: {subject.Description.Trim()}");
         }
-        if (!string.IsNullOrWhiteSpace(requestedGroup(model)))
-            sb.AppendLine("- Shared theme/group context: " + requestedGroup(model));
+        var group = PromptEnglishNormalizer.NormalizeProviderFacing(model.GroupDescription).Trim();
+        if (!string.IsNullOrWhiteSpace(group))
+            sb.AppendLine("- Shared theme/group context: " + group);
         sb.AppendLine();
+    }
 
-        static string requestedGroup(MultiSubjectProfile model) =>
-            PromptEnglishNormalizer.NormalizeProviderFacing(model.GroupDescription).Trim();
+    private static void AppendStructuredSceneContract(StringBuilder sb, PreviewProject project, PromptEngineeringRequest request)
+    {
+        var model = StructuredSceneProfileService.Load(project);
+        var scenes = StructuredSceneProfileService.ActiveScenes(model);
+        if (!model.Enabled || scenes.Count == 0) return;
+
+        sb.AppendLine("=== STRUCTURED SCENES — AUTHORITATIVE ===");
+        var genericEnvironment = VisualPromptIntentSynthesizer.SeriesEnvironment(project, request.Environment);
+        if (!string.IsNullOrWhiteSpace(genericEnvironment))
+            sb.AppendLine("Series-level environment context: " + genericEnvironment.Trim());
+        sb.AppendLine("Each scene has a stable internal SceneId. SceneIds and SubjectIds are audit metadata only and must never appear inside the artwork. Scene membership overrides any generic assumption about which cast members should appear together.");
+        foreach (var scene in scenes)
+        {
+            var description = PromptEnglishNormalizer.NormalizeProviderFacing(scene.Description).Trim();
+            var participants = StructuredSceneProfileService.Participants(project, scene);
+            sb.Append("- Scene ").Append(scene.Number).Append(" — ").Append(scene.Name);
+            if (!string.IsNullOrWhiteSpace(description)) sb.Append(": ").Append(description);
+            sb.AppendLine();
+            if (participants.Count > 0)
+                sb.AppendLine("  Required participants — HARD: " + string.Join(", ", participants.Select(x => x.Name)) + ".");
+        }
+        sb.AppendLine();
     }
 
     private static string PublicationAcceptanceGate(PreviewProject project, PromptEngineeringRequest request)
@@ -118,12 +147,12 @@ Independent QA instruction: an obvious failure of this craft/readiness requireme
         sb.AppendLine(r.PreferAdvancedModel
             ? "Prefer GPT Image 2 or the current higher-quality successor available in the OpenAI environment."
             : "Use the OpenAI image-generation capability selected by the environment.");
-        sb.AppendLine("1. Read the complete production specification before rendering and resolve instruction priority first.");
-        sb.AppendLine("2. Convert subject, environment and style into one coherent visual composition; never turn production bullets into visible labels, badges or decorative marks.");
+        sb.AppendLine("1. Read the synthesized creative-director brief first and form a single visual plan before rendering.");
+        sb.AppendLine("2. Use the canonical production specification as verification/constraint data; never visualize its bullets, labels or metadata as artwork.");
         sb.AppendLine("3. Treat hard Book-Type constraints, the explicitly selected visual style, independent HARD profile states and explicit exclusions literally; exercise visual creativity only inside the remaining freedom.");
         sb.AppendLine("4. For edits, use the supplied source image itself as visual authority and preserve unmentioned structure while applying requested changes.");
         sb.AppendLine("5. Inspect the final asset against the quality gate before returning it; do not describe a non-compliant asset as compliant.");
-        sb.AppendLine("6. Keep the instruction hierarchy precise and avoid inventing alternate interpretations of explicit technical values.");
+        sb.AppendLine("6. When generic and Work Unit-specific instructions differ, preserve the exact subject/scene identity and Work Unit-specific intent.");
         return sb.ToString().Trim();
     }
 
@@ -134,12 +163,12 @@ Independent QA instruction: an obvious failure of this craft/readiness requireme
         sb.AppendLine(r.PreferAdvancedModel
             ? "Prefer the highest-fidelity Gemini Native Image model available for professional asset production."
             : "Use the Gemini Native Image capability selected by the environment.");
-        sb.AppendLine("1. First synthesize subject + context/background + visual style into ONE coherent scene concept; do not treat the brief as disconnected keywords.");
-        sb.AppendLine("2. Plan focal point, subject pose, scene relationships and composition before rendering, then enforce the hard technical, selected-style, independent-profile and Book-Type constraints.");
-        sb.AppendLine("3. Priority: item instruction > hard Book-Type rules > selected style / independent HARD profile locks > modification rules > LOCKED consistency > PREFERRED consistency > creative freedom.");
-        sb.AppendLine("4. One Work Unit requests one image only; never convert the series count into a grid, sheet or multiple alternatives.");
+        sb.AppendLine("1. Use the synthesized creative-director brief to plan ONE coherent scene concept before interpreting the canonical settings.");
+        sb.AppendLine("2. Plan focal point, subject pose, required scene relationships, visual hierarchy and negative space before rendering, then enforce the hard technical, selected-style, independent-profile and Book-Type constraints.");
+        sb.AppendLine("3. Priority: item/scene identity > hard Book-Type rules > selected style / independent HARD profile locks > modification rules > LOCKED consistency > PREFERRED consistency > creative freedom.");
+        sb.AppendLine("4. One Work Unit requests one image only; never convert the series count or structured scene list into a grid, sheet or multiple alternatives.");
         sb.AppendLine("5. For edits with supplied images, preserve unmentioned visual structure and change only what Diez explicitly requests.");
-        sb.AppendLine("6. Check that the final image actually depicts the requested subject, visibly matches all HARD profile locks and obeys exclusions before returning it.");
+        sb.AppendLine("6. Check that the final image actually depicts the requested subject and scene participants, visibly matches all HARD profile locks and obeys exclusions before returning it.");
         return sb.ToString().Trim();
     }
 
@@ -148,12 +177,12 @@ Independent QA instruction: an obvious failure of this craft/readiness requireme
         var sb = new StringBuilder();
         sb.AppendLine("PROVIDER EXECUTION PROFILE — OTHER / USER-SELECTED IMAGE MODEL");
         sb.AppendLine("Use the strongest appropriate generation/editing model available on the selected platform.");
-        sb.AppendLine("1. Preserve the canonical Diez specification; do not shorten it by deleting hard constraints, selected style, independent HARD profiles, exclusions, item overrides or consistency rules.");
+        sb.AppendLine("1. Use the synthesized creative direction as the visual plan and the canonical specification as its constraint/audit layer.");
         sb.AppendLine("2. When the platform has a dedicated exclusions/negative field, map the negative constraints there while retaining essential prohibitions in the main request.");
         sb.AppendLine("3. When native aspect-ratio, size or quality controls exist, map Diez technical values to those controls instead of relying only on prose.");
         sb.AppendLine("4. When real image/reference inputs are supported, attach the actual Diez files rather than reconstructing them from descriptions.");
         sb.AppendLine("5. Generate exactly the count required by the current Work Unit; series count is context only.");
-        sb.AppendLine("6. Prefer the platform's highest-fidelity mode when requested, without trading away Book-Type, selected-style or independent-profile hard constraints.");
+        sb.AppendLine("6. Prefer the platform's highest-fidelity mode when requested, without trading away Book-Type, selected-style, scene-membership or independent-profile hard constraints.");
         return sb.ToString().Trim();
     }
 
@@ -161,13 +190,13 @@ Independent QA instruction: an obvious failure of this craft/readiness requireme
     {
         return """
 PROVIDER EXECUTION PROFILE — MODEL-AGNOSTIC / GENERIC
-1. Resolve the semantic scene first, then enforce hard visual and technical constraints.
-2. Keep subject, environment, style and composition coherent rather than visualizing prompt bullets literally.
-3. The explicitly selected visual style and each independent HARD profile state are editorial requirements; do not substitute or ignore them.
+1. Form the visual plan from the synthesized creative-director brief before reading the canonical settings as constraints.
+2. Keep subject, scene relationships, environment, style and composition coherent rather than visualizing prompt fields literally.
+3. The explicitly selected visual style, scene membership and each independent HARD profile state are editorial requirements; do not substitute or ignore them.
 4. Keep all exclusions active even if the target model has no dedicated exclusions field.
 5. Map aspect ratio, pixel size, quality and real image inputs to native provider controls whenever available.
 6. One Diez Work Unit equals one requested final image unless the Work Unit explicitly says otherwise.
-7. Perform a final compliance check against the Book-Type, selected-style and independent HARD profile quality gates before accepting the asset.
+7. Perform a final compliance check against the Book-Type, scene/subject identity, selected-style and independent HARD profile quality gates before accepting the asset.
 """.Trim();
     }
 }
