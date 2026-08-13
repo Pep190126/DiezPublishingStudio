@@ -9,10 +9,11 @@ internal static class PreFinalContractSelfTest
         if (!string.Equals(ProductInfo.Version, "1.0.0-rc8", StringComparison.Ordinal))
             throw new InvalidOperationException($"Identità prodotto inattesa: {ProductInfo.Version}");
 
+        var compilerLabel = "Prompt Compiler " + PromptEngineeringCompiler.Version;
         if (!ProductInfo.WindowTitle.Contains("1.0 RC8", StringComparison.Ordinal) ||
             !ProductInfo.WindowTitle.Contains("SW-FLOW-12", StringComparison.Ordinal) ||
-            !ProductInfo.WindowTitle.Contains("Prompt Compiler 3.1", StringComparison.Ordinal))
-            throw new InvalidOperationException("Il titolo non espone correttamente RC8 / SW-FLOW-12 / Prompt Compiler 3.1.");
+            !ProductInfo.WindowTitle.Contains(compilerLabel, StringComparison.Ordinal))
+            throw new InvalidOperationException($"Il titolo non espone correttamente RC8 / SW-FLOW-12 / {compilerLabel}.");
 
         var informational = typeof(Program).Assembly
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
@@ -29,8 +30,8 @@ internal static class PreFinalContractSelfTest
 
         foreach (var required in new[]
                  {
-                     "editor essenziali nativi", "Prompt Compiler 3.1", "provider-specific",
-                     "profili visuali isolati", "import verificato", "HD/FHD/2K/4K/8K", "Consistent", "prompt specifico"
+                     compilerLabel, "scene", "soggetti strutturati", "sintesi creativa visuale",
+                     "profili HARD indipendenti", "import verificato", "Consistent"
                  })
             if (!ProductInfo.Subtitle.Contains(required, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException($"Il sottotitolo non espone il requisito corrente: {required}.");
