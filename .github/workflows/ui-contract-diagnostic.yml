@@ -17,13 +17,24 @@ jobs:
       - run: dotnet build src/Diez.Desktop/Diez.Desktop.csproj -c Release --no-restore
       - run: dotnet publish src/Diez.Desktop/Diez.Desktop.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -o artifacts/publish
 
-      # Historical async probe bundle. It remains useful for diagnostics but is not a release gate:
-      # Avalonia HeadlessUnitTestSession can fail during ResetForUnitTests after async probes even
-      # when the deterministic core/apphost/Scene gates pass. New UI contracts should use the
-      # synchronous deterministic pattern used by Structured Scene Contract.
-      - name: Run legacy UI flow diagnostic
-        continue-on-error: true
-        run: dotnet artifacts/publish/DiezPublishingStudio.dll --ui-headless-ci --ui-flow-contract
+      # This MUST traverse Program.Main -> StartWithClassicDesktopLifetime -> App.Initialize ->
+      # MainWindow and all normal startup attachments. Do not add --ui-headless-ci here: the
+      # headless harness is useful for deterministic UI-tree tests but cannot validate installed-app startup.
+      - name: Run real Windows desktop flow contract
+        shell: powershell
+        run: |
+          $exe = (Resolve-Path "artifacts\publish\DiezPublishingStudio.exe").Path
+          $process = Start-Process -FilePath $exe -ArgumentList "--ui-flow-contract" -Wait -PassThru
+          Write-Host "Real desktop flow exit code: $($process.ExitCode)"
+          if ($process.ExitCode -ne 0) {
+            $resultFile = "artifacts\publish\ui-flow-contract.txt"
+            if (Test-Path $resultFile) { Get-Content $resultFile }
+            $fatal = Join-Path $env:LOCALAPPDATA "Diez Publishing Studio\logs\fatal-errors.log"
+            $startup = Join-Path $env:LOCALAPPDATA "Diez Publishing Studio\logs\startup-errors.log"
+            if (Test-Path $fatal) { Write-Host "--- fatal-errors.log ---"; Get-Content $fatal }
+            if (Test-Path $startup) { Write-Host "--- startup-errors.log ---"; Get-Content $startup }
+            throw "Real desktop flow failed with exit code $($process.ExitCode)"
+          }
 
       - name: Upload UI flow diagnostic when produced
         if: always()
