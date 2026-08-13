@@ -20,8 +20,15 @@ jobs:
       - name: Core self-test
         shell: powershell
         run: |
+          $started = Get-Date
           & artifacts\publish\DiezPublishingStudio.exe --self-test
-          if ($LASTEXITCODE -ne 0) { throw "Core self-test failed" }
+          if ($LASTEXITCODE -ne 0) {
+            Get-WinEvent -FilterHashtable @{LogName='Application'; StartTime=$started.AddSeconds(-2)} -ErrorAction SilentlyContinue |
+              Where-Object { $_.ProviderName -in @('.NET Runtime','Application Error','Windows Error Reporting') } |
+              Select-Object -First 12 TimeCreated, ProviderName, Id, LevelDisplayName, Message |
+              Format-List | Out-String -Width 260 | Write-Host
+            throw "Core self-test failed"
+          }
 
       - name: Upload self-test diagnostic
         if: failure()
