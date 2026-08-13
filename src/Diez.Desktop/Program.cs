@@ -1,7 +1,6 @@
 using System.Text;
 using Avalonia;
 using Avalonia.Fonts.Inter;
-using Avalonia.Headless;
 
 namespace DiezPublishingStudio;
 
@@ -68,25 +67,16 @@ internal static class Program
             }
         }
 
+        if (args.Any(a => string.Equals(a, "--ui-headless-ci", StringComparison.OrdinalIgnoreCase)))
+            return HeadlessCiHarness.RunAsync(args).GetAwaiter().GetResult();
+
         using var mutex = new Mutex(true, AppMutexName, out var createdNew);
         if (!createdNew) return 0;
 
-        var useHeadlessCi = args.Any(a => string.Equals(a, "--ui-headless-ci", StringComparison.OrdinalIgnoreCase));
-        var builder = useHeadlessCi ? BuildAvaloniaHeadlessCiApp() : BuildAvaloniaApp();
-        var exitCode = builder.StartWithClassicDesktopLifetime(args);
+        var exitCode = BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
         GC.KeepAlive(mutex);
         return exitCode;
     }
-
-    private static AppBuilder BuildAvaloniaHeadlessCiApp() =>
-        AppBuilder.Configure<App>()
-            .UseSkia()
-            .UseHeadless(new AvaloniaHeadlessPlatformOptions
-            {
-                UseHeadlessDrawing = false
-            })
-            .WithInterFont()
-            .LogToTrace();
 
     public static AppBuilder BuildAvaloniaApp() =>
         AppBuilder.Configure<App>()
