@@ -17,6 +17,14 @@ internal static class SingleWindowV5StartupUi
         window.Closed += (_, _) => window.KeyDown -= HandleEditorShortcuts;
         window.Opened += async (_, _) =>
         {
+            // Headless CI constructs the project/session explicitly inside each contract probe. Do not leave a
+            // delayed Opened continuation alive past the isolated Avalonia test session cleanup.
+            if (Environment.GetCommandLineArgs().Any(a => string.Equals(a, "--ui-headless-ci", StringComparison.OrdinalIgnoreCase)))
+            {
+                ShowStart(window);
+                return;
+            }
+
             // A project passed on the command line may finish loading just after Window.Opened.
             for (var i = 0; i < 8 && !TrySession(window); i++) await Task.Delay(40);
             ShowStart(window);
