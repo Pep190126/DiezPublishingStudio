@@ -20,8 +20,14 @@ jobs:
       - name: Core self-test through Windows apphost
         shell: powershell
         run: |
-          & artifacts\publish\DiezPublishingStudio.exe --self-test
-          if ($LASTEXITCODE -ne 0) { throw "Core self-test failed" }
+          $exe = (Resolve-Path "artifacts\publish\DiezPublishingStudio.exe").Path
+          $process = Start-Process -FilePath $exe -ArgumentList "--self-test" -Wait -PassThru
+          Write-Host "Windows apphost self-test exit code: $($process.ExitCode)"
+          if ($process.ExitCode -ne 0) {
+            $errorFile = "artifacts\publish\self-test-error.txt"
+            if (Test-Path $errorFile) { Get-Content $errorFile }
+            throw "Core self-test failed with exit code $($process.ExitCode)"
+          }
 
       - name: Upload self-test diagnostic
         if: failure()
@@ -35,8 +41,10 @@ jobs:
       - name: Headless UI startup through Windows apphost
         shell: powershell
         run: |
-          & artifacts\publish\DiezPublishingStudio.exe --ui-headless-ci
-          if ($LASTEXITCODE -ne 0) { throw "Headless startup failed" }
+          $exe = (Resolve-Path "artifacts\publish\DiezPublishingStudio.exe").Path
+          $process = Start-Process -FilePath $exe -ArgumentList "--ui-headless-ci" -Wait -PassThru
+          Write-Host "Windows apphost headless startup exit code: $($process.ExitCode)"
+          if ($process.ExitCode -ne 0) { throw "Headless startup failed with exit code $($process.ExitCode)" }
 
       # Full historical UI flow is covered by UI Contract Diagnostic.
       # Structured Scene behavior is covered by Structured Scene Contract.
