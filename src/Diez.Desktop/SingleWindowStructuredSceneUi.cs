@@ -7,17 +7,21 @@ using Avalonia.Threading;
 namespace DiezPublishingStudio;
 
 /// <summary>
-/// Compact structured-scene editor plus per-subject scene membership in Consistent.
-/// UI events update the in-memory graph synchronously; project I/O is queued through SafeProjectAutosave,
-/// so no async-void continuation can resume against a page that navigation has already replaced.
+/// Structured scenes reuse the native Environment editor instead of adding a second description box.
+/// Users switch between a generic environment and per-scene definition. Scene/subject relationships remain
+/// identity-based through stable SceneId + SubjectId values; names are display-only and may change safely.
 /// </summary>
 internal static class SingleWindowStructuredSceneUi
 {
-    private const string ScenePanelName = "DiezStructuredScenePanel";
+    private const string ModePanelName = "DiezEnvironmentSceneModePanel";
+    private const string SceneToolbarName = "DiezStructuredSceneToolbar";
     private const string MembershipPanelName = "DiezSubjectSceneMembership";
+    private const string GenericMode = "Ambientazione generica";
+    private const string SceneMode = "Definisci scene";
+
     private static readonly HashSet<MainWindow> Attached = [];
     private static readonly HashSet<Control> Wired = [];
-    private static readonly HashSet<StackPanel> Guards = [];
+    private static readonly HashSet<Control> Guards = [];
 
     public static void Attach(MainWindow window)
     {
@@ -48,7 +52,7 @@ internal static class SingleWindowStructuredSceneUi
             if (pageHost?.Content is not Control page) return;
 
             var quantityRoot = Descendants(page).OfType<StackPanel>().FirstOrDefault(x => x.Name == "DiezNativeV11QuantityPage");
-            if (quantityRoot is not null) EnsureSceneEditor(project, path, page, quantityRoot);
+            if (quantityRoot is not null) EnsureEnvironmentSceneSwitch(project, path, page, quantityRoot);
             EnsureConsistentMembership(project, path, page, window);
         }
         catch (Exception ex)
@@ -57,169 +61,256 @@ internal static class SingleWindowStructuredSceneUi
         }
     }
 
-    private static void EnsureSceneEditor(PreviewProject project, string path, Control page, StackPanel root)
+    private static void EnsureEnvironmentSceneSwitch(PreviewProject project, string path, Control page, StackPanel root)
     {
-        var panel = Descendants(page).OfType<StackPanel>().FirstOrDefault(x => x.Name == ScenePanelName);
+        var environment = Descendants(page).OfType<TextBox>().FirstOrDefault(x => x.Name == "VisualEnvironmentInstructions");
+        if (environment is null) return;
+        var environmentContainer = DirectChildContaining(root, environment) as StackPanel;
+        if (environmentContainer is null) return;
+
+        var panel = Descendants(environmentContainer).OfType<StackPanel>().FirstOrDefault(x => x.Name == ModePanelName);
         if (panel is null)
         {
-            panel = BuildScenePanel(project, path);
-            var subject = Descendants(page).OfType<TextBox>().FirstOrDefault(x => x.Name == "VisualSubjectInstructions");
-            var subjectContainer = subject is null ? null : DirectChildContaining(root, subject);
-            var index = subjectContainer is null ? Math.Min(4, root.Children.Count) : root.Children.IndexOf(subjectContainer) + 1;
-            root.Children.Insert(Math.Clamp(index, 0, root.Children.Count), panel);
+            panel = BuildModePanel(project, path, environment, environmentContainer);
+            environmentContainer.Children.Insert(0, panel);
         }
-        RefreshScenePanel(project, panel);
+
+        RefreshEnvironmentSceneSwitch(project, environment, environmentContainer, panel);
     }
 
-    private static StackPanel BuildScenePanel(PreviewProject project, string path)
+    private static StackPanel BuildModePanel(PreviewProject project, string path, TextBox environment, StackPanel environmentContainer)
     {
-        var enabled = new CheckBox { Name = "StructuredSceneEnabled", Content = "Scene strutturate" };
-        var count = new NumericUpDown
+        var mode = new ComboBox
         {
-            Name = "StructuredSceneCount", Minimum = 1, Maximum = StructuredSceneProfileService.MaxScenes,
-            Increment = 1, FormatString = "0", Width = 82, MinHeight = 34
+            Name = "EnvironmentSceneMode",
+            ItemsSource = new[] { GenericMode, SceneMode },
+            Width = 230,
+            MinHeight = 34,
+            HorizontalAlignment = HorizontalAlignment.Left
         };
-        var selector = new ComboBox { Name = "StructuredSceneSelector", Width = 220, MinHeight = 34 };
-        var name = new TextBox { Name = "StructuredSceneName", Width = 210, MinHeight = 34, Watermark = "Nome scena", IsUndoEnabled = true };
-        var add = new Button { Name = "StructuredSceneAdd", Content = "+", Width = 38, MinHeight = 34 };
-        var remove = new Button { Name = "StructuredSceneRemove", Content = "−", Width = 38, MinHeight = 34 };
-        var description = new TextBox
+        var selector = new ComboBox
         {
-            Name = "StructuredSceneDescription", MinHeight = 72, AcceptsReturn = true,
-            TextWrapping = TextWrapping.Wrap, IsUndoEnabled = true,
-            Watermark = "Descrivi cosa succede nella scena, l'azione, le relazioni e gli elementi specifici della scena. Facoltativo."
+            Name = "StructuredSceneSelector",
+            Width = 235,
+            MinHeight = 34,
+            HorizontalAlignment = HorizontalAlignment.Left
         };
-        var status = new TextBlock { Name = "StructuredSceneStatus", FontSize = 12, TextWrapping = TextWrapping.Wrap };
-        var panel = new StackPanel
+        var name = new TextBox
         {
-            Name = ScenePanelName, Spacing = 5,
+            Name = "StructuredSceneName",
+            Width = 220,
+            MinHeight = 34,
+            Watermark = "Nome scena",
+            IsUndoEnabled = true
+        };
+        var add = new Button
+        {
+            Name = "StructuredSceneAdd",
+            Content = "+ Nuova scena",
+            Width = 125,
+            MinHeight = 34
+        };
+        var archive = new Button
+        {
+            Name = "StructuredSceneArchive",
+            Content = "Archivia scena",
+            Width = 125,
+            MinHeight = 34
+        };
+        var status = new TextBlock
+        {
+            Name = "StructuredSceneStatus",
+            FontSize = 12,
+            TextWrapping = TextWrapping.Wrap
+        };
+        var toolbar = new StackPanel
+        {
+            Name = SceneToolbarName,
+            Spacing = 5,
             Children =
             {
                 new StackPanel
                 {
-                    Orientation = Orientation.Horizontal, Spacing = 7, VerticalAlignment = VerticalAlignment.Center,
+                    Orientation = Orientation.Horizontal,
+                    Spacing = 7,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Children = { selector, name, add, archive }
+                },
+                status
+            }
+        };
+        var panel = new StackPanel
+        {
+            Name = ModePanelName,
+            Spacing = 5,
+            Children =
+            {
+                new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    Spacing = 8,
+                    VerticalAlignment = VerticalAlignment.Center,
                     Children =
                     {
-                        enabled, new TextBlock { Text = "N°", VerticalAlignment = VerticalAlignment.Center },
-                        count, selector, name, add, remove
+                        new TextBlock { Text = "Ambientazione", FontSize = 15, VerticalAlignment = VerticalAlignment.Center },
+                        mode
                     }
                 },
-                new TextBlock { Name = "StructuredSceneDescriptionLabel", Text = "Descrizione scena", FontSize = 13 },
-                description, status
+                toolbar
             }
         };
 
-        void Commit(StructuredSceneProfile model, string reason)
+        void PersistScenes(StructuredSceneProfile scenes, string reason)
         {
-            StructuredSceneProfileService.Save(project, model);
+            StructuredSceneProfileService.Save(project, scenes);
             _ = SafeProjectAutosave.SaveAsync(path, project, reason);
         }
 
-        enabled.IsCheckedChanged += (_, _) => Guarded(panel, () =>
+        mode.SelectionChanged += (_, _) => Guarded(panel, () =>
         {
-            var model = StructuredSceneProfileService.Load(project);
-            model.Enabled = enabled.IsChecked == true;
-            if (model.Enabled) StructuredSceneProfileService.SetCount(model, (int)(count.Value ?? 1));
-            Commit(model, "structured-scene-toggle");
-            RefreshScenePanel(project, panel);
+            var wantsScenes = string.Equals(mode.SelectedItem?.ToString(), SceneMode, StringComparison.Ordinal);
+            var scenes = StructuredSceneProfileService.Load(project);
+            if (wantsScenes == scenes.Enabled) return;
+
+            if (wantsScenes)
+            {
+                SaveGenericEnvironment(project, environment.Text);
+                scenes.Enabled = true;
+                if (StructuredSceneProfileService.ActiveScenes(scenes).Count == 0)
+                    StructuredSceneProfileService.Add(scenes);
+                PersistScenes(scenes, "structured-scene-mode-on");
+            }
+            else
+            {
+                var current = StructuredSceneProfileService.ActiveScene(scenes);
+                if (current is not null) current.Description = environment.Text ?? string.Empty;
+                scenes.Enabled = false;
+                PersistScenes(scenes, "structured-scene-mode-off");
+            }
+            RefreshEnvironmentSceneSwitch(project, environment, environmentContainer, panel);
         });
-        count.ValueChanged += (_, _) => Guarded(panel, () =>
-        {
-            if (enabled.IsChecked != true) return;
-            var model = StructuredSceneProfileService.Load(project);
-            StructuredSceneProfileService.SetCount(model, (int)(count.Value ?? 1));
-            Commit(model, "structured-scene-count");
-            RefreshScenePanel(project, panel);
-        });
+
         selector.SelectionChanged += (_, _) => Guarded(panel, () =>
         {
             if (selector.SelectedItem is not SceneChoice choice) return;
-            var model = StructuredSceneProfileService.Load(project);
-            if (!StructuredSceneProfileService.ActiveScenes(model).Any(x => string.Equals(x.SceneId, choice.Id, StringComparison.OrdinalIgnoreCase))) return;
-            model.ActiveSceneId = choice.Id;
-            Commit(model, "structured-scene-select");
-            RefreshScenePanel(project, panel);
+            var scenes = StructuredSceneProfileService.Load(project);
+            if (!scenes.Enabled) return;
+            if (StructuredSceneProfileService.ActiveScenes(scenes).All(x => !string.Equals(x.SceneId, choice.Id, StringComparison.OrdinalIgnoreCase))) return;
+            scenes.ActiveSceneId = choice.Id;
+            PersistScenes(scenes, "structured-scene-select");
+            RefreshEnvironmentSceneSwitch(project, environment, environmentContainer, panel);
         });
+
         name.LostFocus += (_, _) => Guarded(panel, () =>
         {
-            var model = StructuredSceneProfileService.Load(project);
-            var scene = StructuredSceneProfileService.ActiveScene(model);
-            if (scene is null) return;
-            if (!StructuredSceneProfileService.TryRename(model, scene, name.Text, out var error))
+            var scenes = StructuredSceneProfileService.Load(project);
+            var current = StructuredSceneProfileService.ActiveScene(scenes);
+            if (!scenes.Enabled || current is null) return;
+            if (!StructuredSceneProfileService.TryRename(scenes, current, name.Text, out var error))
             {
                 status.Text = error;
-                name.Text = scene.Name;
+                name.Text = current.Name;
                 return;
             }
-            Commit(model, "structured-scene-rename");
-            RefreshScenePanel(project, panel);
+            PersistScenes(scenes, "structured-scene-rename");
+            RefreshEnvironmentSceneSwitch(project, environment, environmentContainer, panel);
         });
+
         add.Click += (_, _) => Guarded(panel, () =>
         {
-            var model = StructuredSceneProfileService.Load(project);
-            if (!model.Enabled) return;
-            StructuredSceneProfileService.Add(model);
-            Commit(model, "structured-scene-add");
-            RefreshScenePanel(project, panel);
+            var scenes = StructuredSceneProfileService.Load(project);
+            if (!scenes.Enabled) return;
+            var current = StructuredSceneProfileService.ActiveScene(scenes);
+            if (current is not null) current.Description = environment.Text ?? string.Empty;
+            StructuredSceneProfileService.Add(scenes);
+            PersistScenes(scenes, "structured-scene-add");
+            RefreshEnvironmentSceneSwitch(project, environment, environmentContainer, panel);
+            environment.Focus();
         });
-        remove.Click += (_, _) => Guarded(panel, () =>
+
+        archive.Click += (_, _) => Guarded(panel, () =>
         {
-            var model = StructuredSceneProfileService.Load(project);
-            if (!model.Enabled) return;
-            StructuredSceneProfileService.RemoveFromActiveScenes(model, model.ActiveSceneId);
-            Commit(model, "structured-scene-remove");
-            RefreshScenePanel(project, panel);
+            var scenes = StructuredSceneProfileService.Load(project);
+            if (!scenes.Enabled || StructuredSceneProfileService.ActiveScenes(scenes).Count <= 1) return;
+            var current = StructuredSceneProfileService.ActiveScene(scenes);
+            if (current is null) return;
+            current.Description = environment.Text ?? string.Empty;
+            StructuredSceneProfileService.RemoveFromActiveScenes(scenes, current.SceneId);
+            PersistScenes(scenes, "structured-scene-archive");
+            RefreshEnvironmentSceneSwitch(project, environment, environmentContainer, panel);
         });
-        description.TextChanged += (_, _) => Guarded(panel, () =>
+
+        environment.TextChanged += (_, _) => Guarded(panel, () =>
         {
-            var model = StructuredSceneProfileService.Load(project);
-            var scene = StructuredSceneProfileService.ActiveScene(model);
-            if (!model.Enabled || scene is null) return;
-            scene.Description = description.Text ?? string.Empty;
-            Commit(model, "structured-scene-description");
+            var scenes = StructuredSceneProfileService.Load(project);
+            if (!scenes.Enabled)
+            {
+                SaveGenericEnvironment(project, environment.Text);
+                _ = SafeProjectAutosave.SaveAsync(path, project, "generic-environment");
+                return;
+            }
+            var current = StructuredSceneProfileService.ActiveScene(scenes);
+            if (current is null) return;
+            current.Description = environment.Text ?? string.Empty;
+            PersistScenes(scenes, "structured-scene-description");
         });
+
         return panel;
     }
 
-    private static void Guarded(StackPanel panel, Action action)
-    {
-        if (Guards.Contains(panel)) return;
-        try { action(); }
-        catch (Exception ex) { CrashDiagnostics.Error("structured-scene-ui-event", ex); }
-    }
-
-    private static void RefreshScenePanel(PreviewProject project, StackPanel panel)
+    private static void RefreshEnvironmentSceneSwitch(
+        PreviewProject project,
+        TextBox environment,
+        StackPanel environmentContainer,
+        StackPanel panel)
     {
         Guards.Add(panel);
         try
         {
-            var model = StructuredSceneProfileService.Load(project);
-            var enabled = Descendants(panel).OfType<CheckBox>().First(x => x.Name == "StructuredSceneEnabled");
-            var count = Descendants(panel).OfType<NumericUpDown>().First(x => x.Name == "StructuredSceneCount");
+            var scenes = StructuredSceneProfileService.Load(project);
+            var mode = Descendants(panel).OfType<ComboBox>().First(x => x.Name == "EnvironmentSceneMode");
             var selector = Descendants(panel).OfType<ComboBox>().First(x => x.Name == "StructuredSceneSelector");
             var name = Descendants(panel).OfType<TextBox>().First(x => x.Name == "StructuredSceneName");
-            var description = Descendants(panel).OfType<TextBox>().First(x => x.Name == "StructuredSceneDescription");
             var add = Descendants(panel).OfType<Button>().First(x => x.Name == "StructuredSceneAdd");
-            var remove = Descendants(panel).OfType<Button>().First(x => x.Name == "StructuredSceneRemove");
+            var archive = Descendants(panel).OfType<Button>().First(x => x.Name == "StructuredSceneArchive");
+            var toolbar = Descendants(panel).OfType<StackPanel>().First(x => x.Name == SceneToolbarName);
             var status = Descendants(panel).OfType<TextBlock>().First(x => x.Name == "StructuredSceneStatus");
-            var label = Descendants(panel).OfType<TextBlock>().First(x => x.Name == "StructuredSceneDescriptionLabel");
+            var label = environmentContainer.Children.OfType<TextBlock>().FirstOrDefault();
 
-            enabled.IsChecked = model.Enabled;
-            count.Value = model.RequestedCount;
-            var active = StructuredSceneProfileService.ActiveScenes(model);
+            mode.SelectedItem = scenes.Enabled ? SceneMode : GenericMode;
+            toolbar.IsVisible = scenes.Enabled;
+
+            if (!scenes.Enabled)
+            {
+                if (!string.Equals(environment.Text, LoadGenericEnvironment(project), StringComparison.Ordinal))
+                    environment.Text = LoadGenericEnvironment(project);
+                environment.Watermark = "Descrivi l'ambientazione generale della serie. Puoi indicare variazioni locali per singola immagine.";
+                if (label is not null) label.Text = "Ambientazione / scenario generale";
+                return;
+            }
+
+            var active = StructuredSceneProfileService.ActiveScenes(scenes);
             var choices = active.Select(x => new SceneChoice(x.SceneId, x.Number, x.Name)).ToArray();
             selector.ItemsSource = choices;
-            var current = StructuredSceneProfileService.ActiveScene(model);
-            selector.SelectedItem = current is null ? null : choices.FirstOrDefault(x => string.Equals(x.Id, current.SceneId, StringComparison.OrdinalIgnoreCase));
+            var current = StructuredSceneProfileService.ActiveScene(scenes);
+            selector.SelectedItem = current is null
+                ? null
+                : choices.FirstOrDefault(x => string.Equals(x.Id, current.SceneId, StringComparison.OrdinalIgnoreCase));
             name.Text = current?.Name ?? string.Empty;
-            description.Text = current?.Description ?? string.Empty;
-            label.Text = current is null ? "Descrizione scena" : $"Descrizione — Scena {current.Number}: {current.Name}";
-            count.IsVisible = selector.IsVisible = name.IsVisible = add.IsVisible = remove.IsVisible = description.IsVisible = label.IsVisible = model.Enabled;
-            remove.IsEnabled = model.Enabled && active.Count > 1;
-            IReadOnlyList<MultiSubjectDefinition> participants = current is null ? Array.Empty<MultiSubjectDefinition>() : StructuredSceneProfileService.Participants(project, current);
-            status.Text = model.Enabled
-                ? $"{active.Count} scene attive · SceneId stabile. Partecipanti: {(participants.Count == 0 ? "nessuno assegnato" : string.Join(", ", participants.Select(x => x.Name)))}."
-                : "Facoltativo. Se OFF, il progetto continua a usare tema/soggetto senza SceneId strutturato.";
+            if (!string.Equals(environment.Text, current?.Description ?? string.Empty, StringComparison.Ordinal))
+                environment.Text = current?.Description ?? string.Empty;
+            environment.Watermark = "Descrivi cosa accade in questa scena: azione, luogo, relazioni, oggetti ed elementi specifici. Poi premi + Nuova scena.";
+            if (label is not null)
+                label.Text = current is null ? "Descrizione scena" : $"Descrizione — Scena {current.Number}: {current.Name}";
+            archive.IsEnabled = active.Count > 1;
+
+            IReadOnlyList<MultiSubjectDefinition> participants = current is null
+                ? Array.Empty<MultiSubjectDefinition>()
+                : StructuredSceneProfileService.Participants(project, current);
+            status.Text = current is null
+                ? "Crea una scena per iniziare."
+                : $"Scene attive: {active.Count} · Partecipanti Consistent: {(participants.Count == 0 ? "nessuno ancora" : string.Join(", ", participants.Select(x => x.Name)))}.";
+            add.IsEnabled = active.Count < StructuredSceneProfileService.MaxScenes;
         }
         finally { Guards.Remove(panel); }
     }
@@ -235,28 +326,48 @@ internal static class SingleWindowStructuredSceneUi
             var row = old is null ? null : DirectChildContaining(body, old);
             if (row is not null) row.IsVisible = !scenes.Enabled;
         }
+
+        var existing = body is null ? null : Descendants(body).OfType<StackPanel>().FirstOrDefault(x => x.Name == MembershipPanelName);
         if (body is null || !multi.Enabled || !scenes.Enabled)
         {
-            var stale = Descendants(page).OfType<StackPanel>().FirstOrDefault(x => x.Name == MembershipPanelName);
-            if (stale is not null) stale.IsVisible = false;
+            if (existing is not null) existing.IsVisible = false;
             return;
         }
 
         var current = MultiSubjectProfileService.ActiveSubject(multi);
         if (current is null) return;
-        var existing = Descendants(body).OfType<StackPanel>().FirstOrDefault(x => x.Name == MembershipPanelName);
         if (existing is not null) body.Children.Remove(existing);
 
-        var membership = new StackPanel { Name = MembershipPanelName, Spacing = 4 };
-        membership.Children.Add(new TextBlock { Text = $"Partecipa alle scene — {current.Name}", FontSize = 13, TextWrapping = TextWrapping.Wrap });
-        membership.Children.Add(new TextBlock { Text = "La relazione usa SceneId + SubjectId: rinominare scena o personaggio non rompe il collegamento.", FontSize = 11, TextWrapping = TextWrapping.Wrap });
+        var membership = new StackPanel { Name = MembershipPanelName, Spacing = 5 };
+        membership.Children.Add(new TextBlock
+        {
+            Text = $"A quali scene partecipa {current.Name}?",
+            FontSize = 14,
+            TextWrapping = TextWrapping.Wrap
+        });
+        membership.Children.Add(new TextBlock
+        {
+            Text = "Seleziona tutte le scene in cui il personaggio deve comparire. I collegamenti usano identità interne stabili: rinominare scena o personaggio non li rompe.",
+            FontSize = 11,
+            TextWrapping = TextWrapping.Wrap
+        });
+
+        var list = new ListBox
+        {
+            Name = "SubjectSceneListBox",
+            MinHeight = 84,
+            MaxHeight = 220,
+            HorizontalAlignment = HorizontalAlignment.Stretch
+        };
+        var rows = new List<Control>();
         foreach (var scene in StructuredSceneProfileService.ActiveScenes(scenes))
         {
             var check = new CheckBox
             {
                 Name = "SubjectScene_" + scene.SceneId.Replace("-", string.Empty),
                 Content = $"Scena {scene.Number} — {scene.Name}",
-                IsChecked = scene.ParticipantSubjectIds.Any(x => string.Equals(x, current.SubjectId, StringComparison.OrdinalIgnoreCase))
+                IsChecked = scene.ParticipantSubjectIds.Any(x => string.Equals(x, current.SubjectId, StringComparison.OrdinalIgnoreCase)),
+                Margin = new Avalonia.Thickness(5, 3)
             };
             var sceneId = scene.SceneId;
             var subjectId = current.SubjectId;
@@ -268,17 +379,50 @@ internal static class SingleWindowStructuredSceneUi
                     StructuredSceneProfileService.SetSubjectParticipation(live, sceneId, subjectId, check.IsChecked == true);
                     StructuredSceneProfileService.Save(project, live);
                     _ = SafeProjectAutosave.SaveAsync(path, project, "subject-scene-membership");
-                    Dispatcher.UIThread.Post(() => SafeRefresh(window), DispatcherPriority.Background);
                 }
-                catch (Exception ex) { CrashDiagnostics.Error("subject-scene-membership", ex); }
+                catch (Exception ex)
+                {
+                    CrashDiagnostics.Error("subject-scene-membership", ex);
+                }
             };
-            membership.Children.Add(check);
+            rows.Add(check);
         }
+        list.ItemsSource = rows;
+        membership.Children.Add(list);
         body.Children.Add(membership);
 
         var subjectSelector = Descendants(page).OfType<ComboBox>().FirstOrDefault(x => x.Name == "ConsistencySubjectSelector");
         if (subjectSelector is not null && Wired.Add(subjectSelector))
             subjectSelector.SelectionChanged += (_, _) => Dispatcher.UIThread.Post(() => SafeRefresh(window), DispatcherPriority.Background);
+    }
+
+    private static string LoadGenericEnvironment(PreviewProject project)
+    {
+        if (string.Equals(BookTypeProfileService.Get(project), BookTypeProfileService.ColoringBook, StringComparison.OrdinalIgnoreCase))
+            return BookTypePromptProfileService.LoadColoring(project).EnvironmentDescription ?? string.Empty;
+        return ImageCollectionPromptProfileService.Load(project).EnvironmentDescription ?? string.Empty;
+    }
+
+    private static void SaveGenericEnvironment(PreviewProject project, string? value)
+    {
+        var text = value ?? string.Empty;
+        if (string.Equals(BookTypeProfileService.Get(project), BookTypeProfileService.ColoringBook, StringComparison.OrdinalIgnoreCase))
+        {
+            var profile = BookTypePromptProfileService.LoadColoring(project);
+            profile.EnvironmentDescription = text;
+            BookTypePromptProfileService.SaveColoring(project, profile);
+            return;
+        }
+        var imageProfile = ImageCollectionPromptProfileService.Load(project);
+        imageProfile.EnvironmentDescription = text;
+        ImageCollectionPromptProfileService.Save(project, imageProfile);
+    }
+
+    private static void Guarded(Control guard, Action action)
+    {
+        if (Guards.Contains(guard)) return;
+        try { action(); }
+        catch (Exception ex) { CrashDiagnostics.Error("structured-scene-ui-event", ex); }
     }
 
     private static bool TrySession(MainWindow window, out PreviewProject project, out string path)
