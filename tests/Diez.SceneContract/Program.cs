@@ -1,7 +1,6 @@
 using Avalonia;
 using Avalonia.Fonts.Inter;
 using Avalonia.Headless;
-using Avalonia.Threading;
 using DiezPublishingStudio;
 
 namespace Diez.SceneContract;
@@ -32,10 +31,10 @@ public static class Program
                 SingleWindowMultiSubjectLabelUi.Attach(window);
                 SingleWindowStructuredSceneUi.Attach(window);
 
-                window.Show();
-                Dispatcher.UIThread.RunJobs();
+                // This contract verifies the real control tree, events and persistence, not raster layout.
+                // Avoid Window.Show(): it would enqueue render/layout work unrelated to the Scene behavior and
+                // make Avalonia's isolated-session teardown depend on font/render services after the probe ends.
                 await StructuredSceneUiContractProbeV2.RunAsync(window);
-                Dispatcher.UIThread.RunJobs();
                 Console.WriteLine("STRUCTURED SCENE CONTRACT: OK");
                 return 0;
             }
@@ -46,14 +45,7 @@ public static class Program
             }
             finally
             {
-                try
-                {
-                    window?.Close();
-                    Dispatcher.UIThread.RunJobs();
-                }
-                catch
-                {
-                }
+                try { window?.Close(); } catch { }
             }
         }, CancellationToken.None).GetAwaiter().GetResult();
     }
