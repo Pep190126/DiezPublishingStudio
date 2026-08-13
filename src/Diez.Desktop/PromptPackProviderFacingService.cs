@@ -96,6 +96,7 @@ internal static class PromptPackProviderFacingService
             settings.ProviderId,
             settings.PreferAdvancedModel);
         StructuredSubjectPromptRequestService.Apply(project, request);
+        StructuredScenePromptRequestService.Apply(project, request);
 
         // Work Unit.Position is the stable series position. `index` may be only the position inside a partial
         // Prompt Pack/correction export and therefore must never reassign a structured identity.
@@ -123,6 +124,8 @@ internal static class PromptPackProviderFacingService
         var consistentEnabled = !string.IsNullOrWhiteSpace(request.ConsistencyRules);
 
         var sb = new StringBuilder();
+        sb.AppendLine(VisualPromptIntentSynthesizer.BuildWorkUnitDirection(
+            project, request, subject, structuredScene, sceneParticipants));
         if (string.Equals(request.BookType, BookTypeProfileService.ColoringBook, StringComparison.OrdinalIgnoreCase))
         {
             var hardProfile = ColoringIndependentHardProfileService.Resolve(project);
