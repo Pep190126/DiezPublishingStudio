@@ -7,8 +7,9 @@ using Avalonia.Threading;
 namespace DiezPublishingStudio;
 
 /// <summary>
-/// Compact scene editor on the visual quantity page plus per-subject scene membership in Consistent.
-/// SceneId/SubjectId remain internal; users work with scene number/name and the existing subject names.
+/// Compact structured-scene editor plus per-subject scene membership in Consistent.
+/// UI events update the in-memory graph synchronously; project I/O is queued through SafeProjectAutosave,
+/// so no async-void continuation can resume against a page that navigation has already replaced.
 /// </summary>
 internal static class SingleWindowStructuredSceneUi
 {
@@ -28,40 +29,46 @@ internal static class SingleWindowStructuredSceneUi
             pageHost.PropertyChanged += (_, e) =>
             {
                 if (e.Property != ContentControl.ContentProperty) return;
-                Dispatcher.UIThread.Post(() => Refresh(window), DispatcherPriority.Loaded);
-                Dispatcher.UIThread.Post(() => Refresh(window), DispatcherPriority.Background);
+                Dispatcher.UIThread.Post(() => SafeRefresh(window), DispatcherPriority.Loaded);
             };
         }
         window.Closed += (_, _) => Attached.Remove(window);
-        Refresh(window);
+        SafeRefresh(window);
     }
 
-    public static void Refresh(MainWindow window)
+    public static void Refresh(MainWindow window) => SafeRefresh(window);
+
+    private static void SafeRefresh(MainWindow window)
     {
-        if (!TrySession(window, out var project, out var path)) return;
-        var host = SingleWindowEntryPointUi.GetHost(window);
-        var pageHost = host.GetType().GetField("_pageHost", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(host) as ContentControl;
-        if (pageHost?.Content is not Control page) return;
+        try
+        {
+            if (!TrySession(window, out var project, out var path)) return;
+            var host = SingleWindowEntryPointUi.GetHost(window);
+            var pageHost = host.GetType().GetField("_pageHost", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(host) as ContentControl;
+            if (pageHost?.Content is not Control page) return;
 
-        var quantityRoot = Descendants(page).OfType<StackPanel>().FirstOrDefault(x => x.Name == "DiezNativeV11QuantityPage");
-        if (quantityRoot is not null)
-            EnsureSceneEditor(project, path, page, quantityRoot);
-
-        EnsureConsistentMembership(project, path, page, window);
+            var quantityRoot = Descendants(page).OfType<StackPanel>().FirstOrDefault(x => x.Name == "DiezNativeV11QuantityPage");
+            if (quantityRoot is not null) EnsureSceneEditor(project, path, page, quantityRoot);
+            EnsureConsistentMembership(project, path, page, window);
+        }
+        catch (Exception ex)
+        {
+            CrashDiagnostics.Error("structured-scene-ui-refresh", ex);
+        }
     }
 
     private static void EnsureSceneEditor(PreviewProject project, string path, Control page, StackPanel root)
     {
-        var existing = Descendants(page).OfType<StackPanel>().FirstOrDefault(x => x.Name == ScenePanelName);
-        if (existing is null)
+        var panel = Descendants(page).OfType<StackPanel>().FirstOrDefault(x => x.Name == ScenePanelName);
+        if (panel is null)
         {
-            existing = BuildScenePanel(project, path);
+            panel = BuildScenePanel(project, path);
             var subject = Descendants(page).OfType<TextBox>().FirstOrDefault(x => x.Name == "VisualSubjectInstructions");
             var subjectContainer = subject is null ? null : DirectChildContaining(root, subject);
             var index = subjectContainer is null ? Math.Min(4, root.Children.Count) : root.Children.IndexOf(subjectContainer) + 1;
-            root.Children.Insert(Math.Clamp(index, 0, root.Children.Count), existing);
+            root.Children.Insert(Math.Clamp(index, 0, root.Children.Count), panel);
         }
-        RefreshScenePanel(project, existing);
+        RefreshScenePanel(project, panel);
     }
 
     private static StackPanel BuildScenePanel(PreviewProject project, string path)
@@ -73,11 +80,7 @@ internal static class SingleWindowStructuredSceneUi
             Increment = 1, FormatString = "0", Width = 82, MinHeight = 34
         };
         var selector = new ComboBox { Name = "StructuredSceneSelector", Width = 220, MinHeight = 34 };
-        var name = new TextBox
-        {
-            Name = "StructuredSceneName", Width = 210, MinHeight = 34,
-            Watermark = "Nome scena", IsUndoEnabled = true
-        };
+        var name = new TextBox { Name = "StructuredSceneName", Width = 210, MinHeight = 34, Watermark = "Nome scena", IsUndoEnabled = true };
         var add = new Button { Name = "StructuredSceneAdd", Content = "+", Width = 38, MinHeight = 34 };
         var remove = new Button { Name = "StructuredSceneRemove", Content = "−", Width = 38, MinHeight = 34 };
         var description = new TextBox
@@ -97,91 +100,92 @@ internal static class SingleWindowStructuredSceneUi
                     Orientation = Orientation.Horizontal, Spacing = 7, VerticalAlignment = VerticalAlignment.Center,
                     Children =
                     {
-                        enabled,
-                        new TextBlock { Text = "N°", VerticalAlignment = VerticalAlignment.Center }, count,
-                        selector, name, add, remove
+                        enabled, new TextBlock { Text = "N°", VerticalAlignment = VerticalAlignment.Center },
+                        count, selector, name, add, remove
                     }
                 },
                 new TextBlock { Name = "StructuredSceneDescriptionLabel", Text = "Descrizione scena", FontSize = 13 },
-                description,
-                status
+                description, status
             }
         };
 
-        async Task SaveAsync(StructuredSceneProfile model, string reason)
+        void Commit(StructuredSceneProfile model, string reason)
         {
             StructuredSceneProfileService.Save(project, model);
-            await SafeProjectAutosave.SaveAsync(path, project, reason);
+            _ = SafeProjectAutosave.SaveAsync(path, project, reason);
         }
 
-        enabled.IsCheckedChanged += async (_, _) =>
+        enabled.IsCheckedChanged += (_, _) => Guarded(panel, () =>
         {
-            if (Guards.Contains(panel)) return;
             var model = StructuredSceneProfileService.Load(project);
             model.Enabled = enabled.IsChecked == true;
             if (model.Enabled) StructuredSceneProfileService.SetCount(model, (int)(count.Value ?? 1));
-            await SaveAsync(model, "structured-scene-toggle");
+            Commit(model, "structured-scene-toggle");
             RefreshScenePanel(project, panel);
-        };
-        count.ValueChanged += async (_, _) =>
+        });
+        count.ValueChanged += (_, _) => Guarded(panel, () =>
         {
-            if (Guards.Contains(panel) || enabled.IsChecked != true) return;
+            if (enabled.IsChecked != true) return;
             var model = StructuredSceneProfileService.Load(project);
             StructuredSceneProfileService.SetCount(model, (int)(count.Value ?? 1));
-            await SaveAsync(model, "structured-scene-count");
+            Commit(model, "structured-scene-count");
             RefreshScenePanel(project, panel);
-        };
-        selector.SelectionChanged += async (_, _) =>
+        });
+        selector.SelectionChanged += (_, _) => Guarded(panel, () =>
         {
-            if (Guards.Contains(panel) || selector.SelectedItem is not SceneChoice choice) return;
+            if (selector.SelectedItem is not SceneChoice choice) return;
             var model = StructuredSceneProfileService.Load(project);
             if (!StructuredSceneProfileService.ActiveScenes(model).Any(x => string.Equals(x.SceneId, choice.Id, StringComparison.OrdinalIgnoreCase))) return;
             model.ActiveSceneId = choice.Id;
-            await SaveAsync(model, "structured-scene-select");
+            Commit(model, "structured-scene-select");
             RefreshScenePanel(project, panel);
-        };
-        name.LostFocus += async (_, _) =>
+        });
+        name.LostFocus += (_, _) => Guarded(panel, () =>
         {
-            if (Guards.Contains(panel)) return;
             var model = StructuredSceneProfileService.Load(project);
             var scene = StructuredSceneProfileService.ActiveScene(model);
             if (scene is null) return;
             if (!StructuredSceneProfileService.TryRename(model, scene, name.Text, out var error))
             {
                 status.Text = error;
-                Guards.Add(panel);
-                try { name.Text = scene.Name; } finally { Guards.Remove(panel); }
+                name.Text = scene.Name;
                 return;
             }
-            await SaveAsync(model, "structured-scene-rename");
+            Commit(model, "structured-scene-rename");
             RefreshScenePanel(project, panel);
-        };
-        add.Click += async (_, _) =>
+        });
+        add.Click += (_, _) => Guarded(panel, () =>
         {
             var model = StructuredSceneProfileService.Load(project);
             if (!model.Enabled) return;
             StructuredSceneProfileService.Add(model);
-            await SaveAsync(model, "structured-scene-add");
+            Commit(model, "structured-scene-add");
             RefreshScenePanel(project, panel);
-        };
-        remove.Click += async (_, _) =>
+        });
+        remove.Click += (_, _) => Guarded(panel, () =>
         {
             var model = StructuredSceneProfileService.Load(project);
             if (!model.Enabled) return;
             StructuredSceneProfileService.RemoveFromActiveScenes(model, model.ActiveSceneId);
-            await SaveAsync(model, "structured-scene-remove");
+            Commit(model, "structured-scene-remove");
             RefreshScenePanel(project, panel);
-        };
-        description.TextChanged += async (_, _) =>
+        });
+        description.TextChanged += (_, _) => Guarded(panel, () =>
         {
-            if (Guards.Contains(panel)) return;
             var model = StructuredSceneProfileService.Load(project);
             var scene = StructuredSceneProfileService.ActiveScene(model);
             if (!model.Enabled || scene is null) return;
             scene.Description = description.Text ?? string.Empty;
-            await SaveAsync(model, "structured-scene-description");
-        };
+            Commit(model, "structured-scene-description");
+        });
         return panel;
+    }
+
+    private static void Guarded(StackPanel panel, Action action)
+    {
+        if (Guards.Contains(panel)) return;
+        try { action(); }
+        catch (Exception ex) { CrashDiagnostics.Error("structured-scene-ui-event", ex); }
     }
 
     private static void RefreshScenePanel(PreviewProject project, StackPanel panel)
@@ -210,15 +214,12 @@ internal static class SingleWindowStructuredSceneUi
             name.Text = current?.Name ?? string.Empty;
             description.Text = current?.Description ?? string.Empty;
             label.Text = current is null ? "Descrizione scena" : $"Descrizione — Scena {current.Number}: {current.Name}";
-
             count.IsVisible = selector.IsVisible = name.IsVisible = add.IsVisible = remove.IsVisible = description.IsVisible = label.IsVisible = model.Enabled;
             remove.IsEnabled = model.Enabled && active.Count > 1;
-            IReadOnlyList<MultiSubjectDefinition> participants = current is null
-                ? Array.Empty<MultiSubjectDefinition>()
-                : StructuredSceneProfileService.Participants(project, current);
+            IReadOnlyList<MultiSubjectDefinition> participants = current is null ? Array.Empty<MultiSubjectDefinition>() : StructuredSceneProfileService.Participants(project, current);
             status.Text = model.Enabled
                 ? $"{active.Count} scene attive · SceneId stabile. Partecipanti: {(participants.Count == 0 ? "nessuno assegnato" : string.Join(", ", participants.Select(x => x.Name)))}."
-                : "Facoltativo. Se OFF, le Work Unit continuano a usare il flusso soggetto/tema senza SceneId strutturato.";
+                : "Facoltativo. Se OFF, il progetto continua a usare tema/soggetto senza SceneId strutturato.";
         }
         finally { Guards.Remove(panel); }
     }
@@ -230,9 +231,9 @@ internal static class SingleWindowStructuredSceneUi
         var body = Descendants(page).OfType<StackPanel>().FirstOrDefault(x => x.Name == "ConsistencySubjectBody");
         if (body is not null)
         {
-            var coSceneLevel = Descendants(body).OfType<ComboBox>().FirstOrDefault(x => x.Name == "SubjectConsistencyLevel_co_scene");
-            var coSceneRow = coSceneLevel is null ? null : DirectChildContaining(body, coSceneLevel);
-            if (coSceneRow is not null) coSceneRow.IsVisible = !scenes.Enabled;
+            var old = Descendants(body).OfType<ComboBox>().FirstOrDefault(x => x.Name == "SubjectConsistencyLevel_co_scene");
+            var row = old is null ? null : DirectChildContaining(body, old);
+            if (row is not null) row.IsVisible = !scenes.Enabled;
         }
         if (body is null || !multi.Enabled || !scenes.Enabled)
         {
@@ -247,15 +248,8 @@ internal static class SingleWindowStructuredSceneUi
         if (existing is not null) body.Children.Remove(existing);
 
         var membership = new StackPanel { Name = MembershipPanelName, Spacing = 4 };
-        membership.Children.Add(new TextBlock
-        {
-            Text = $"Partecipa alle scene — {current.Name}", FontSize = 13, TextWrapping = TextWrapping.Wrap
-        });
-        membership.Children.Add(new TextBlock
-        {
-            Text = "La relazione è strutturata: rinominare la scena o il personaggio non rompe il collegamento.",
-            FontSize = 11, TextWrapping = TextWrapping.Wrap
-        });
+        membership.Children.Add(new TextBlock { Text = $"Partecipa alle scene — {current.Name}", FontSize = 13, TextWrapping = TextWrapping.Wrap });
+        membership.Children.Add(new TextBlock { Text = "La relazione usa SceneId + SubjectId: rinominare scena o personaggio non rompe il collegamento.", FontSize = 11, TextWrapping = TextWrapping.Wrap });
         foreach (var scene in StructuredSceneProfileService.ActiveScenes(scenes))
         {
             var check = new CheckBox
@@ -266,21 +260,25 @@ internal static class SingleWindowStructuredSceneUi
             };
             var sceneId = scene.SceneId;
             var subjectId = current.SubjectId;
-            check.IsCheckedChanged += async (_, _) =>
+            check.IsCheckedChanged += (_, _) =>
             {
-                var live = StructuredSceneProfileService.Load(project);
-                StructuredSceneProfileService.SetSubjectParticipation(live, sceneId, subjectId, check.IsChecked == true);
-                StructuredSceneProfileService.Save(project, live);
-                await SafeProjectAutosave.SaveAsync(path, project, "subject-scene-membership");
-                Dispatcher.UIThread.Post(() => Refresh(window), DispatcherPriority.Background);
+                try
+                {
+                    var live = StructuredSceneProfileService.Load(project);
+                    StructuredSceneProfileService.SetSubjectParticipation(live, sceneId, subjectId, check.IsChecked == true);
+                    StructuredSceneProfileService.Save(project, live);
+                    _ = SafeProjectAutosave.SaveAsync(path, project, "subject-scene-membership");
+                    Dispatcher.UIThread.Post(() => SafeRefresh(window), DispatcherPriority.Background);
+                }
+                catch (Exception ex) { CrashDiagnostics.Error("subject-scene-membership", ex); }
             };
             membership.Children.Add(check);
         }
         body.Children.Add(membership);
 
-        var selector = Descendants(page).OfType<ComboBox>().FirstOrDefault(x => x.Name == "ConsistencySubjectSelector");
-        if (selector is not null && Wired.Add(selector))
-            selector.SelectionChanged += (_, _) => Dispatcher.UIThread.Post(() => Refresh(window), DispatcherPriority.Background);
+        var subjectSelector = Descendants(page).OfType<ComboBox>().FirstOrDefault(x => x.Name == "ConsistencySubjectSelector");
+        if (subjectSelector is not null && Wired.Add(subjectSelector))
+            subjectSelector.SelectionChanged += (_, _) => Dispatcher.UIThread.Post(() => SafeRefresh(window), DispatcherPriority.Background);
     }
 
     private static bool TrySession(MainWindow window, out PreviewProject project, out string path)
