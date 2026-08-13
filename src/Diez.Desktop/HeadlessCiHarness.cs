@@ -63,7 +63,12 @@ internal static class HeadlessCiHarness
             }
             finally
             {
+                // A shown headless window can queue layout/render work during the last probe and again on Close().
+                // Drain it while Avalonia services (including FontManager) are still alive; otherwise the session
+                // cleanup may attempt to measure TextBlocks after application services have been torn down.
+                try { Dispatcher.UIThread.RunJobs(); } catch { }
                 try { window?.Close(); } catch { }
+                try { Dispatcher.UIThread.RunJobs(); } catch { }
             }
         }, CancellationToken.None);
     }
