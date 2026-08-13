@@ -186,6 +186,7 @@ internal static class SingleWindowStructuredSceneUi
                 if (current is not null) current.Description = environment.Text ?? string.Empty;
                 scenes.Enabled = false;
                 PersistScenes(scenes, "structured-scene-mode-off");
+                RestoreGenericEnvironmentToProfile(project);
             }
             RefreshEnvironmentSceneSwitch(project, environment, environmentContainer, panel);
         });
@@ -282,8 +283,9 @@ internal static class SingleWindowStructuredSceneUi
 
             if (!scenes.Enabled)
             {
-                if (!string.Equals(environment.Text, LoadGenericEnvironment(project), StringComparison.Ordinal))
-                    environment.Text = LoadGenericEnvironment(project);
+                var generic = LoadGenericEnvironment(project);
+                if (!string.Equals(environment.Text, generic, StringComparison.Ordinal))
+                    environment.Text = generic;
                 environment.Watermark = "Descrivi l'ambientazione generale della serie. Puoi indicare variazioni locali per singola immagine.";
                 if (label is not null) label.Text = "Ambientazione / scenario generale";
                 return;
@@ -398,14 +400,29 @@ internal static class SingleWindowStructuredSceneUi
 
     private static string LoadGenericEnvironment(PreviewProject project)
     {
-        if (string.Equals(BookTypeProfileService.Get(project), BookTypeProfileService.ColoringBook, StringComparison.OrdinalIgnoreCase))
-            return BookTypePromptProfileService.LoadColoring(project).EnvironmentDescription ?? string.Empty;
-        return ImageCollectionPromptProfileService.Load(project).EnvironmentDescription ?? string.Empty;
+        var fallback = ReadProfileEnvironment(project);
+        return StructuredSceneEnvironmentStore.Load(project, fallback);
     }
 
     private static void SaveGenericEnvironment(PreviewProject project, string? value)
     {
         var text = value ?? string.Empty;
+        StructuredSceneEnvironmentStore.Save(project, text);
+        WriteProfileEnvironment(project, text);
+    }
+
+    private static void RestoreGenericEnvironmentToProfile(PreviewProject project) =>
+        WriteProfileEnvironment(project, LoadGenericEnvironment(project));
+
+    private static string ReadProfileEnvironment(PreviewProject project)
+    {
+        if (string.Equals(BookTypeProfileService.Get(project), BookTypeProfileService.ColoringBook, StringComparison.OrdinalIgnoreCase))
+            return BookTypePromptProfileService.LoadColoring(project).EnvironmentDescription ?? string.Empty;
+        return ImageCollectionPromptProfileService.Load(project).EnvironmentDescription ?? string.Empty;
+    }
+
+    private static void WriteProfileEnvironment(PreviewProject project, string text)
+    {
         if (string.Equals(BookTypeProfileService.Get(project), BookTypeProfileService.ColoringBook, StringComparison.OrdinalIgnoreCase))
         {
             var profile = BookTypePromptProfileService.LoadColoring(project);
