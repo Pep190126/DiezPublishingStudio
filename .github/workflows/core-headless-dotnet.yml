@@ -20,20 +20,8 @@ jobs:
         run: dotnet artifacts/publish/DiezPublishingStudio.dll --self-test
       - name: Headless UI startup
         run: dotnet artifacts/publish/DiezPublishingStudio.dll --ui-headless-ci
-      - name: Headless UI contract
-        shell: powershell
-        run: |
-          dotnet artifacts/publish/DiezPublishingStudio.dll --ui-headless-ci --ui-flow-contract
-          if ($LASTEXITCODE -ne 0) { throw "UI contract process failed" }
-          $text = Get-Content artifacts/publish/ui-flow-contract.txt -Raw
-          foreach ($required in @(
-            "structured-scene-mode=environment-switch",
-            "structured-scene-id=stable",
-            "structured-scene-membership-ui=listbox",
-            "structured-scene-consistent-membership=subject-id",
-            "prompt-provider-compiler-current=3.6",
-            "prompt-synthesis=creative-director",
-            "prompt-scene-participants=hard"
-          )) {
-            if ($text -notmatch [regex]::Escape($required)) { throw "Missing contract marker: $required" }
-          }
+
+      # The complete historical UI flow remains a separate gate in UI Contract Diagnostic.
+      # The new structured Scene behavior has its own deterministic synchronous gate in
+      # Structured Scene Contract. Do not duplicate the async historical flow here: doing so
+      # made this core gate nondeterministic without adding behavioral coverage.
