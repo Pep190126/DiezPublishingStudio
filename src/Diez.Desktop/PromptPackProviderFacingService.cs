@@ -107,11 +107,20 @@ internal static class PromptPackProviderFacingService
         if (multi.Enabled && MultiSubjectProfileService.ActiveSubjects(multi).Count > 0)
             structuredSubject = MultiSubjectProfileService.SubjectForItem(project, stableIndex);
 
+        var structuredScene = StructuredSceneProfileService.SceneForWorkUnit(project, unit);
+        var sceneParticipants = structuredScene is null
+            ? Array.Empty<MultiSubjectDefinition>()
+            : StructuredSceneProfileService.Participants(project, structuredScene).ToArray();
+        if (sceneParticipants.Length > 0 &&
+            (structuredSubject is null || sceneParticipants.All(x => !string.Equals(x.SubjectId, structuredSubject.SubjectId, StringComparison.OrdinalIgnoreCase))))
+            structuredSubject = sceneParticipants[0];
+
         var subject = structuredSubject is not null
             ? structuredSubject.Name.Trim()
             : ResolveAtomicSubject(request, stableIndex);
         var environment = PromptEnglishNormalizer.NormalizeProviderFacing(
             !string.IsNullOrWhiteSpace(item?.Environment) ? item!.Environment : request.Environment);
+        var consistentEnabled = !string.IsNullOrWhiteSpace(request.ConsistencyRules);
 
         var sb = new StringBuilder();
         if (string.Equals(request.BookType, BookTypeProfileService.ColoringBook, StringComparison.OrdinalIgnoreCase))
@@ -120,7 +129,8 @@ internal static class PromptPackProviderFacingService
             var style = Norm(hardProfile.Style, "Clean Line Art");
             sb.AppendLine("Create ONE finished, publication-quality coloring-book illustration.");
             sb.AppendLine($"PRIMARY SUBJECT — HARD LOCK: {subject}. The subject must be the dominant focal element, large, clearly recognizable, anatomically coherent and more visually important than the background.");
-            AppendStructuredSubject(sb, structuredSubject, !string.IsNullOrWhiteSpace(request.ConsistencyRules));
+            AppendStructuredSubject(sb, structuredSubject, consistentEnabled);
+            AppendStructuredScene(sb, project, structuredScene, structuredSubject, consistentEnabled);
             sb.AppendLine("COMPOSITION — HARD LOCK: exactly ONE unified composition with exactly ONE primary scene filling the canvas. Keep the canvas as one continuous scene; do not subdivide it into separate framed, side-by-side or stacked regions, and do not show multiple alternative compositions or visually represent the series count.");
             if (!string.IsNullOrWhiteSpace(environment))
                 sb.AppendLine($"SETTING — SUPPORTING ONLY: {environment}. Keep the setting secondary, uncluttered and clearly subordinate to the main subject.");
@@ -138,7 +148,8 @@ internal static class PromptPackProviderFacingService
             var style = Norm(request.RenderingStyle, "professional illustration");
             sb.AppendLine("Create ONE finished, publication-quality editorial image.");
             sb.AppendLine($"PRIMARY SUBJECT — HARD LOCK: {subject}. Make the requested subject immediately readable and dominant in the composition.");
-            AppendStructuredSubject(sb, structuredSubject, !string.IsNullOrWhiteSpace(request.ConsistencyRules));
+            AppendStructuredSubject(sb, structuredSubject, consistentEnabled);
+            AppendStructuredScene(sb, project, structuredScene, structuredSubject, consistentEnabled);
             sb.AppendLine("COMPOSITION — HARD LOCK: exactly ONE unified composition with one primary scene filling the canvas. Keep the canvas continuous rather than subdividing it into separate framed, side-by-side or stacked regions; do not show multiple alternative compositions unless this exact Work Unit explicitly requests them.");
             if (!string.IsNullOrWhiteSpace(environment))
                 sb.AppendLine($"SETTING — SUPPORTING ONLY: {environment}. The setting must support the subject rather than replace it.");
@@ -167,9 +178,10 @@ internal static class PromptPackProviderFacingService
 
         AppendTechnical(sb, request.Technical);
         sb.AppendLine($"SERIES ROLE: this is item {stableIndex} of the project series, but render ONLY this one composition. Do not represent the series count visually.");
+        var sceneCheck = sceneParticipants.Length > 0 ? ", SCENE PARTICIPANTS" : string.Empty;
         sb.AppendLine(string.Equals(request.BookType, BookTypeProfileService.ColoringBook, StringComparison.OrdinalIgnoreCase)
-            ? "FINAL CHECK — HARD: the returned image must visibly match PRIMARY SUBJECT, STYLE, BOLD & EASY ON/OFF, COZY ON/OFF, LINE WEIGHT and single-composition hard locks before any technical compliance is considered. If any one fails, regenerate instead of returning the asset."
-            : "FINAL CHECK — HARD: the returned image must visibly match BOTH the PRIMARY SUBJECT and STYLE hard locks and must contain only one unified composition before any technical compliance is considered. If any of these fail, regenerate instead of returning the asset.");
+            ? $"FINAL CHECK — HARD: the returned image must visibly match PRIMARY SUBJECT{sceneCheck}, STYLE, BOLD & EASY ON/OFF, COZY ON/OFF, LINE WEIGHT and single-composition hard locks before any technical compliance is considered. If any one fails, regenerate instead of returning the asset."
+            : $"FINAL CHECK — HARD: the returned image must visibly match PRIMARY SUBJECT{sceneCheck} and STYLE hard locks and must contain only one unified composition before any technical compliance is considered. If any of these fail, regenerate instead of returning the asset.");
 
         var renderer = PromptEnglishNormalizer.NormalizeProviderFacing(sb.ToString()).Trim();
         EnsureRendererPromptReady(renderer, unit.Code);
@@ -187,6 +199,42 @@ internal static class PromptPackProviderFacingService
         sb.AppendLine("SUBJECT-SPECIFIC CONSISTENT — AUTHORITATIVE:");
         foreach (var line in rules.Replace("\r\n", "\n").Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
             sb.AppendLine("- " + line);
+    }
+
+    private static void AppendStructuredScene(
+        StringBuilder sb,
+        PreviewProject project,
+        StructuredSceneDefinition? scene,
+        MultiSubjectDefinition? focalSubject,
+        bool consistentEnabled)
+    {
+        if (scene is null) return;
+        var description = PromptEnglishNormalizer.NormalizeProviderFacing(scene.Description);
+        var defaultItalian = $"Scena {scene.Number}";
+        var defaultEnglish = $"Scene {scene.Number}";
+        var name = string.Equals(scene.Name, defaultItalian, StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(scene.Name, defaultEnglish, StringComparison.OrdinalIgnoreCase)
+            ? string.Empty
+            : PromptEnglishNormalizer.NormalizeProviderFacing(scene.Name);
+        var intent = string.Join(" — ", new[] { name, description }.Where(x => !string.IsNullOrWhiteSpace(x)));
+        if (!string.IsNullOrWhiteSpace(intent))
+            sb.AppendLine("SCENE INTENT — HARD LOCK: " + intent + ". Keep this action/relationship inside the same unified composition.");
+
+        var participants = StructuredSceneProfileService.Participants(project, scene);
+        if (participants.Count == 0) return;
+        sb.AppendLine("SCENE PARTICIPANTS — HARD LOCK: " + string.Join(", ", participants.Select(x => x.Name)) + ". Every listed participant must visibly appear in this scene; do not substitute another structured cast member.");
+        foreach (var participant in participants)
+        {
+            if (focalSubject is not null && string.Equals(participant.SubjectId, focalSubject.SubjectId, StringComparison.OrdinalIgnoreCase)) continue;
+            if (!string.IsNullOrWhiteSpace(participant.Description))
+                sb.AppendLine($"PARTICIPANT IDENTITY — HARD LOCK [{participant.Name}]: {participant.Description.Trim()} Preserve these identifying traits in this scene.");
+            if (!consistentEnabled) continue;
+            var rules = MultiSubjectProfileService.BuildConsistencyRules(participant);
+            if (string.IsNullOrWhiteSpace(rules)) continue;
+            sb.AppendLine($"PARTICIPANT CONSISTENT — AUTHORITATIVE [{participant.Name}]:");
+            foreach (var line in rules.Replace("\r\n", "\n").Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                sb.AppendLine("- " + line);
+        }
     }
 
     /// <summary>
@@ -243,6 +291,10 @@ internal static class PromptPackProviderFacingService
         var subject = match.Groups["subject"].Value.Trim();
         if (NonAtomicSubjectDirective.IsMatch(subject))
             throw new InvalidOperationException($"{label}: PRIMARY SUBJECT non atomico ('{subject}'). La quantità della serie non può entrare nel soggetto di una singola Work Unit.");
+
+        if (text.Contains("SCENE PARTICIPANTS — HARD LOCK:", StringComparison.Ordinal) &&
+            !text.Contains("COMPOSITION — HARD LOCK:", StringComparison.Ordinal))
+            throw new InvalidOperationException($"{label}: partecipanti di scena presenti senza COMPOSITION — HARD LOCK.");
 
         if (text.Contains("coloring-book", StringComparison.OrdinalIgnoreCase))
         {
