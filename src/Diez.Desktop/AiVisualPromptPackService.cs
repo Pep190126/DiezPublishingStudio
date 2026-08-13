@@ -45,6 +45,7 @@ internal static class AiVisualPromptPackService
 
         PromptPackPromptEngineeringFinalizer.Finalize(targetPath, project, state, ids);
         PromptPackSubjectIdentityService.Apply(targetPath, project, state, ids);
+        PromptPackSceneIdentityService.Apply(targetPath, project, state, ids);
         PromptPackEnglishInstructionService.Rewrite(targetPath, project);
         AiExchangeVisualLayoutSanitizer.Sanitize(targetPath);
         var execution = PromptPackExecutionPlanService.Apply(targetPath, project, state, ids, packageVersion);
