@@ -34,19 +34,11 @@ jobs:
           $exe = (Resolve-Path "artifacts\publish\DiezPublishingStudio.exe").Path
           $startupLog = Join-Path $env:LOCALAPPDATA "Diez Publishing Studio\logs\startup-errors.log"
           if (Test-Path $startupLog) { Remove-Item $startupLog -Force }
-          $process = Start-Process -FilePath $exe -ArgumentList "--ui-headless-ci" -PassThru
-          Start-Sleep -Seconds 4
-          if ($process.HasExited) {
-            Write-Host "Diez headless UI startup exited with code $($process.ExitCode)."
-            if (Test-Path $startupLog) { Get-Content $startupLog }
-            throw "Diez exited during headless full UI startup with code $($process.ExitCode)"
-          }
-          if (Test-Path $startupLog) {
-            Get-Content $startupLog
-            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
-            throw "Diez entered startup diagnostic mode"
-          }
-          Stop-Process -Id $process.Id -Force
+          $process = Start-Process -FilePath $exe -ArgumentList "--ui-headless-ci" -Wait -PassThru
+          Write-Host "Diez headless UI startup completed with code $($process.ExitCode)."
+          if (Test-Path $startupLog) { Get-Content $startupLog }
+          if ($process.ExitCode -ne 0) { throw "Diez headless full UI startup failed with code $($process.ExitCode)" }
+          if (Test-Path $startupLog) { throw "Diez entered startup diagnostic mode" }
 
       - name: Rasterize real editable screens
         shell: powershell
@@ -111,7 +103,8 @@ jobs:
             "quantity-field=native-numeric", "visual-subject-environment=native-visible", "coloring-style=native-visible",
             "multi-subject=optional-1-12", "multi-subject-description=reuses-theme-box", "multi-subject-id=stable",
             "multi-subject-consistent=per-subject", "structured-scenes=optional", "structured-scene-id=stable",
-            "structured-scene-consistent-membership=subject-id", "custom-style=hard-authority", "custom-style-library=explicit-opt-in",
+            "structured-scene-mode=environment-switch", "structured-scene-consistent-membership=subject-id",
+            "structured-scene-membership-ui=listbox", "custom-style=hard-authority", "custom-style-library=explicit-opt-in",
             "coloring-style-single-choice=yes", "coloring-bold-easy=bidirectional-hard", "coloring-cozy=bidirectional-hard",
             "coloring-binary-bw=fixed", "line-thickness=dropdown", "image-specs=visible", "kdp-trim-presets=yes",
             "editable-inputs=avaloniaedit-raster", "active-project=kept-until-replace-or-exit", "home-resume=book-type",
@@ -119,10 +112,11 @@ jobs:
             "consistency-free-strategies=USER,AI,MIXED", "consistency-free-user=description-required",
             "consistency-free-ai=description-optional", "consistency-free-mixed=description-required",
             "bleed=image-generation-removed", "prompt-editors=native-3", "undo=ctrl-z", "redo=ctrl-y",
-            "prompt-semantic-engine=3.0", "prompt-provider-compiler=3.5", "prompt-profile-isolation=yes",
-            "prompt-work-unit-output=1", "prompt-render-field=image_generation_prompt", "prompt-context-single-source=yes",
-            "prompt-atomic-subject=yes", "prompt-structured-scene=yes", "prompt-scene-participants=hard",
-            "prompt-style-hard=yes", "prompt-bold-easy-hard=yes", "prompt-cozy-hard=yes", "prompt-composition-hard=yes",
+            "prompt-semantic-engine=3.0", "prompt-provider-compiler=3.5", "prompt-provider-compiler-current=3.6",
+            "prompt-synthesis=creative-director", "prompt-profile-isolation=yes", "prompt-work-unit-output=1",
+            "prompt-render-field=image_generation_prompt", "prompt-context-single-source=yes", "prompt-atomic-subject=yes",
+            "prompt-structured-scene=yes", "prompt-scene-participants=hard", "prompt-style-hard=yes",
+            "prompt-bold-easy-hard=yes", "prompt-cozy-hard=yes", "prompt-composition-hard=yes",
             "renderer-prompt-scope=visual-only", "manual-render-plan=1.3", "manual-render-fresh-per-work-unit=yes",
             "manual-render-fresh-context-owner=executor", "manual-render-call-isolation=no-prior-image-reference",
             "manual-render-chat-session=conditional-on-provider-visual-state", "manual-clean-room-queue=1.0",
@@ -132,7 +126,8 @@ jobs:
             "manual-response-bundle-import=single-zip-preferred", "manual-partial-response-import=multi-select-compatible-fallback",
             "package-naming=diez-title-versioned", "visual-context=V3", "response-import=audited-v2",
             "response-failed-review=scrollable-audited", "visual-prompt-pipeline=single-source",
-            "vision-style-match=hard", "vision-bold-easy-match=hard", "vision-cozy-match=hard"
+            "vision-style-match=hard", "vision-bold-easy-match=hard", "vision-cozy-match=hard",
+            "vision-scene-participants=hard"
           )) {
             if ($text -notmatch [regex]::Escape($required)) { throw "UI flow contract missing: $required" }
           }
@@ -214,7 +209,7 @@ jobs:
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
-          name: DiezPublishingStudio-Setup-1.0.0-rc8-SW-FLOW-12-PromptCompiler35-StructuredScenes
+          name: DiezPublishingStudio-Setup-1.0.0-rc8-SW-FLOW-12-PromptCompiler36-StructuredScenes
           path: artifacts/installer/DiezPublishingStudio-Setup.exe
           if-no-files-found: error
           retention-days: 90
