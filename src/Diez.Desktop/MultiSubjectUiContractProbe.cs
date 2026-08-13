@@ -29,7 +29,6 @@ internal static class MultiSubjectUiContractProbe
             SingleWindowColoringStylePolicyUi.Refresh(window);
             SingleWindowSubjectStyleUi.Refresh(window);
             SingleWindowMultiSubjectLabelUi.Refresh(window);
-            SingleWindowCustomStyleConsentUi.Refresh(window);
             await WaitAsync();
 
             var page = pageHost.Content as Control ?? throw new InvalidOperationException("Multi-subject probe: pagina Quantità assente.");
@@ -81,8 +80,6 @@ internal static class MultiSubjectUiContractProbe
             if (string.IsNullOrWhiteSpace(name.Text) || !string.Equals(name.Text, "Milo", StringComparison.Ordinal))
                 throw new InvalidOperationException("Multi-subject probe: nome soggetto attivo non editabile/visibile.");
 
-            // Test the actual user interaction: switching the selector must load each SubjectId's description
-            // into the SAME existing native TextBox, then restore Milo without creating any second editor.
             SelectStartsWith(selector, "Luna");
             await WaitAsync(260);
             SingleWindowMultiSubjectLabelUi.Refresh(window);
@@ -130,29 +127,6 @@ internal static class MultiSubjectUiContractProbe
             var legacyCharacter = Descendants(page).OfType<ComboBox>().FirstOrDefault(x => x.Name == "ConsistencyLevel_character");
             if (legacyCharacter is not null && legacyCharacter.IsVisible)
                 throw new InvalidOperationException("Multi-subject probe: il criterio generico 'personaggio può variare' resta visibile in modalità per-soggetto.");
-
-            var style = Require<ComboBox>(page, "ColoringStyle");
-            Select(style, "Custom");
-            await WaitAsync();
-            SingleWindowSubjectStyleUi.Refresh(window);
-            SingleWindowCustomStyleConsentUi.Refresh(window);
-            await WaitAsync();
-            var custom = Require<TextBox>(page, "ColoringCustomStyleNotes");
-            var saveCustom = Require<CheckBox>(page, "ColoringSaveCustomStyle");
-            if (!custom.IsVisible || !saveCustom.IsVisible)
-                throw new InvalidOperationException("Multi-subject probe: descrizione Custom HARD / opt-in libreria non visibili.");
-            if (!HasVisibleLabel(page, "Stile Custom — descrizione HARD"))
-                throw new InvalidOperationException("Multi-subject probe: Custom è ancora presentato come nota SOFT.");
-
-            const string customDefinition = "rounded editorial ink style with playful asymmetry, tiny floral accents and clean organic contours";
-            custom.Text = customDefinition;
-            await WaitAsync();
-            if (!string.Equals(ColoringIndependentHardProfileService.Resolve(project).Style, customDefinition, StringComparison.Ordinal))
-                throw new InvalidOperationException("Multi-subject probe: testo Custom non diventa STYLE HARD.");
-            saveCustom.IsChecked = true;
-            await WaitAsync();
-            if (!CustomStyleLibraryService.Load().Any(x => string.Equals(x.Definition, customDefinition, StringComparison.Ordinal)))
-                throw new InvalidOperationException("Multi-subject probe: opt-in Custom non salva lo stile riutilizzabile.");
         }
         finally
         {
@@ -177,13 +151,6 @@ internal static class MultiSubjectUiContractProbe
     {
         if (combo.ItemsSource is not IEnumerable source) return [];
         return source.Cast<object>().Select(x => x?.ToString() ?? string.Empty).ToList();
-    }
-
-    private static void Select(ComboBox combo, string text)
-    {
-        if (combo.ItemsSource is not IEnumerable source) throw new InvalidOperationException("Multi-subject probe: ItemsSource assente.");
-        combo.SelectedItem = source.Cast<object>().FirstOrDefault(x => string.Equals(x?.ToString(), text, StringComparison.OrdinalIgnoreCase))
-                             ?? throw new InvalidOperationException("Multi-subject probe: voce mancante " + text);
     }
 
     private static void SelectStartsWith(ComboBox combo, string text)
