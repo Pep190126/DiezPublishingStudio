@@ -23,6 +23,15 @@ jobs:
           & artifacts\publish\DiezPublishingStudio.exe --self-test
           if ($LASTEXITCODE -ne 0) { throw "Core self-test failed" }
 
+      - name: Upload self-test diagnostic
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Diez-Core-SelfTest-Diagnostic
+          path: artifacts/publish/self-test-error.txt
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Headless UI startup
         shell: powershell
         run: |
