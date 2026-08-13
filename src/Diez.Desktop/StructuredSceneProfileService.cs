@@ -32,6 +32,7 @@ internal sealed class StructuredSceneDefinition
 /// <summary>
 /// Optional structured scene graph. SceneId is stable and internal; display number/name may change freely.
 /// Scene membership is canonical here and is referenced by SubjectId, never by mutable subject names.
+/// Archived scenes are historical records: their SceneId is never recycled for a newly created scene.
 /// Initial Work Unit assignment follows stable WorkUnit.Position without changing the historical AI state schema.
 /// </summary>
 internal static class StructuredSceneProfileService
@@ -80,17 +81,26 @@ internal static class StructuredSceneProfileService
     public static void SetCount(StructuredSceneProfile model, int requested)
     {
         requested = Math.Clamp(requested, 1, MaxScenes);
-        model.RequestedCount = requested;
-        var available = model.Scenes.Where(x => !x.Archived).OrderBy(x => x.Number).ToList();
-        while (available.Count < requested)
+        var active = ActiveScenes(model).ToList();
+
+        while (active.Count < requested)
         {
-            var created = NewScene(model.Scenes.Count + 1);
+            var created = NewScene(NextHistoricalNumber(model));
             model.Scenes.Add(created);
-            available.Add(created);
+            active.Add(created);
         }
-        for (var i = 0; i < available.Count; i++) available[i].Included = i < requested;
+
+        while (active.Count > requested)
+        {
+            var target = active[^1];
+            target.Included = false;
+            target.Archived = true;
+            active.RemoveAt(active.Count - 1);
+        }
+
+        model.RequestedCount = Math.Max(1, active.Count);
         RenumberActive(model);
-        var active = ActiveScenes(model);
+        active = ActiveScenes(model).ToList();
         if (active.Count > 0 && active.All(x => !string.Equals(x.SceneId, model.ActiveSceneId, StringComparison.OrdinalIgnoreCase)))
             model.ActiveSceneId = active[0].SceneId;
     }
@@ -99,16 +109,9 @@ internal static class StructuredSceneProfileService
     {
         var active = ActiveScenes(model);
         if (active.Count >= MaxScenes) return active[^1];
-        var reusable = model.Scenes.FirstOrDefault(x => !x.Archived && !x.Included);
-        if (reusable is not null)
-        {
-            reusable.Included = true;
-            model.RequestedCount = ActiveScenes(model).Count;
-            RenumberActive(model);
-            model.ActiveSceneId = reusable.SceneId;
-            return reusable;
-        }
-        var created = NewScene(model.Scenes.Count + 1);
+
+        // A user-visible "new scene" always receives a new identity. Historical/archived SceneIds are never reused.
+        var created = NewScene(NextHistoricalNumber(model));
         model.Scenes.Add(created);
         model.RequestedCount = ActiveScenes(model).Count;
         RenumberActive(model);
@@ -122,8 +125,10 @@ internal static class StructuredSceneProfileService
         if (active.Count <= 1) return;
         var target = active.FirstOrDefault(x => string.Equals(x.SceneId, sceneId, StringComparison.OrdinalIgnoreCase));
         if (target is null) return;
+
         target.Included = false;
-        model.RequestedCount = ActiveScenes(model).Count;
+        target.Archived = true;
+        model.RequestedCount = Math.Max(1, ActiveScenes(model).Count);
         RenumberActive(model);
         model.ActiveSceneId = ActiveScenes(model).First().SceneId;
     }
@@ -148,7 +153,7 @@ internal static class StructuredSceneProfileService
 
     public static void SetSubjectParticipation(StructuredSceneProfile model, string sceneId, string subjectId, bool participates)
     {
-        var scene = model.Scenes.FirstOrDefault(x => string.Equals(x.SceneId, sceneId, StringComparison.OrdinalIgnoreCase));
+        var scene = model.Scenes.FirstOrDefault(x => !x.Archived && string.Equals(x.SceneId, sceneId, StringComparison.OrdinalIgnoreCase));
         if (scene is null || string.IsNullOrWhiteSpace(subjectId)) return;
         scene.ParticipantSubjectIds ??= [];
         scene.ParticipantSubjectIds.RemoveAll(x => string.Equals(x, subjectId, StringComparison.OrdinalIgnoreCase));
@@ -198,9 +203,26 @@ internal static class StructuredSceneProfileService
             scene.Name = string.IsNullOrWhiteSpace(scene.Name) ? $"Scena {scene.Number}" : scene.Name.Trim();
             scene.Description ??= string.Empty;
             scene.ParticipantSubjectIds ??= [];
-            scene.ParticipantSubjectIds = scene.ParticipantSubjectIds.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            scene.ParticipantSubjectIds = scene.ParticipantSubjectIds
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
         }
-        if (model.Enabled) SetCount(model, model.RequestedCount);
+
+        if (model.Enabled)
+        {
+            var active = ActiveScenes(model).ToList();
+            if (active.Count == 0)
+            {
+                var created = NewScene(NextHistoricalNumber(model));
+                model.Scenes.Add(created);
+                active.Add(created);
+            }
+            model.RequestedCount = active.Count;
+            RenumberActive(model);
+            if (active.All(x => !string.Equals(x.SceneId, model.ActiveSceneId, StringComparison.OrdinalIgnoreCase)))
+                model.ActiveSceneId = active[0].SceneId;
+        }
     }
 
     private static void RenumberActive(StructuredSceneProfile model)
@@ -209,9 +231,14 @@ internal static class StructuredSceneProfileService
         for (var i = 0; i < active.Count; i++) active[i].Number = i + 1;
     }
 
+    private static int NextHistoricalNumber(StructuredSceneProfile model) =>
+        Math.Max(1, model.Scenes.Count == 0 ? 1 : model.Scenes.Max(x => Math.Max(1, x.Number)) + 1);
+
     private static StructuredSceneDefinition NewScene(int number) => new()
     {
         Number = Math.Max(1, number),
-        Name = $"Scena {Math.Max(1, number)}"
+        Name = $"Scena {Math.Max(1, number)}",
+        Included = true,
+        Archived = false
     };
 }
