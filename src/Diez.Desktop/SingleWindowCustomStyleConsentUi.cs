@@ -71,7 +71,6 @@ internal static class SingleWindowCustomStyleConsentUi
                 ? "Custom"
                 : selectable.FirstOrDefault(x => string.Equals(x, persisted.Style, StringComparison.OrdinalIgnoreCase)) ?? "Clean Line Art";
 
-        // Avalonia may clear SelectedItem when ItemsSource is replaced. Always restore it under guard.
         Applying.Add(style);
         try
         {
@@ -80,6 +79,17 @@ internal static class SingleWindowCustomStyleConsentUi
                                  ?? "Clean Line Art";
         }
         finally { Applying.Remove(style); }
+
+        if (string.Equals(persisted.Style, "Custom", StringComparison.OrdinalIgnoreCase))
+        {
+            var hardDefinition = ColoringCustomHardStyleStore.Load(project);
+            if (!string.IsNullOrWhiteSpace(hardDefinition) && !string.Equals(custom.Text, hardDefinition, StringComparison.Ordinal))
+            {
+                Applying.Add(custom);
+                try { custom.Text = hardDefinition; }
+                finally { Applying.Remove(custom); }
+            }
+        }
 
         ApplyVisibility(project, style, custom, consent, container);
 
@@ -94,6 +104,8 @@ internal static class SingleWindowCustomStyleConsentUi
                 {
                     profile.Style = "Custom";
                     profile.CustomStyleNotes = definition;
+                    BookTypePromptProfileService.SaveColoring(project, profile);
+                    ColoringCustomHardStyleStore.Save(project, definition);
                     Applying.Add(custom);
                     try { custom.Text = definition; }
                     finally { Applying.Remove(custom); }
@@ -101,8 +113,8 @@ internal static class SingleWindowCustomStyleConsentUi
                 else
                 {
                     profile.Style = BookTypePromptProfileService.NormalizeColoringStyle(selected);
+                    BookTypePromptProfileService.SaveColoring(project, profile);
                 }
-                BookTypePromptProfileService.SaveColoring(project, profile);
                 await SafeProjectAutosave.SaveAsync(path, project, "custom-style-selection");
                 ApplyVisibility(project, style, custom, consent, container);
             };
@@ -112,7 +124,6 @@ internal static class SingleWindowCustomStyleConsentUi
         {
             custom.GotFocus += (_, _) =>
             {
-                // Consent applies to an exact definition. Editing invalidates consent before TextChanged.
                 if (consent.IsChecked == true) consent.IsChecked = false;
             };
             custom.TextChanged += async (_, _) =>
@@ -126,9 +137,11 @@ internal static class SingleWindowCustomStyleConsentUi
                                      CustomStyleLibraryService.TryResolve(selected, out _);
                 if (!customSelected) return;
 
+                var definition = custom.Text ?? string.Empty;
                 profile.Style = "Custom";
-                profile.CustomStyleNotes = custom.Text ?? string.Empty;
+                profile.CustomStyleNotes = definition;
                 BookTypePromptProfileService.SaveColoring(project, profile);
+                ColoringCustomHardStyleStore.Save(project, definition);
 
                 if (!string.Equals(selected, "Custom", StringComparison.OrdinalIgnoreCase))
                 {
@@ -150,14 +163,14 @@ internal static class SingleWindowCustomStyleConsentUi
             consent.IsCheckedChanged += (_, _) =>
             {
                 if (consent.IsChecked != true) return;
-                var definition = (custom.Text ?? string.Empty).Trim();
+                var definition = ColoringCustomHardStyleStore.Load(project);
+                if (string.IsNullOrWhiteSpace(definition)) definition = (custom.Text ?? string.Empty).Trim();
                 if (definition.Length == 0)
                 {
                     consent.IsChecked = false;
                     return;
                 }
                 CustomStyleLibraryService.Add(definition);
-                // Refresh only the catalog; keep current project selection explicitly on Custom.
                 var values = ColoringIndependentHardProfileService.SelectableStyles.ToArray();
                 Applying.Add(style);
                 try
