@@ -102,8 +102,9 @@ internal static class VisionStyleHardGateSelfTest
         Require(request.Expected.HardCriteria.Any(c => c.Contains("triptych", StringComparison.OrdinalIgnoreCase)),
             "Expected Vision non classifica il triptych come HARD.");
 
-        // Simulate a validator that detects all mismatches but incorrectly labels them SOFT.
-        // Diez must enforce project policy and promote each semantic mismatch to HARD/FAIL.
+        // Simulate a validator that detects authoritative mismatches but incorrectly labels them SOFT.
+        // Diez must enforce project policy and promote every semantic mismatch below to HARD/FAIL,
+        // including the structured scene-participant membership check.
         VisionValidationStore.Apply(project, state, new VisionValidationResult
         {
             VersionId = version.VersionId,
@@ -113,26 +114,33 @@ internal static class VisionStyleHardGateSelfTest
             ProviderId = "self-test",
             OverallStatus = VisionValidationStatuses.Review,
             Confidence = 0.99,
-            ObservedDescription = "A realistic cold natural-history engraving with thick contours and three panels.",
-            Summary = "Subject family is recognizable but style, independent profiles, line weight and composition are wrong.",
+            ObservedDescription = "A realistic cold natural-history engraving with thick contours, three panels and a missing required scene participant.",
+            Summary = "Style, independent profiles, line weight, composition and scene membership are wrong.",
             Checks =
             [
                 Check("style_match", "Realistic engraved anatomy; not Kawaii."),
                 Check("bold_easy_match", "Visible thick simplified Bold & Easy-like contours despite expected OFF."),
                 Check("cozy_match", "Cold documentary mood despite expected Cozy ON."),
                 Check("line_weight_match", "Contours are thick despite Thin/Fine expectation."),
-                Check("single_composition", "Three separate bordered panels are visible.")
+                Check("single_composition", "Three separate bordered panels are visible."),
+                Check("scene_participants_match", "A required structured scene participant is missing.")
             ]
         });
 
         var stored = VisionValidationStore.Get(project, version.VersionId);
         Require(stored is not null && stored.BlocksApproval, "HARD mismatches non bloccano l'approvazione.");
         Require(stored!.OverallStatus == VisionValidationStatuses.Fail, "HARD mismatches non forzano overall FAIL.");
-        var hardKeys = new[] { "style_match", "bold_easy_match", "cozy_match", "line_weight_match", "single_composition" };
+        var hardKeys = new[]
+        {
+            "style_match", "bold_easy_match", "cozy_match", "line_weight_match", "single_composition",
+            "scene_participants_match"
+        };
         Require(stored.Checks.Where(c => hardKeys.Contains(c.Key, StringComparer.OrdinalIgnoreCase)).All(c => c.Severity == VisionSeverity.Hard),
             "Diez non promuove tutti i controlli semantici autoritativi a HARD.");
         Require(version.Status == AiExchangeVersionStatuses.Incomplete,
             "Candidate con HARD FAIL non viene bloccata come INCOMPLETE.");
+        Require(!AiExchangeApprovalService.CanApprove(project, state, version.VersionId, out _),
+            "AiExchangeApprovalService consente ancora l'approvazione dopo scene_participants_match HARD FAIL.");
     }
 
     private static VisionValidationCheck Check(string key, string evidence) => new()
