@@ -7,8 +7,8 @@ using System.Text.Json.Nodes;
 namespace DiezPublishingStudio;
 
 /// <summary>
-/// Keeps semantic Vision QA on the same structured subject identity used by the renderer.
-/// The real candidate pixels remain authoritative; this service only removes ambiguity in expected.item_subject.
+/// Keeps semantic Vision QA on the same structured subject/scene identities used by the renderer.
+/// The real candidate pixels remain authoritative; this service only removes ambiguity in expected content.
 /// </summary>
 internal static class VisionStructuredSubjectService
 {
@@ -22,15 +22,20 @@ internal static class VisionStructuredSubjectService
     {
         var model = MultiSubjectProfileService.Load(project);
         var active = MultiSubjectProfileService.ActiveSubjects(model);
-        if (!model.Enabled || active.Count == 0) return;
-        var position = Math.Max(1, unit.Position);
-        var subject = active[(position - 1) % active.Count];
-        request.Expected.ItemSubject = subject.Name;
-        request.Expected.Subject = string.IsNullOrWhiteSpace(model.GroupDescription)
-            ? request.Expected.Subject
-            : PromptEnglishNormalizer.NormalizeProviderFacing(model.GroupDescription);
-        var subjectRules = MultiSubjectProfileService.BuildConsistencyRules(subject);
-        request.Expected.ConsistencyRules = JoinRules(request.Expected.ConsistencyRules, subjectRules);
+        if (model.Enabled && active.Count > 0)
+        {
+            var position = Math.Max(1, unit.Position);
+            var subject = active[(position - 1) % active.Count];
+            request.Expected.ItemSubject = subject.Name;
+            request.Expected.Subject = string.IsNullOrWhiteSpace(model.GroupDescription)
+                ? request.Expected.Subject
+                : PromptEnglishNormalizer.NormalizeProviderFacing(model.GroupDescription);
+            request.Expected.ConsistencyRules = JoinRules(
+                request.Expected.ConsistencyRules,
+                MultiSubjectProfileService.BuildConsistencyRules(subject));
+        }
+
+        ApplyScene(project, unit, request);
     }
 
     public static void RewritePromptPack(string zipPath, PreviewProject project)
@@ -38,7 +43,9 @@ internal static class VisionStructuredSubjectService
         if (!File.Exists(zipPath)) return;
         var model = MultiSubjectProfileService.Load(project);
         var active = MultiSubjectProfileService.ActiveSubjects(model);
-        if (!model.Enabled || active.Count == 0) return;
+        var scenes = StructuredSceneProfileService.Load(project);
+        var activeScenes = StructuredSceneProfileService.ActiveScenes(scenes);
+        if ((!model.Enabled || active.Count == 0) && (!scenes.Enabled || activeScenes.Count == 0)) return;
 
         using var zip = ZipFile.Open(zipPath, ZipArchiveMode.Update);
         var entry = zip.GetEntry("vision-manifest.json");
@@ -50,22 +57,49 @@ internal static class VisionStructuredSubjectService
             try { root = JsonNode.Parse(reader.ReadToEnd())?.AsObject(); }
             catch { return; }
         }
-        if (root?["requests"] is not JsonArray requests) return;
+        if (root?["requests"] is not JsonArray requests && root?["items"] is not JsonArray)
+        {
+            // Current Vision pack serializes requests under items; older packs used requests.
+        }
+        var requestArray = root?["requests"] as JsonArray ?? root?["items"] as JsonArray;
+        if (requestArray is null) return;
 
-        foreach (var request in requests.OfType<JsonObject>())
+        foreach (var request in requestArray.OfType<JsonObject>())
         {
             if (request["expected"] is not JsonObject expected) continue;
             var position = ParseInt(expected["series_position"]?.ToString(), 1);
-            var subject = active[(Math.Max(1, position) - 1) % active.Count];
-            expected["item_subject"] = subject.Name;
-            if (!string.IsNullOrWhiteSpace(model.GroupDescription))
-                expected["subject"] = PromptEnglishNormalizer.NormalizeProviderFacing(model.GroupDescription);
-            expected["consistency_rules"] = JoinRules(
-                expected["consistency_rules"]?.ToString() ?? string.Empty,
-                MultiSubjectProfileService.BuildConsistencyRules(subject));
-            request["subject_id"] = subject.SubjectId;
-            request["subject_name"] = subject.Name;
-            request["subject_assignment"] = "STRUCTURED_MULTI_SUBJECT";
+
+            if (model.Enabled && active.Count > 0)
+            {
+                var subject = active[(Math.Max(1, position) - 1) % active.Count];
+                expected["item_subject"] = subject.Name;
+                if (!string.IsNullOrWhiteSpace(model.GroupDescription))
+                    expected["subject"] = PromptEnglishNormalizer.NormalizeProviderFacing(model.GroupDescription);
+                expected["consistency_rules"] = JoinRules(
+                    expected["consistency_rules"]?.ToString() ?? string.Empty,
+                    MultiSubjectProfileService.BuildConsistencyRules(subject));
+                request["subject_id"] = subject.SubjectId;
+                request["subject_name"] = subject.Name;
+                request["subject_assignment"] = "STRUCTURED_MULTI_SUBJECT";
+            }
+
+            if (scenes.Enabled && activeScenes.Count > 0)
+            {
+                var scene = activeScenes[(Math.Max(1, position) - 1) % activeScenes.Count];
+                var participants = StructuredSceneProfileService.Participants(project, scene);
+                var participantNames = participants.Select(x => x.Name).ToArray();
+                if (participantNames.Length > 0)
+                    expected["item_subject"] = string.Join(", ", participantNames);
+                expected["consistency_rules"] = JoinRules(
+                    expected["consistency_rules"]?.ToString() ?? string.Empty,
+                    BuildSceneVisionRules(project, scene));
+                request["scene_id"] = scene.SceneId;
+                request["scene_number"] = scene.Number;
+                request["scene_name"] = scene.Name;
+                request["scene_assignment"] = "STRUCTURED_SCENE_BY_STABLE_POSITION";
+                request["scene_participant_subject_ids"] = new JsonArray(participants.Select(x => JsonValue.Create(x.SubjectId)).ToArray());
+                request["scene_participant_subject_names"] = new JsonArray(participantNames.Select(JsonValue.Create).ToArray());
+            }
         }
 
         entry.Delete();
@@ -75,6 +109,38 @@ internal static class VisionStructuredSubjectService
         writer.Write(root.ToJsonString(JsonOptions));
     }
 
+    private static void ApplyScene(PreviewProject project, AiExchangeWorkUnit unit, VisionValidationRequest request)
+    {
+        var scene = StructuredSceneProfileService.SceneForWorkUnit(project, unit);
+        if (scene is null) return;
+        var participants = StructuredSceneProfileService.Participants(project, scene);
+        if (participants.Count > 0)
+            request.Expected.ItemSubject = string.Join(", ", participants.Select(x => x.Name));
+        request.Expected.ConsistencyRules = JoinRules(
+            request.Expected.ConsistencyRules,
+            BuildSceneVisionRules(project, scene));
+    }
+
+    private static string BuildSceneVisionRules(PreviewProject project, StructuredSceneDefinition scene)
+    {
+        var participants = StructuredSceneProfileService.Participants(project, scene);
+        var lines = new List<string>();
+        var description = PromptEnglishNormalizer.NormalizeProviderFacing(scene.Description);
+        if (!string.IsNullOrWhiteSpace(description))
+            lines.Add("SCENE INTENT — HARD: " + description);
+        if (participants.Count > 0)
+        {
+            lines.Add("SCENE PARTICIPANTS — HARD: " + string.Join(", ", participants.Select(x => x.Name)) + ". Every listed participant must be visibly present in the same unified scene.");
+            foreach (var participant in participants)
+            {
+                var rules = MultiSubjectProfileService.BuildConsistencyRules(participant);
+                if (!string.IsNullOrWhiteSpace(rules))
+                    lines.Add("PARTICIPANT CONSISTENT [" + participant.Name + "]:\n" + rules);
+            }
+        }
+        return string.Join(Environment.NewLine, lines);
+    }
+
     private static string JoinRules(string? general, string? subject)
     {
         var a = (general ?? string.Empty).Trim();
@@ -82,7 +148,7 @@ internal static class VisionStructuredSubjectService
         if (a.Length == 0) return b;
         if (b.Length == 0) return a;
         if (a.Contains(b, StringComparison.Ordinal)) return a;
-        return a + Environment.NewLine + Environment.NewLine + "SUBJECT-SPECIFIC CONSISTENT:" + Environment.NewLine + b;
+        return a + Environment.NewLine + Environment.NewLine + "STRUCTURED SUBJECT/SCENE CONSISTENT:" + Environment.NewLine + b;
     }
 
     private static int ParseInt(string? value, int fallback) => int.TryParse(value, out var parsed) ? parsed : fallback;
