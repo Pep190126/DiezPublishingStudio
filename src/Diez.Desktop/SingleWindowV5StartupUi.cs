@@ -1,4 +1,3 @@
-using System.Reflection;
 using Avalonia.Controls;
 using Avalonia.Input;
 
@@ -6,6 +5,8 @@ namespace DiezPublishingStudio;
 
 /// <summary>
 /// Starts the native SW-FLOW-11 logical workflow inside the existing physical MainWindow.
+/// Normal desktop startup stays on Home and enters the workflow only from the explicit navigation command.
+/// Headless CI keeps automatic entry so deterministic contracts retain coverage.
 /// </summary>
 internal static class SingleWindowV5StartupUi
 {
@@ -15,20 +16,9 @@ internal static class SingleWindowV5StartupUi
     {
         window.KeyDown += HandleEditorShortcuts;
         window.Closed += (_, _) => window.KeyDown -= HandleEditorShortcuts;
-        window.Opened += async (_, _) =>
-        {
-            // Headless CI constructs the project/session explicitly inside each contract probe. Do not leave a
-            // delayed Opened continuation alive past the isolated Avalonia test session cleanup.
-            if (Environment.GetCommandLineArgs().Any(a => string.Equals(a, "--ui-headless-ci", StringComparison.OrdinalIgnoreCase)))
-            {
-                ShowStart(window);
-                return;
-            }
 
-            // A project passed on the command line may finish loading just after Window.Opened.
-            for (var i = 0; i < 8 && !TrySession(window); i++) await Task.Delay(40);
-            ShowStart(window);
-        };
+        if (Environment.GetCommandLineArgs().Any(a => string.Equals(a, "--ui-headless-ci", StringComparison.OrdinalIgnoreCase)))
+            window.Opened += (_, _) => ShowStart(window);
     }
 
     internal static void ShowStart(MainWindow window)
@@ -51,14 +41,6 @@ internal static class SingleWindowV5StartupUi
             if (editor.CanRedo) editor.Redo();
             e.Handled = true;
         }
-    }
-
-    private static bool TrySession(MainWindow window)
-    {
-        var flags = BindingFlags.Instance | BindingFlags.NonPublic;
-        var project = typeof(MainWindow).GetField("_project", flags)?.GetValue(window) as PreviewProject;
-        var path = typeof(MainWindow).GetField("_currentProjectPath", flags)?.GetValue(window) as string;
-        return project is not null && !string.IsNullOrWhiteSpace(path);
     }
 
     private static void ReplaceMarker(MainWindow window)
