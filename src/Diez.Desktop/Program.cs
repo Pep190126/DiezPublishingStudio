@@ -93,6 +93,14 @@ internal static class Program
     public static AppBuilder BuildAvaloniaApp() =>
         AppBuilder.Configure<App>()
             .UsePlatformDetect()
+            // Affected Windows machines create the native title bar but never paint the Avalonia client area.
+            // Avalonia's Windows troubleshooting guidance recommends forcing software rendering for exactly
+            // this symptom to bypass GPU/driver/ANGLE failures. Keep this conservative renderer until the
+            // real-machine startup path is proven stable; correctness is more important than GPU acceleration.
+            .With(new Win32PlatformOptions
+            {
+                RenderingMode = new[] { Win32RenderingMode.Software }
+            })
             .WithInterFont()
             .LogToTrace();
 }
