@@ -46,10 +46,10 @@ jobs:
             throw "UI raster probe failed with code $($p.ExitCode)"
           }
           foreach ($file in @(
-            "artifacts\publish\ui-quantity.png",
-            "artifacts\publish\ui-consistent-variation.png",
-            "artifacts\publish\ui-consistent-notes.png",
-            "artifacts\publish\ui-prompt.png"
+            "artifacts\ui-evidence\ui-quantity.png",
+            "artifacts\ui-evidence\ui-consistent-variation.png",
+            "artifacts\ui-evidence\ui-consistent-notes.png",
+            "artifacts\ui-evidence\ui-prompt.png"
           )) {
             if (!(Test-Path $file)) { throw "Missing raster screenshot: $file" }
             if ((Get-Item $file).Length -lt 10000) { throw "Raster screenshot unexpectedly small: $file" }
@@ -60,10 +60,10 @@ jobs:
         with:
           name: DiezPublishingStudio-SW-FLOW-12-Raster-Evidence
           path: |
-            artifacts/publish/ui-quantity.png
-            artifacts/publish/ui-consistent-variation.png
-            artifacts/publish/ui-consistent-notes.png
-            artifacts/publish/ui-prompt.png
+            artifacts/ui-evidence/ui-quantity.png
+            artifacts/ui-evidence/ui-consistent-variation.png
+            artifacts/ui-evidence/ui-consistent-notes.png
+            artifacts/ui-evidence/ui-prompt.png
           if-no-files-found: error
           retention-days: 30
 
