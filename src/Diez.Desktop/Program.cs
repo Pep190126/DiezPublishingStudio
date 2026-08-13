@@ -70,12 +70,24 @@ internal static class Program
         if (args.Any(a => string.Equals(a, "--ui-headless-ci", StringComparison.OrdinalIgnoreCase)))
             return HeadlessCiHarness.RunAsync(args).GetAwaiter().GetResult();
 
-        using var mutex = new Mutex(true, AppMutexName, out var createdNew);
-        if (!createdNew) return 0;
+        // Attach fatal diagnostics before Avalonia themes, platform initialization or MainWindow construction.
+        // This guarantees that a real installed-app startup failure leaves an actionable local log.
+        CrashDiagnostics.Attach();
 
-        var exitCode = BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
-        GC.KeepAlive(mutex);
-        return exitCode;
+        try
+        {
+            using var mutex = new Mutex(true, AppMutexName, out var createdNew);
+            if (!createdNew) return 0;
+
+            var exitCode = BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+            GC.KeepAlive(mutex);
+            return exitCode;
+        }
+        catch (Exception ex)
+        {
+            CrashDiagnostics.Error("desktop-startup", ex);
+            return 1;
+        }
     }
 
     public static AppBuilder BuildAvaloniaApp() =>
