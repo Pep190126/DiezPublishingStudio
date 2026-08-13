@@ -27,13 +27,18 @@ internal static class ColoringIndependentHardProfileService
         var rawStyle = (p.Style ?? string.Empty).Trim();
         var legacyCozy = string.Equals(rawStyle, "Cozy", StringComparison.OrdinalIgnoreCase);
         var legacyBold = string.Equals(rawStyle, "Bold & Easy", StringComparison.OrdinalIgnoreCase);
+        var customState = ColoringCustomHardStyleStore.LoadState(project);
 
         string style;
-        if (string.Equals(rawStyle, "Custom", StringComparison.OrdinalIgnoreCase))
+        if (customState.IsActive && !string.IsNullOrWhiteSpace(customState.Definition))
         {
-            // Custom has its own project-local HARD source of truth. The former CustomStyleNotes field is
-            // mirrored only for backward compatibility and is no longer the primary authority.
-            var definition = ColoringCustomHardStyleStore.Load(project);
+            // The dedicated active-state flag is authoritative. Legacy UI handlers may transiently rewrite
+            // ColoringProfile.Style while the Custom editor is open; that must not downgrade the HARD style.
+            style = customState.Definition.Trim();
+        }
+        else if (string.Equals(rawStyle, "Custom", StringComparison.OrdinalIgnoreCase))
+        {
+            var definition = customState.Definition;
             style = string.IsNullOrWhiteSpace(definition) ? "Clean Line Art" : definition.Trim();
         }
         else if (CustomStyleLibraryService.TryResolve(rawStyle, out var libraryDefinition))
@@ -72,18 +77,21 @@ internal static class ColoringIndependentHardProfileService
     {
         var p = BookTypePromptProfileService.LoadColoring(project);
         var style = (selectedStyle ?? string.Empty).Trim();
+        var customSelection = string.Equals(style, "Custom", StringComparison.OrdinalIgnoreCase);
         if (CustomStyleLibraryService.TryResolve(style, out var libraryDefinition))
         {
             p.Style = "Custom";
             p.CustomStyleNotes = libraryDefinition;
             BookTypePromptProfileService.SaveColoring(project, p);
-            ColoringCustomHardStyleStore.Save(project, libraryDefinition);
+            ColoringCustomHardStyleStore.Activate(project, libraryDefinition);
             p = BookTypePromptProfileService.LoadColoring(project);
+            customSelection = true;
         }
         else if (string.Equals(style, "Cozy", StringComparison.OrdinalIgnoreCase) ||
                  string.Equals(style, "Bold & Easy", StringComparison.OrdinalIgnoreCase) ||
                  string.Equals(style, "Kawaii / Cartoon", StringComparison.OrdinalIgnoreCase))
         {
+            ColoringCustomHardStyleStore.Deactivate(project);
             if (string.Equals(style, "Cozy", StringComparison.OrdinalIgnoreCase)) cozy = true;
             if (string.Equals(style, "Bold & Easy", StringComparison.OrdinalIgnoreCase)) boldEasy = true;
             style = string.Equals(style, "Kawaii / Cartoon", StringComparison.OrdinalIgnoreCase) ? "Kawaii" : "Clean Line Art";
@@ -91,6 +99,7 @@ internal static class ColoringIndependentHardProfileService
         }
         else
         {
+            if (!customSelection) ColoringCustomHardStyleStore.Deactivate(project);
             p.Style = BookTypePromptProfileService.NormalizeColoringStyle(style);
         }
 
