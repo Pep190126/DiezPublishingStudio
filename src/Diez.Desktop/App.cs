@@ -19,14 +19,14 @@ public sealed class App : Application
         {
             var args = desktop.Args ?? [];
             var startupProjectPath = args.FirstOrDefault(a => a.EndsWith(".diez", StringComparison.OrdinalIgnoreCase));
-            var mainWindow = new MainWindow(startupProjectPath);
-            desktop.MainWindow = mainWindow;
-
             var rasterProbe = args.Any(a => string.Equals(a, "--ui-raster-probe", StringComparison.OrdinalIgnoreCase));
             var flowProbe = args.Any(a => string.Equals(a, "--ui-flow-contract", StringComparison.OrdinalIgnoreCase));
 
             if (rasterProbe || flowProbe)
             {
+                var mainWindow = new MainWindow(startupProjectPath);
+                desktop.MainWindow = mainWindow;
+
                 Dispatcher.UIThread.Post(async () =>
                 {
                     var failures = await AttachProductionModulesAsync(mainWindow);
@@ -40,13 +40,38 @@ public sealed class App : Application
             }
             else
             {
-                // Production startup must render one minimal, opaque frame before any of the large UI modules
-                // are allowed to mutate the visual tree. The user explicitly activates the full interface.
-                SafeDesktopStartupUi.Attach(mainWindow, async () =>
+                // Real desktop startup now creates no MainWindow and no feature module at all. The first visible
+                // frame is a standalone Window with an opaque background. MainWindow construction itself is
+                // deferred until explicit activation so a machine-specific render failure can be isolated cleanly.
+                var safeWindow = SafeDesktopStartupUi.CreateStandalone(async shell =>
                 {
+                    SafeStartupTrace.Write("before-mainwindow-construction");
+                    shell.Title = ProductInfo.WindowTitle + " — costruzione MainWindow";
+
+                    var mainWindow = new MainWindow(startupProjectPath)
+                    {
+                        Title = ProductInfo.WindowTitle
+                    };
+                    SafeStartupTrace.Write("after-mainwindow-construction");
+
+                    desktop.MainWindow = mainWindow;
+                    SafeStartupTrace.Write("before-mainwindow-show");
+                    mainWindow.Show();
+                    SafeStartupTrace.Write("after-mainwindow-show");
+
+                    await Dispatcher.UIThread.InvokeAsync(
+                        () => SafeStartupTrace.Write("mainwindow-loaded-dispatcher-turn"),
+                        DispatcherPriority.Loaded);
+                    await Task.Delay(100);
+
                     var failures = await AttachProductionModulesAsync(mainWindow);
                     StartupDiagnostics.ShowWarning(mainWindow, failures);
+                    SafeStartupTrace.Write("all-production-modules-completed");
+
+                    shell.Close();
                 });
+
+                desktop.MainWindow = safeWindow;
             }
         }
 
@@ -93,8 +118,8 @@ public sealed class App : Application
                 SafeStartupTrace.Write("after-module: " + module.Name);
             }
 
-            // Intentionally yield between modules. If a module starts a runaway dispatcher/layout cascade,
-            // the trace and title preserve the last completed stage instead of hiding it behind later attaches.
+            // Yield between modules. If a module starts a runaway dispatcher/layout cascade, the trace and
+            // window title preserve the last completed stage instead of hiding it behind later attaches.
             await Task.Delay(75);
         }
 
