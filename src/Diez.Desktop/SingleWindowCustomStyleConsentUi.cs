@@ -63,20 +63,25 @@ internal static class SingleWindowCustomStyleConsentUi
         }
 
         var selectable = ColoringIndependentHardProfileService.SelectableStyles.ToArray();
-        var currentSelection = style.SelectedItem?.ToString() ?? string.Empty;
-        style.ItemsSource = selectable;
-        if (!selectable.Contains(currentSelection, StringComparer.OrdinalIgnoreCase))
-        {
-            var persisted = BookTypePromptProfileService.LoadColoring(project);
-            currentSelection = string.Equals(persisted.Style, "Custom", StringComparison.OrdinalIgnoreCase)
+        var persisted = BookTypePromptProfileService.LoadColoring(project);
+        var beforeCatalogReset = style.SelectedItem?.ToString() ?? string.Empty;
+        var desiredSelection = selectable.Contains(beforeCatalogReset, StringComparer.OrdinalIgnoreCase)
+            ? selectable.First(x => string.Equals(x, beforeCatalogReset, StringComparison.OrdinalIgnoreCase))
+            : string.Equals(persisted.Style, "Custom", StringComparison.OrdinalIgnoreCase)
                 ? "Custom"
                 : selectable.FirstOrDefault(x => string.Equals(x, persisted.Style, StringComparison.OrdinalIgnoreCase)) ?? "Clean Line Art";
-            Applying.Add(style);
-            try { style.SelectedItem = selectable.FirstOrDefault(x => string.Equals(x, currentSelection, StringComparison.OrdinalIgnoreCase)) ?? "Clean Line Art"; }
-            finally { Applying.Remove(style); }
-        }
 
-        ApplyVisibility(style, custom, consent, container);
+        // Avalonia may clear SelectedItem when ItemsSource is replaced. Always restore it under guard.
+        Applying.Add(style);
+        try
+        {
+            style.ItemsSource = selectable;
+            style.SelectedItem = selectable.FirstOrDefault(x => string.Equals(x, desiredSelection, StringComparison.OrdinalIgnoreCase))
+                                 ?? "Clean Line Art";
+        }
+        finally { Applying.Remove(style); }
+
+        ApplyVisibility(project, style, custom, consent, container);
 
         if (Wired.Add(style))
         {
@@ -99,7 +104,7 @@ internal static class SingleWindowCustomStyleConsentUi
                 }
                 BookTypePromptProfileService.SaveColoring(project, profile);
                 await SafeProjectAutosave.SaveAsync(path, project, "custom-style-selection");
-                ApplyVisibility(style, custom, consent, container);
+                ApplyVisibility(project, style, custom, consent, container);
             };
         }
 
@@ -114,20 +119,27 @@ internal static class SingleWindowCustomStyleConsentUi
             {
                 if (Applying.Contains(custom)) return;
                 var selected = style.SelectedItem?.ToString() ?? string.Empty;
-                var customSelected = string.Equals(selected, "Custom", StringComparison.OrdinalIgnoreCase) ||
+                var profile = BookTypePromptProfileService.LoadColoring(project);
+                var customSelected = container.IsVisible ||
+                                     string.Equals(profile.Style, "Custom", StringComparison.OrdinalIgnoreCase) ||
+                                     string.Equals(selected, "Custom", StringComparison.OrdinalIgnoreCase) ||
                                      CustomStyleLibraryService.TryResolve(selected, out _);
                 if (!customSelected) return;
 
-                var profile = BookTypePromptProfileService.LoadColoring(project);
                 profile.Style = "Custom";
                 profile.CustomStyleNotes = custom.Text ?? string.Empty;
                 BookTypePromptProfileService.SaveColoring(project, profile);
 
                 if (!string.Equals(selected, "Custom", StringComparison.OrdinalIgnoreCase))
                 {
-                    Applying.Add(style);
-                    try { style.SelectedItem = style.ItemsSource?.Cast<object>().FirstOrDefault(x => string.Equals(x?.ToString(), "Custom", StringComparison.OrdinalIgnoreCase)); }
-                    finally { Applying.Remove(style); }
+                    var customChoice = (style.ItemsSource?.Cast<object>() ?? Enumerable.Empty<object>())
+                        .FirstOrDefault(x => string.Equals(x?.ToString(), "Custom", StringComparison.OrdinalIgnoreCase));
+                    if (customChoice is not null)
+                    {
+                        Applying.Add(style);
+                        try { style.SelectedItem = customChoice; }
+                        finally { Applying.Remove(style); }
+                    }
                 }
                 await SafeProjectAutosave.SaveAsync(path, project, "custom-style-hard-definition");
             };
@@ -145,27 +157,32 @@ internal static class SingleWindowCustomStyleConsentUi
                     return;
                 }
                 CustomStyleLibraryService.Add(definition);
-                // Refresh only the catalog; keep the current project selection as Custom and its full HARD text.
+                // Refresh only the catalog; keep current project selection explicitly on Custom.
                 var values = ColoringIndependentHardProfileService.SelectableStyles.ToArray();
-                style.ItemsSource = values;
-                if (style.SelectedItem is null)
+                Applying.Add(style);
+                try
                 {
-                    Applying.Add(style);
-                    try { style.SelectedItem = values.FirstOrDefault(x => string.Equals(x, "Custom", StringComparison.OrdinalIgnoreCase)); }
-                    finally { Applying.Remove(style); }
+                    style.ItemsSource = values;
+                    style.SelectedItem = values.FirstOrDefault(x => string.Equals(x, "Custom", StringComparison.OrdinalIgnoreCase))
+                                         ?? values.FirstOrDefault();
                 }
+                finally { Applying.Remove(style); }
             };
         }
     }
 
-    private static void ApplyVisibility(ComboBox style, TextBox custom, CheckBox consent, StackPanel container)
+    private static void ApplyVisibility(PreviewProject project, ComboBox style, TextBox custom, CheckBox consent, StackPanel container)
     {
         var selected = style.SelectedItem?.ToString() ?? string.Empty;
+        var persisted = BookTypePromptProfileService.LoadColoring(project);
         var reusable = CustomStyleLibraryService.TryResolve(selected, out _);
-        var customSelected = string.Equals(selected, "Custom", StringComparison.OrdinalIgnoreCase) || reusable;
+        var customSelected = string.Equals(selected, "Custom", StringComparison.OrdinalIgnoreCase) ||
+                             reusable ||
+                             string.Equals(persisted.Style, "Custom", StringComparison.OrdinalIgnoreCase);
         container.IsVisible = customSelected;
         custom.IsVisible = customSelected;
-        consent.IsVisible = string.Equals(selected, "Custom", StringComparison.OrdinalIgnoreCase);
+        consent.IsVisible = string.Equals(selected, "Custom", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(persisted.Style, "Custom", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool TrySession(MainWindow window, out PreviewProject project, out string path)
