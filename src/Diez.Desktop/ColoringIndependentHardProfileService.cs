@@ -29,10 +29,12 @@ internal static class ColoringIndependentHardProfileService
         var legacyBold = string.Equals(rawStyle, "Bold & Easy", StringComparison.OrdinalIgnoreCase);
 
         string style;
-        if (string.Equals(rawStyle, "Custom", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(p.CustomStyleNotes))
+        if (string.Equals(rawStyle, "Custom", StringComparison.OrdinalIgnoreCase))
         {
-            // There is no separate SOFT "style note" layer anymore: the user's Custom text IS the HARD style authority.
-            style = p.CustomStyleNotes.Trim();
+            // Custom has its own project-local HARD source of truth. The former CustomStyleNotes field is
+            // mirrored only for backward compatibility and is no longer the primary authority.
+            var definition = ColoringCustomHardStyleStore.Load(project);
+            style = string.IsNullOrWhiteSpace(definition) ? "Clean Line Art" : definition.Trim();
         }
         else if (CustomStyleLibraryService.TryResolve(rawStyle, out var libraryDefinition))
         {
@@ -51,7 +53,7 @@ internal static class ColoringIndependentHardProfileService
         }
 
         if (string.Equals(style, "Custom", StringComparison.OrdinalIgnoreCase))
-            style = "Clean Line Art"; // Empty Custom cannot become an undefined renderer style.
+            style = "Clean Line Art";
 
         var bold = ColoringBoldEasyPolicyStore.Resolve(project, p.LineWeight, p.BoldEasy || legacyBold);
         var cozy = ColoringCozyPolicyStore.Resolve(project, legacyCozy);
@@ -74,6 +76,9 @@ internal static class ColoringIndependentHardProfileService
         {
             p.Style = "Custom";
             p.CustomStyleNotes = libraryDefinition;
+            BookTypePromptProfileService.SaveColoring(project, p);
+            ColoringCustomHardStyleStore.Save(project, libraryDefinition);
+            p = BookTypePromptProfileService.LoadColoring(project);
         }
         else if (string.Equals(style, "Cozy", StringComparison.OrdinalIgnoreCase) ||
                  string.Equals(style, "Bold & Easy", StringComparison.OrdinalIgnoreCase) ||
