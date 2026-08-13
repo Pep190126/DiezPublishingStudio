@@ -16,6 +16,7 @@ internal static class StructuredSceneProfileSelfTest
         coloring.Style = "Kawaii";
         coloring.LineWeight = "Medio";
         BookTypePromptProfileService.SaveColoring(project, coloring);
+        StructuredSceneEnvironmentStore.Save(project, coloring.EnvironmentDescription);
         ImageCollectionWorkspaceService.SetConsistencyRules(project, "Consistent enabled");
 
         var multi = MultiSubjectProfileService.Load(project);
@@ -59,6 +60,28 @@ internal static class StructuredSceneProfileSelfTest
         }).ToList();
         var settings = new PromptPreparationSettings { ProviderId = PromptEngineeringProviderIds.OpenAi, PreferAdvancedModel = true };
         var prompts = units.Select((unit, i) => PromptPackProviderFacingService.BuildImageGenerationPrompt(project, unit, 3, i + 1, settings)).ToList();
+
+        Require(PromptEngineeringCompiler.Version == "3.6", "compiler strutturato non è 3.6.");
+        var rendererWu1 = PromptPackRendererVisualBriefService.Build(prompts[0]);
+        var rendererLines = rendererWu1.Replace("\r\n", "\n")
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        Require(rendererLines.Length > 4, "renderer visual-only WU1 troppo corto.");
+        Require(rendererLines[0].StartsWith("Create ONE finished, publication-quality coloring-book illustration.", StringComparison.Ordinal),
+            "single-image anchor non è la prima istruzione del renderer.");
+        Require(rendererLines[1].StartsWith("ART DIRECTION — SYNTHESIZED:", StringComparison.Ordinal),
+            "art direction sintetizzata non segue immediatamente il single-image anchor.");
+        Require(rendererLines[1].Contains("Milo", StringComparison.OrdinalIgnoreCase) &&
+                rendererLines[1].Contains("Milo chases a butterfly while Luna watches nearby", StringComparison.OrdinalIgnoreCase),
+            "art direction non sintetizza soggetto focale e azione della scena corrente.");
+        Require(rendererLines[1].Contains("Milo, Luna", StringComparison.OrdinalIgnoreCase),
+            "art direction non sintetizza i partecipanti strutturati della scena.");
+        Require(rendererLines[1].Contains("current scene action determine the local staging", StringComparison.OrdinalIgnoreCase),
+            "la scena locale non ha priorità sull'ambientazione generale nella sintesi.");
+        Require(rendererWu1.Contains("SCENE PARTICIPANTS — HARD LOCK: Milo, Luna", StringComparison.Ordinal),
+            "renderer visual-only perde il HARD lock partecipanti dopo la sintesi.");
+        foreach (var forbidden in new[] { "FRESH GENERATION", "DIEZ RENDER REQUEST ID", "SERIES ROLE", "FINAL CHECK — HARD" })
+            Require(!rendererWu1.Contains(forbidden, StringComparison.OrdinalIgnoreCase),
+                "art direction reintroduce orchestrazione nel renderer: " + forbidden);
 
         Require(prompts[0].Contains("PRIMARY SUBJECT — HARD LOCK: Milo", StringComparison.Ordinal),
             "WU1 non mantiene Milo come focal subject della scena 1.");
