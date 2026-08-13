@@ -1,0 +1,156 @@
+name: Windows Installer Deterministic
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-installer:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore desktop
+        run: dotnet restore src/Diez.Desktop/Diez.Desktop.csproj
+
+      - name: Build desktop
+        run: dotnet build src/Diez.Desktop/Diez.Desktop.csproj -c Release --no-restore
+
+      - name: Publish self-contained Windows x64
+        run: dotnet publish src/Diez.Desktop/Diez.Desktop.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -o artifacts/publish
+
+      - name: Smoke real Windows apphost
+        shell: powershell
+        run: |
+          $exe = (Resolve-Path "artifacts\publish\DiezPublishingStudio.exe").Path
+          $p = Start-Process -FilePath $exe -ArgumentList "--ui-headless-ci" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Headless apphost startup failed with code $($p.ExitCode)" }
+
+      - name: Rasterize real editable screens
+        shell: powershell
+        run: |
+          $exe = (Resolve-Path "artifacts\publish\DiezPublishingStudio.exe").Path
+          $p = Start-Process -FilePath $exe -ArgumentList "--ui-headless-ci", "--ui-raster-probe" -Wait -PassThru
+          if ($p.ExitCode -ne 0) {
+            $errorFile = "artifacts\publish\ui-raster-error.txt"
+            if (Test-Path $errorFile) { Get-Content $errorFile }
+            throw "UI raster probe failed with code $($p.ExitCode)"
+          }
+          foreach ($file in @(
+            "artifacts\publish\ui-quantity.png",
+            "artifacts\publish\ui-consistent-variation.png",
+            "artifacts\publish\ui-consistent-notes.png",
+            "artifacts\publish\ui-prompt.png"
+          )) {
+            if (!(Test-Path $file)) { throw "Missing raster screenshot: $file" }
+            if ((Get-Item $file).Length -lt 10000) { throw "Raster screenshot unexpectedly small: $file" }
+          }
+
+      - name: Upload raster UI evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: DiezPublishingStudio-SW-FLOW-12-Raster-Evidence
+          path: |
+            artifacts/publish/ui-quantity.png
+            artifacts/publish/ui-consistent-variation.png
+            artifacts/publish/ui-consistent-notes.png
+            artifacts/publish/ui-prompt.png
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Core self-test through published apphost
+        shell: powershell
+        run: |
+          $exe = (Resolve-Path "artifacts\publish\DiezPublishingStudio.exe").Path
+          $p = Start-Process -FilePath $exe -ArgumentList "--self-test" -Wait -PassThru
+          if ($p.ExitCode -ne 0) {
+            $errorFile = "artifacts\publish\self-test-error.txt"
+            if (Test-Path $errorFile) { Get-Content $errorFile }
+            throw "Diez self-test failed with code $($p.ExitCode)"
+          }
+
+      - name: Restore structured Scene contract
+        run: dotnet restore tests/Diez.SceneContract/Diez.SceneContract.csproj
+
+      - name: Deterministic structured Scene UI contract
+        run: dotnet run --project tests/Diez.SceneContract/Diez.SceneContract.csproj -c Release --no-restore
+
+      - name: Install Inno Setup
+        shell: powershell
+        run: choco install innosetup -y --no-progress
+
+      - name: Build setup EXE
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force artifacts/installer | Out-Null
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\DiezPublishingStudio.iss
+
+      - name: Verify setup exists
+        shell: powershell
+        run: |
+          $setup = "artifacts\installer\DiezPublishingStudio-Setup.exe"
+          if (!(Test-Path $setup)) { throw "Installer not generated: $setup" }
+          Get-FileHash $setup -Algorithm SHA256
+
+      - name: Smoke install update remove and work-data retention
+        shell: powershell
+        run: |
+          $setup = (Resolve-Path "artifacts\installer\DiezPublishingStudio-Setup.exe").Path
+          $installDir = Join-Path $env:RUNNER_TEMP "DiezPublishingStudio-Smoke"
+          $dirArg = "/DIR=`"$installDir`""
+          $uninstallKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{E6BE35BE-1F4B-4A3D-8CEB-27D970D85911}_is1"
+          $localRoot = Join-Path $env:LOCALAPPDATA "Diez Publishing Studio"
+          $configDir = Join-Path $localRoot "config"
+          $workDir = Join-Path $localRoot "versions"
+          $configMarker = Join-Path $configDir "config-marker.txt"
+          $workMarker = Join-Path $workDir "work-marker.txt"
+
+          $first = Start-Process -FilePath $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", $dirArg -Wait -PassThru
+          if ($first.ExitCode -ne 0) { throw "First install failed with code $($first.ExitCode)" }
+          $exe = Join-Path $installDir "DiezPublishingStudio.exe"
+          if (!(Test-Path $exe)) { throw "Installed executable missing after first install" }
+
+          New-Item -ItemType Directory -Force $configDir | Out-Null
+          New-Item -ItemType Directory -Force $workDir | Out-Null
+          Set-Content -Path $configMarker -Value "config"
+          Set-Content -Path $workMarker -Value "work"
+
+          $updateKeep = Start-Process -FilePath $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/KEEPWORKDATA=1", $dirArg -Wait -PassThru
+          if ($updateKeep.ExitCode -ne 0) { throw "Update keep-work failed with code $($updateKeep.ExitCode)" }
+          if (!(Test-Path $configMarker) -or !(Test-Path $workMarker)) { throw "Update did not preserve work/config data" }
+
+          $removeKeep = Start-Process -FilePath $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLEANOLD=1", "/KEEPWORKDATA=1", $dirArg -Wait -PassThru
+          if ($removeKeep.ExitCode -ne 0) { throw "Remove/reinstall keep-work failed with code $($removeKeep.ExitCode)" }
+          if (Test-Path $configMarker) { throw "Remove/reinstall unexpectedly kept configuration" }
+          if (!(Test-Path $workMarker)) { throw "Remove/reinstall deleted work with KEEPWORKDATA=1" }
+
+          New-Item -ItemType Directory -Force $configDir | Out-Null
+          Set-Content -Path $configMarker -Value "config-again"
+          $removeDrop = Start-Process -FilePath $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLEANOLD=1", "/KEEPWORKDATA=0", $dirArg -Wait -PassThru
+          if ($removeDrop.ExitCode -ne 0) { throw "Remove/reinstall drop-work failed with code $($removeDrop.ExitCode)" }
+          if (Test-Path $configMarker -or Test-Path $workMarker) { throw "KEEPWORKDATA=0 retained data" }
+          if (!(Test-Path $exe)) { throw "Installed executable missing after final reinstall" }
+          if (!(Test-Path $uninstallKey)) { throw "Uninstall registry entry missing" }
+
+          $uninstaller = (Get-ItemProperty -Path $uninstallKey).UninstallString.Trim('"')
+          if (!(Test-Path $uninstaller)) { throw "Registered uninstaller missing" }
+          $remove = Start-Process -FilePath $uninstaller -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait -PassThru
+          if ($remove.ExitCode -ne 0) { throw "Uninstall failed with code $($remove.ExitCode)" }
+          if (Test-Path $exe) { throw "Executable still present after uninstall" }
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: DiezPublishingStudio-Setup-1.0.0-rc8-SW-FLOW-12-PromptCompiler36-StructuredScenes
+          path: artifacts/installer/DiezPublishingStudio-Setup.exe
+          if-no-files-found: error
+          retention-days: 90
