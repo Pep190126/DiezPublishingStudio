@@ -5,14 +5,15 @@ using Avalonia.Threading;
 namespace DiezPublishingStudio;
 
 /// <summary>
-/// Keeps the one existing native subject TextBox and its label synchronized with the optional
-/// structured multi-subject mode. This deliberately locates the native label by semantic text instead
-/// of relying on Avalonia Parent timing, which may be unset while decorators are attached.
+/// Keeps the one existing native subject TextBox, label and visible value synchronized with the optional
+/// structured multi-subject mode. The current structured model is authoritative whenever the active SubjectId
+/// changes, so switching subjects restores the description belonging to that exact stable identity.
 /// </summary>
 internal static class SingleWindowMultiSubjectLabelUi
 {
     private static readonly HashSet<MainWindow> Attached = [];
     private static readonly HashSet<Control> Wired = [];
+    private static readonly HashSet<TextBox> Applying = [];
 
     public static void Attach(MainWindow window)
     {
@@ -47,15 +48,28 @@ internal static class SingleWindowMultiSubjectLabelUi
 
         var model = MultiSubjectProfileService.Load(project);
         var current = MultiSubjectProfileService.ActiveSubject(model);
-        if (model.Enabled && current is not null)
+        Applying.Add(subject);
+        try
         {
-            label.Text = "Descrizione — " + current.Name;
-            subject.Watermark = "Descrivi solo questo soggetto/personaggio: aspetto, segni distintivi, età/proporzioni, caratteristiche da mantenere. Facoltativo.";
+            if (model.Enabled && current is not null)
+            {
+                label.Text = "Descrizione — " + current.Name;
+                subject.Watermark = "Descrivi solo questo soggetto/personaggio: aspetto, segni distintivi, età/proporzioni, caratteristiche da mantenere. Facoltativo.";
+                if (!string.Equals(subject.Text, current.Description, StringComparison.Ordinal))
+                    subject.Text = current.Description;
+            }
+            else
+            {
+                label.Text = "Tema / gruppo di soggetti";
+                subject.Watermark = "Es. animali della giungla, fiori tropicali, piante grasse, dinosauri, veicoli. Usa gruppi/temi, non una lista di personaggi singoli.";
+                var group = model.GroupDescription ?? string.Empty;
+                if (!string.Equals(subject.Text, group, StringComparison.Ordinal))
+                    subject.Text = group;
+            }
         }
-        else
+        finally
         {
-            label.Text = "Tema / gruppo di soggetti";
-            subject.Watermark = "Es. animali della giungla, fiori tropicali, piante grasse, dinosauri, veicoli. Usa gruppi/temi, non una lista di personaggi singoli.";
+            Applying.Remove(subject);
         }
 
         var enabled = Descendants(page).OfType<CheckBox>().FirstOrDefault(x => x.Name == "MultiSubjectEnabled");
@@ -68,6 +82,8 @@ internal static class SingleWindowMultiSubjectLabelUi
         if (name is not null && Wired.Add(name))
             name.LostFocus += (_, _) => Dispatcher.UIThread.Post(() => Refresh(window), DispatcherPriority.Background);
     }
+
+    public static bool IsApplying(TextBox? subject) => subject is not null && Applying.Contains(subject);
 
     private static bool TrySession(MainWindow window, out PreviewProject project)
     {
