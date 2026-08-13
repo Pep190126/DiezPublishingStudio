@@ -32,6 +32,7 @@ internal sealed class StructuredSceneDefinition
 /// <summary>
 /// Optional structured scene graph. SceneId is stable and internal; display number/name may change freely.
 /// Scene membership is canonical here and is referenced by SubjectId, never by mutable subject names.
+/// Initial Work Unit assignment follows stable WorkUnit.Position without changing the historical AI state schema.
 /// </summary>
 internal static class StructuredSceneProfileService
 {
@@ -168,27 +169,8 @@ internal static class StructuredSceneProfileService
         var model = Load(project);
         var active = ActiveScenes(model);
         if (!model.Enabled || active.Count == 0) return null;
-        if (!string.IsNullOrWhiteSpace(unit.SceneId))
-        {
-            var explicitScene = active.FirstOrDefault(x => string.Equals(x.SceneId, unit.SceneId, StringComparison.OrdinalIgnoreCase));
-            if (explicitScene is not null) return explicitScene;
-        }
         var position = Math.Max(1, unit.Position);
         return active[(position - 1) % active.Count];
-    }
-
-    public static void SynchronizeWorkUnits(PreviewProject project, AiExchangeState state)
-    {
-        var model = Load(project);
-        var active = ActiveScenes(model);
-        if (!model.Enabled || active.Count == 0) return;
-        foreach (var unit in state.WorkUnits.Where(x => string.Equals(x.ContentType, AiExchangeContentTypes.Image, StringComparison.OrdinalIgnoreCase)))
-        {
-            var existing = active.FirstOrDefault(x => string.Equals(x.SceneId, unit.SceneId, StringComparison.OrdinalIgnoreCase));
-            if (existing is not null) continue;
-            var position = Math.Max(1, unit.Position);
-            unit.SceneId = active[(position - 1) % active.Count].SceneId;
-        }
     }
 
     public static string BuildSceneIntent(PreviewProject project, StructuredSceneDefinition scene)
