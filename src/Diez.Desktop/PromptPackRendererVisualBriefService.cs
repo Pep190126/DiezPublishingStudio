@@ -34,11 +34,29 @@ internal static class PromptPackRendererVisualBriefService
 
         var lines = text.Split('\n');
         var output = new List<string>();
+        string? synthesizedArtDirection = null;
         foreach (var raw in lines)
         {
             var line = raw.Trim();
             if (line.Length == 0) continue;
             if (OperationalMarkers.Any(m => line.StartsWith(m, StringComparison.OrdinalIgnoreCase))) continue;
+
+            if (line.StartsWith("ART DIRECTION — SYNTHESIZED:", StringComparison.OrdinalIgnoreCase))
+            {
+                synthesizedArtDirection = line;
+                continue;
+            }
+
+            if (line.StartsWith("Create ONE finished", StringComparison.OrdinalIgnoreCase))
+            {
+                output.Add(line);
+                if (!string.IsNullOrWhiteSpace(synthesizedArtDirection))
+                {
+                    output.Add(synthesizedArtDirection);
+                    synthesizedArtDirection = null;
+                }
+                continue;
+            }
 
             if (line.StartsWith("COMPOSITION — HARD LOCK:", StringComparison.OrdinalIgnoreCase))
             {
@@ -104,6 +122,9 @@ internal static class PromptPackRendererVisualBriefService
 
             output.Add(line);
         }
+
+        if (!string.IsNullOrWhiteSpace(synthesizedArtDirection))
+            output.Insert(Math.Min(1, output.Count), synthesizedArtDirection);
 
         var result = PromptEnglishNormalizer.NormalizeProviderFacing(string.Join(Environment.NewLine, output)).Trim();
         EnsureVisualOnly(result);
