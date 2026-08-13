@@ -8,6 +8,7 @@ namespace DiezPublishingStudio;
 /// Keeps the one existing native subject TextBox, label and visible value synchronized with the optional
 /// structured multi-subject mode. The current structured model is authoritative whenever the active SubjectId
 /// changes, so switching subjects restores the description belonging to that exact stable identity.
+/// Also suppresses the legacy generic character-consistency row while per-subject Consistent is active.
 /// </summary>
 internal static class SingleWindowMultiSubjectLabelUi
 {
@@ -37,40 +38,45 @@ internal static class SingleWindowMultiSubjectLabelUi
         var host = SingleWindowEntryPointUi.GetHost(window);
         var pageHost = host.GetType().GetField("_pageHost", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(host) as ContentControl;
         if (pageHost?.Content is not Control page) return;
-        var subject = Descendants(page).OfType<TextBox>().FirstOrDefault(x => x.Name == "VisualSubjectInstructions");
-        if (subject is null) return;
-
-        var label = Descendants(page).OfType<TextBlock>().FirstOrDefault(x =>
-            (x.Text ?? string.Empty).StartsWith("Personaggio/i, soggetto/i", StringComparison.Ordinal) ||
-            string.Equals(x.Text, "Tema / gruppo di soggetti", StringComparison.Ordinal) ||
-            (x.Text ?? string.Empty).StartsWith("Descrizione — ", StringComparison.Ordinal));
-        if (label is null) return;
-
         var model = MultiSubjectProfileService.Load(project);
-        var current = MultiSubjectProfileService.ActiveSubject(model);
-        Applying.Add(subject);
-        try
+
+        var subject = Descendants(page).OfType<TextBox>().FirstOrDefault(x => x.Name == "VisualSubjectInstructions");
+        if (subject is not null)
         {
-            if (model.Enabled && current is not null)
+            var label = Descendants(page).OfType<TextBlock>().FirstOrDefault(x =>
+                (x.Text ?? string.Empty).StartsWith("Personaggio/i, soggetto/i", StringComparison.Ordinal) ||
+                string.Equals(x.Text, "Tema / gruppo di soggetti", StringComparison.Ordinal) ||
+                (x.Text ?? string.Empty).StartsWith("Descrizione — ", StringComparison.Ordinal));
+            if (label is not null)
             {
-                label.Text = "Descrizione — " + current.Name;
-                subject.Watermark = "Descrivi solo questo soggetto/personaggio: aspetto, segni distintivi, età/proporzioni, caratteristiche da mantenere. Facoltativo.";
-                if (!string.Equals(subject.Text, current.Description, StringComparison.Ordinal))
-                    subject.Text = current.Description;
-            }
-            else
-            {
-                label.Text = "Tema / gruppo di soggetti";
-                subject.Watermark = "Es. animali della giungla, fiori tropicali, piante grasse, dinosauri, veicoli. Usa gruppi/temi, non una lista di personaggi singoli.";
-                var group = model.GroupDescription ?? string.Empty;
-                if (!string.Equals(subject.Text, group, StringComparison.Ordinal))
-                    subject.Text = group;
+                var current = MultiSubjectProfileService.ActiveSubject(model);
+                Applying.Add(subject);
+                try
+                {
+                    if (model.Enabled && current is not null)
+                    {
+                        label.Text = "Descrizione — " + current.Name;
+                        subject.Watermark = "Descrivi solo questo soggetto/personaggio: aspetto, segni distintivi, età/proporzioni, caratteristiche da mantenere. Facoltativo.";
+                        if (!string.Equals(subject.Text, current.Description, StringComparison.Ordinal))
+                            subject.Text = current.Description;
+                    }
+                    else
+                    {
+                        label.Text = "Tema / gruppo di soggetti";
+                        subject.Watermark = "Es. animali della giungla, fiori tropicali, piante grasse, dinosauri, veicoli. Usa gruppi/temi, non una lista di personaggi singoli.";
+                        var group = model.GroupDescription ?? string.Empty;
+                        if (!string.Equals(subject.Text, group, StringComparison.Ordinal))
+                            subject.Text = group;
+                    }
+                }
+                finally
+                {
+                    Applying.Remove(subject);
+                }
             }
         }
-        finally
-        {
-            Applying.Remove(subject);
-        }
+
+        ApplyConsistencyVisibility(page, model.Enabled);
 
         var enabled = Descendants(page).OfType<CheckBox>().FirstOrDefault(x => x.Name == "MultiSubjectEnabled");
         if (enabled is not null && Wired.Add(enabled))
@@ -81,9 +87,28 @@ internal static class SingleWindowMultiSubjectLabelUi
         var name = Descendants(page).OfType<TextBox>().FirstOrDefault(x => x.Name == "MultiSubjectName");
         if (name is not null && Wired.Add(name))
             name.LostFocus += (_, _) => Dispatcher.UIThread.Post(() => Refresh(window), DispatcherPriority.Background);
+        var consistent = Descendants(page).OfType<CheckBox>().FirstOrDefault(x => x.Name == "NativeConsistent");
+        if (consistent is not null && Wired.Add(consistent))
+            consistent.IsCheckedChanged += (_, _) => Dispatcher.UIThread.Post(() => Refresh(window), DispatcherPriority.Background);
     }
 
     public static bool IsApplying(TextBox? subject) => subject is not null && Applying.Contains(subject);
+
+    private static void ApplyConsistencyVisibility(Control page, bool multiEnabled)
+    {
+        var panel = Descendants(page).OfType<StackPanel>().FirstOrDefault(x => x.Name == "DiezConsistencyCriteriaPanel");
+        if (panel is null) return;
+        var characterLevel = Descendants(panel).OfType<ComboBox>().FirstOrDefault(x => x.Name == "ConsistencyLevel_character");
+        if (characterLevel is null) return;
+
+        var directBlock = panel.Children
+            .OfType<Control>()
+            .FirstOrDefault(child => ReferenceEquals(child, characterLevel) || Descendants(child).Any(x => ReferenceEquals(x, characterLevel)));
+        if (directBlock is not null)
+            directBlock.IsVisible = !multiEnabled;
+        else
+            characterLevel.IsVisible = !multiEnabled;
+    }
 
     private static bool TrySession(MainWindow window, out PreviewProject project)
     {
