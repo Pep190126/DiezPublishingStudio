@@ -8,23 +8,24 @@ namespace DiezPublishingStudio;
 
 internal static class SafeDesktopStartupUi
 {
-    public static void Attach(MainWindow window, Func<Task> activateAsync)
+    public static Window CreateStandalone(Func<Window, Task> activateAsync)
     {
-        var originalContent = window.Content;
         var status = new TextBlock
         {
-            Text = "Avvio sicuro attivo. La UI completa non è ancora stata caricata.",
+            Text = "Avvio sicuro attivo. MainWindow e la UI completa non sono ancora stati creati.",
             FontSize = 16,
             TextWrapping = TextWrapping.Wrap,
             HorizontalAlignment = HorizontalAlignment.Center,
-            MaxWidth = 720
+            MaxWidth = 720,
+            Foreground = Brushes.Black
         };
         var details = new TextBlock
         {
-            Text = "Se questa schermata resta visibile e reattiva, il renderer Avalonia di base funziona. Premi il pulsante per caricare l'interfaccia completa a moduli tracciati.",
+            Text = "Questa è una Window Avalonia minimale con rendering software forzato. Se resta visibile e reattiva, il percorso grafico di base è stabile. Premi il pulsante per creare MainWindow e caricare i moduli tracciati.",
             TextWrapping = TextWrapping.Wrap,
             HorizontalAlignment = HorizontalAlignment.Center,
-            MaxWidth = 720
+            MaxWidth = 720,
+            Foreground = Brushes.Black
         };
         var activate = new Button
         {
@@ -33,66 +34,70 @@ internal static class SafeDesktopStartupUi
             HorizontalAlignment = HorizontalAlignment.Center
         };
 
-        var shell = new Border
+        var window = new Window
         {
+            Title = ProductInfo.WindowTitle + " — avvio sicuro software",
+            Width = 820,
+            Height = 520,
+            MinWidth = 640,
+            MinHeight = 420,
             Background = Brushes.WhiteSmoke,
-            Padding = new Thickness(32),
-            Child = new StackPanel
+            Content = new Border
             {
-                Spacing = 18,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center,
-                Children =
+                Background = Brushes.WhiteSmoke,
+                Padding = new Thickness(32),
+                Child = new StackPanel
                 {
-                    new TextBlock
+                    Spacing = 18,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Children =
                     {
-                        Text = "Diez Publishing Studio",
-                        FontSize = 28,
-                        Foreground = Brushes.Black,
-                        HorizontalAlignment = HorizontalAlignment.Center
-                    },
-                    status,
-                    details,
-                    activate
+                        new TextBlock
+                        {
+                            Text = "Diez Publishing Studio",
+                            FontSize = 28,
+                            Foreground = Brushes.Black,
+                            HorizontalAlignment = HorizontalAlignment.Center
+                        },
+                        status,
+                        details,
+                        activate
+                    }
                 }
             }
         };
-        status.Foreground = Brushes.Black;
-        details.Foreground = Brushes.Black;
 
-        window.Content = shell;
-        window.Title = ProductInfo.WindowTitle + " — avvio sicuro";
-        SafeStartupTrace.Reset("minimal-shell-installed");
+        SafeStartupTrace.Reset("bare-shell-created | renderer=Win32RenderingMode.Software");
+
+        window.Opened += (_, _) =>
+        {
+            SafeStartupTrace.Write("bare-shell-opened");
+            Dispatcher.UIThread.Post(
+                () => SafeStartupTrace.Write("bare-shell-loaded-dispatcher-turn"),
+                DispatcherPriority.Loaded);
+        };
 
         activate.Click += async (_, _) =>
         {
             activate.IsEnabled = false;
-            status.Text = "Ripristino della UI base…";
-            window.Title = ProductInfo.WindowTitle + " — ripristino UI base";
+            status.Text = "Creazione della MainWindow…";
+            window.Title = ProductInfo.WindowTitle + " — creazione MainWindow";
             SafeStartupTrace.Write("activation-clicked");
 
             try
             {
-                await Task.Delay(60);
-                window.Content = originalContent;
-                SafeStartupTrace.Write("base-mainwindow-content-restored");
-                window.Title = ProductInfo.WindowTitle + " — UI base ripristinata";
-
-                // Give Avalonia one real dispatcher turn with only MainWindow's original controls.
-                await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);
-                await Task.Delay(100);
-                SafeStartupTrace.Write("base-mainwindow-first-turn-completed");
-
-                await activateAsync();
-                SafeStartupTrace.Write("all-production-modules-completed");
-                window.Title = ProductInfo.WindowTitle;
+                await activateAsync(window);
             }
             catch (Exception ex)
             {
                 SafeStartupTrace.Write("activation-failed: " + ex);
                 CrashDiagnostics.Error("safe-startup-activation", ex);
                 window.Title = ProductInfo.WindowTitle + " — caricamento incompleto";
+                status.Text = "Caricamento incompleto. Il dettaglio è stato scritto nel log di avvio.";
             }
         };
+
+        return window;
     }
 }
