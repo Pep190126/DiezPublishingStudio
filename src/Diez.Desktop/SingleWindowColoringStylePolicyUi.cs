@@ -176,7 +176,9 @@ internal static class SingleWindowColoringStylePolicyUi
                 Persist();
             };
 
-        // Custom-style UI must see the final style ItemsSource/selection after this policy refresh.
+        // Custom HARD text + explicit library consent are part of the same native style profile.
+        // Rebind them after the final style catalog/selection has been applied above.
+        SingleWindowCustomStyleConsentUi.Refresh(window);
         SingleWindowSubjectStyleUi.Refresh(window);
     }
 
