@@ -75,12 +75,32 @@ internal static class MultiSubjectUiContractProbe
                 throw new InvalidOperationException("Multi-subject probe: è stato creato un secondo box descrizione invece di riusare quello esistente.");
             if (!HasVisibleLabel(page, "Descrizione — Milo"))
                 throw new InvalidOperationException("Multi-subject probe: label descrizione non segue il soggetto attivo.");
-            if (!string.Equals(subject.Text, subjects[0].Description, StringComparison.Ordinal))
-                throw new InvalidOperationException("Multi-subject probe: box descrizione non carica la descrizione legata al SubjectId.");
             if (Values(selector).Count != 3)
                 throw new InvalidOperationException("Multi-subject probe: selector non mostra tre soggetti.");
             if (string.IsNullOrWhiteSpace(name.Text) || !string.Equals(name.Text, "Milo", StringComparison.Ordinal))
                 throw new InvalidOperationException("Multi-subject probe: nome soggetto attivo non editabile/visibile.");
+
+            // Test the actual user interaction: switching the selector must load each SubjectId's description
+            // into the SAME existing native TextBox, then restore Milo without creating any second editor.
+            SelectStartsWith(selector, "Luna");
+            await WaitAsync(260);
+            SingleWindowMultiSubjectLabelUi.Refresh(window);
+            if (!ReferenceEquals(Require<TextBox>(page, "VisualSubjectInstructions"), originalSubjectReference))
+                throw new InvalidOperationException("Multi-subject probe: cambio Milo→Luna ha sostituito il box descrizione.");
+            if (!string.Equals(subject.Text, subjects[1].Description, StringComparison.Ordinal))
+                throw new InvalidOperationException("Multi-subject probe: selezionando Luna non viene caricata la descrizione legata al SubjectId di Luna.");
+            if (!HasVisibleLabel(page, "Descrizione — Luna"))
+                throw new InvalidOperationException("Multi-subject probe: label non segue Luna.");
+
+            SelectStartsWith(selector, "Milo");
+            await WaitAsync(260);
+            SingleWindowMultiSubjectLabelUi.Refresh(window);
+            if (!ReferenceEquals(Require<TextBox>(page, "VisualSubjectInstructions"), originalSubjectReference))
+                throw new InvalidOperationException("Multi-subject probe: cambio Luna→Milo ha sostituito il box descrizione.");
+            if (!string.Equals(subject.Text, subjects[0].Description, StringComparison.Ordinal))
+                throw new InvalidOperationException("Multi-subject probe: tornando a Milo non viene ripristinata la sua descrizione.");
+            if (!HasVisibleLabel(page, "Descrizione — Milo"))
+                throw new InvalidOperationException("Multi-subject probe: label non torna a Milo.");
 
             var stableIds = subjects.Select(x => x.SubjectId).ToArray();
             MultiSubjectProfileService.SetCount(model, 2);
@@ -162,6 +182,13 @@ internal static class MultiSubjectUiContractProbe
         if (combo.ItemsSource is not IEnumerable source) throw new InvalidOperationException("Multi-subject probe: ItemsSource assente.");
         combo.SelectedItem = source.Cast<object>().FirstOrDefault(x => string.Equals(x?.ToString(), text, StringComparison.OrdinalIgnoreCase))
                              ?? throw new InvalidOperationException("Multi-subject probe: voce mancante " + text);
+    }
+
+    private static void SelectStartsWith(ComboBox combo, string text)
+    {
+        if (combo.ItemsSource is not IEnumerable source) throw new InvalidOperationException("Multi-subject probe: ItemsSource assente.");
+        combo.SelectedItem = source.Cast<object>().FirstOrDefault(x => (x?.ToString() ?? string.Empty).StartsWith(text, StringComparison.OrdinalIgnoreCase))
+                             ?? throw new InvalidOperationException("Multi-subject probe: soggetto mancante " + text);
     }
 
     private static void SetSession(MainWindow window, PreviewProject project, string path)
