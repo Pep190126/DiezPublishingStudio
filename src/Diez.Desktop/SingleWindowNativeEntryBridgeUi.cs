@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
+using Avalonia.Media;
 using Avalonia.Threading;
 
 namespace DiezPublishingStudio;
@@ -72,7 +73,7 @@ internal static class SingleWindowNativeEntryBridgeUi
             RestoreDesktopSiblingHitTesting(window);
             Attached.Remove(window);
         };
-        SafeStartupTrace.Write("native-entry-bridge-attached | legacy-disabled=true | input-owner=workflow-overlay");
+        SafeStartupTrace.Write("native-entry-bridge-attached | legacy-disabled=true | input-owner=workflow-page-surface");
     }
 
     private static void OpenNative(MainWindow window)
@@ -108,10 +109,13 @@ internal static class SingleWindowNativeEntryBridgeUi
             return;
         }
 
-        // Do not depend on insertion order: decorators can be attached after the host. The workflow is the
-        // only full-window surface that may own pointer input while a logical page is active.
+        // The logical workflow must also be the physical surface. Do not depend on transparent panels,
+        // insertion order or preview decorators: the active page branch is always above the preview branch.
         overlay.ZIndex = 1000000;
         overlay.IsHitTestVisible = true;
+        overlay.Background = Brushes.White;
+        overlay.ClipToBounds = true;
+        ConfigureWorkflowSurface(host, overlay);
 
         if (!DesktopSiblingHitTestState.TryGetValue(window, out var saved))
         {
@@ -130,7 +134,70 @@ internal static class SingleWindowNativeEntryBridgeUi
             "ui-input-owner | active=true | overlayVisible=" + overlay.IsVisible +
             " | overlayHitTest=" + overlay.IsHitTestVisible +
             " | overlayZ=" + overlay.ZIndex +
+            " | overlayBounds=" + overlay.Bounds +
             " | siblingCount=" + saved.Count);
+    }
+
+    private static void ConfigureWorkflowSurface(object host, Grid overlay)
+    {
+        var pageHost = Field<ContentControl>(host, "_pageHost");
+        var previewHost = Field<ContentControl>(host, "_previewHost");
+        if (pageHost is null || previewHost is null) return;
+
+        pageHost.IsHitTestVisible = true;
+        previewHost.IsHitTestVisible = false;
+
+        var body = Descendants(overlay).OfType<Grid>().FirstOrDefault(grid =>
+            grid.Children.OfType<Control>().Any(child => Contains(child, pageHost)) &&
+            grid.Children.OfType<Control>().Any(child => Contains(child, previewHost)));
+        if (body is null)
+        {
+            SafeStartupTrace.Write("ui-surface-layout | body=missing");
+            return;
+        }
+
+        body.Background = Brushes.White;
+        body.ClipToBounds = true;
+
+        var pageSurface = body.Children.OfType<Control>().FirstOrDefault(child => Contains(child, pageHost));
+        var previewSurface = body.Children.OfType<Control>().FirstOrDefault(child => Contains(child, previewHost));
+        if (pageSurface is null || previewSurface is null)
+        {
+            SafeStartupTrace.Write("ui-surface-layout | page-or-preview-surface=missing");
+            return;
+        }
+
+        pageSurface.ZIndex = 1000;
+        pageSurface.IsHitTestVisible = true;
+        previewSurface.ZIndex = 0;
+        previewSurface.IsHitTestVisible = false;
+
+        var title = Field<TextBlock>(host, "_title")?.Text ?? string.Empty;
+        var bookTypePage = string.Equals(title, "Tipo libro", StringComparison.Ordinal);
+        if (bookTypePage)
+        {
+            // The first actionable page does not need an interactive preview. Give the page the complete
+            // body surface so no right-hand decorator can sit above the ComboBox or confirmation button.
+            previewSurface.IsVisible = false;
+            Grid.SetColumn(pageSurface, 0);
+            Grid.SetColumnSpan(pageSurface, Math.Max(1, body.ColumnDefinitions.Count));
+        }
+        else
+        {
+            previewSurface.IsVisible = true;
+            Grid.SetColumnSpan(pageSurface, 1);
+        }
+
+        SafeStartupTrace.Write(
+            "ui-surface-layout | title=" + (string.IsNullOrWhiteSpace(title) ? "<untitled>" : title) +
+            " | bodyBounds=" + body.Bounds +
+            " | pageBounds=" + pageSurface.Bounds +
+            " | pageZ=" + pageSurface.ZIndex +
+            " | pageHitTest=" + pageSurface.IsHitTestVisible +
+            " | pageColumnSpan=" + Grid.GetColumnSpan(pageSurface) +
+            " | previewVisible=" + previewSurface.IsVisible +
+            " | previewHitTest=" + previewSurface.IsHitTestVisible +
+            " | previewZ=" + previewSurface.ZIndex);
     }
 
     private static void RestoreDesktopSiblingHitTesting(MainWindow window)
@@ -149,12 +216,21 @@ internal static class SingleWindowNativeEntryBridgeUi
             var overlay = Field<Grid>(host, "_overlay");
             if (overlay?.IsVisible != true) return;
             var source = e.Source as Control;
+            var pageHost = Field<ContentControl>(host, "_pageHost");
+            var page = pageHost?.Content as Control;
+            var buttons = page is null ? new List<Button>() : Descendants(page).OfType<Button>().ToList();
+            var pointerOver = buttons.Where(button => button.IsPointerOver)
+                .Select(button => (button.Name ?? "<unnamed>") + ":" + (button.Content?.ToString() ?? "<null>"))
+                .ToList();
+
             SafeStartupTrace.Write(
                 "ui-pointer | event=pressed" +
                 " | sourceType=" + (source?.GetType().FullName ?? e.Source?.GetType().FullName ?? "<null>") +
                 " | sourceName=" + (source?.Name ?? "<unnamed>") +
                 " | sourceEnabled=" + (source?.IsEnabled.ToString() ?? "<na>") +
                 " | sourceHitTest=" + (source?.IsHitTestVisible.ToString() ?? "<na>") +
+                " | pointerOverButtons=" + (pointerOver.Count == 0 ? "<none>" : string.Join(",", pointerOver)) +
+                " | pageHostBounds=" + (pageHost?.Bounds.ToString() ?? "<na>") +
                 " | overlayHitTest=" + overlay.IsHitTestVisible +
                 " | overlayZ=" + overlay.ZIndex +
                 " | windowEnabled=" + window.IsEnabled);
@@ -183,6 +259,7 @@ internal static class SingleWindowNativeEntryBridgeUi
                         " | content=" + (button.Content?.ToString() ?? "<null>") +
                         " | enabled=" + button.IsEnabled +
                         " | hitTest=" + button.IsHitTestVisible +
+                        " | bounds=" + button.Bounds +
                         " | windowEnabled=" + window.IsEnabled +
                         " | active=" + window.IsActive);
                 }, RoutingStrategies.Bubble, handledEventsToo: true);
@@ -190,11 +267,14 @@ internal static class SingleWindowNativeEntryBridgeUi
 
             SafeStartupTrace.Write(
                 "ui-page | title=" + title +
+                " | pageHostBounds=" + pageHost.Bounds +
+                " | pageBounds=" + (page?.Bounds.ToString() ?? "<none>") +
                 " | windowEnabled=" + window.IsEnabled +
                 " | active=" + window.IsActive +
                 " | buttons=" + string.Join(";", buttons.Select(b =>
                     (b.Name ?? "<unnamed>") + ":" + (b.Content?.ToString() ?? "<null>") +
-                    ":enabled=" + b.IsEnabled + ":hitTest=" + b.IsHitTestVisible + ":visible=" + b.IsVisible)));
+                    ":enabled=" + b.IsEnabled + ":hitTest=" + b.IsHitTestVisible +
+                    ":visible=" + b.IsVisible + ":bounds=" + b.Bounds)));
         }
         catch (Exception ex)
         {
@@ -224,6 +304,9 @@ internal static class SingleWindowNativeEntryBridgeUi
 
     private static T? Field<T>(object host, string name) where T : class =>
         host.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(host) as T;
+
+    private static bool Contains(Control root, Control target) =>
+        Descendants(root).Any(control => ReferenceEquals(control, target));
 
     private static IEnumerable<Control> Descendants(Control root)
     {
