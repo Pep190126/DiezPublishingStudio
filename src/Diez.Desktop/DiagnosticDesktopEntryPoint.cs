@@ -1,10 +1,13 @@
 using System.Text;
+using Avalonia;
+using Avalonia.Controls;
 
 namespace DiezPublishingStudio;
 
 /// <summary>
-/// Temporary real-machine startup entry point. CI/self-test modes continue through Program.Main unchanged;
-/// only the normal desktop path is split into setup -> Show -> Win32 probe -> MainLoop phases.
+/// Real-machine startup entry point. CI/self-test modes continue through Program.Main unchanged.
+/// The normal desktop path uses Avalonia's standard classic lifetime and only adds dispatcher
+/// bootstrap diagnostics after platform services have been initialized.
 /// </summary>
 internal static class DiagnosticDesktopEntryPoint
 {
@@ -30,9 +33,17 @@ internal static class DiagnosticDesktopEntryPoint
                 return 0;
             }
 
-            SafeStartupTrace.Write("diagnostic-entry | manual-lifetime-start");
-            var exitCode = ManualDesktopLifetimeRunner.Run(args);
-            SafeStartupTrace.Write("diagnostic-entry | manual-lifetime-return | code=" + exitCode);
+            DispatcherBootstrapProbe.TraceCachedState("entry-before-builder");
+
+            var builder = Program.BuildAvaloniaApp()
+                .AfterPlatformServicesSetup(_ => DispatcherBootstrapProbe.PinAfterPlatformServicesSetup());
+
+            SafeStartupTrace.Write("diagnostic-entry | standard-lifetime-start");
+            var exitCode = builder.StartWithClassicDesktopLifetime(
+                args,
+                ShutdownMode.OnExplicitShutdown);
+            SafeStartupTrace.Write("diagnostic-entry | standard-lifetime-return | code=" + exitCode);
+
             GC.KeepAlive(mutex);
             return exitCode;
         }
