@@ -63,6 +63,21 @@ jobs:
           $p = Start-Process -FilePath $exe -ArgumentList "--ui-headless-ci" -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "Portable apphost failed with code $($p.ExitCode)" }
 
+      - name: Probe real owned Home file dialog
+        shell: powershell
+        run: |
+          $exe = (Resolve-Path "artifacts\publish\DiezPublishingStudio.exe").Path
+          $errorFile = "artifacts\publish\home-file-dialog-probe-error.txt"
+          $p = Start-Process -FilePath $exe -ArgumentList "--home-file-dialog-probe" -PassThru
+          if (-not $p.WaitForExit(15000)) {
+            Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+            throw "Owned Home file dialog probe timed out"
+          }
+          if ($p.ExitCode -ne 0) {
+            if (Test-Path $errorFile) { Get-Content $errorFile }
+            throw "Owned Home file dialog probe failed with code $($p.ExitCode)"
+          }
+
       - name: Upload conservative installer
         uses: actions/upload-artifact@v4
         with:
