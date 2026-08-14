@@ -114,7 +114,7 @@ public sealed class App : Application
             ("Controllo qualità Vision", () => SingleWindowVisionValidationUi.Attach(window)),
             ("Progetto attivo e ripresa percorso", () => SingleWindowProjectResumeUi.Attach(window)),
             ("Avvio guidato SW-FLOW-12", () => SingleWindowV5StartupUi.Attach(window)),
-            ("Dialoghi progetto Windows rapidi", () => FastWindowsProjectDialogUi.Attach(window))
+            ("Dialoghi Home Windows owned", () => WindowsHomeFileDialogUi.Attach(window))
         };
 
         foreach (var module in modules)
