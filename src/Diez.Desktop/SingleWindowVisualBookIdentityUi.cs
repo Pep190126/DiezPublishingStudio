@@ -88,11 +88,25 @@ internal static class SingleWindowVisualBookIdentityUi
             HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
             Background = Brushes.White,
             Foreground = Brushes.Black,
-            BorderBrush = Brushes.Gray,
-            BorderThickness = new Thickness(2),
+            BorderThickness = new Thickness(0),
             Padding = new Thickness(9, 7)
         };
         title.TextChanged += (_, _) => project.EditionMetadata.Title = (title.Text ?? string.Empty).Trim();
+
+        // Keep the visible outline independent from the active Fluent TextBox template. On some Win32
+        // rendering paths the template border can disappear while the TextBox still has valid bounds.
+        var titleFrame = new Border
+        {
+            Name = "DiezBookTitleFrame",
+            MaxWidth = 620,
+            MinHeight = 42,
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
+            Background = Brushes.White,
+            BorderBrush = Brushes.Gray,
+            BorderThickness = new Thickness(2),
+            CornerRadius = new CornerRadius(3),
+            Child = title
+        };
 
         var field = new StackPanel
         {
@@ -101,7 +115,7 @@ internal static class SingleWindowVisualBookIdentityUi
             Children =
             {
                 new TextBlock { Text = "Titolo del libro", FontSize = 15 },
-                title,
+                titleFrame,
                 new TextBlock
                 {
                     Text = "Serve per nomi file leggibili (diez-[titolo]-prompt-pack/response-vNNN). L'identità interna del progetto resta l'ID Diez.",
