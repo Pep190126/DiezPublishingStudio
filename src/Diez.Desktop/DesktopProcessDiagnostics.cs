@@ -4,8 +4,6 @@ namespace DiezPublishingStudio;
 
 internal static class DesktopProcessDiagnostics
 {
-    private static IDisposable? _heartbeat;
-
     [ModuleInitializer]
     internal static void Initialize()
     {
@@ -18,9 +16,8 @@ internal static class DesktopProcessDiagnostics
 
             SafeStartupTrace.Reset("process-module-enter | pid=" + Environment.ProcessId + " | args=" +
                                    (args.Length == 0 ? "<none>" : string.Join(" | ", args)));
-            AppDomain.CurrentDomain.ProcessExit += (_, _) => SafeStartupTrace.Write("process-exit-event | pid=" + Environment.ProcessId);
-            _heartbeat = SafeStartupTrace.StartHeartbeat(250);
-            SafeStartupTrace.Write("process-heartbeat-installed");
+            AppDomain.CurrentDomain.ProcessExit += (_, _) =>
+                SafeStartupTrace.Write("process-exit-event | pid=" + Environment.ProcessId);
         }
         catch
         {
