@@ -84,7 +84,7 @@ internal static class SingleWindowNativeEntryBridgeUi
         {
             var title = Field<TextBlock>(host, "_title")?.Text ?? "<untitled>";
             var page = pageHost.Content as Control;
-            var buttons = page is null ? [] : Descendants(page).OfType<Button>().ToList();
+            List<Button> buttons = page is null ? [] : Descendants(page).OfType<Button>().ToList();
 
             foreach (var button in buttons)
             {
