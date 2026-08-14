@@ -22,8 +22,9 @@ public sealed class App : Application
             var startupProjectPath = args.FirstOrDefault(a => a.EndsWith(".diez", StringComparison.OrdinalIgnoreCase));
             var rasterProbe = args.Any(a => string.Equals(a, "--ui-raster-probe", StringComparison.OrdinalIgnoreCase));
             var flowProbe = args.Any(a => string.Equals(a, "--ui-flow-contract", StringComparison.OrdinalIgnoreCase));
+            var homeFileDialogProbe = args.Any(a => string.Equals(a, "--home-file-dialog-probe", StringComparison.OrdinalIgnoreCase));
 
-            if (rasterProbe || flowProbe)
+            if (rasterProbe || flowProbe || homeFileDialogProbe)
             {
                 var mainWindow = new MainWindow(startupProjectPath);
                 desktop.MainWindow = mainWindow;
@@ -33,7 +34,9 @@ public sealed class App : Application
                     var failures = AttachProductionModules(mainWindow);
                     StartupDiagnostics.ShowWarning(mainWindow, failures);
 
-                    if (rasterProbe)
+                    if (homeFileDialogProbe)
+                        await RunHomeFileDialogProbeAsync(mainWindow);
+                    else if (rasterProbe)
                         await RunRasterProbeAsync(mainWindow);
                     else
                         await RunFlowProbeAsync(mainWindow);
@@ -135,6 +138,22 @@ public sealed class App : Application
 
         window.Title = ProductInfo.WindowTitle;
         return failures;
+    }
+
+    private static async Task RunHomeFileDialogProbeAsync(MainWindow mainWindow)
+    {
+        var errorFile = Path.Combine(AppContext.BaseDirectory, "home-file-dialog-probe-error.txt");
+        try
+        {
+            if (File.Exists(errorFile)) File.Delete(errorFile);
+            await WindowsOwnedDialogProbe.RunAsync(mainWindow);
+            Environment.Exit(0);
+        }
+        catch (Exception ex)
+        {
+            try { File.WriteAllText(errorFile, ex.ToString()); } catch { }
+            Environment.Exit(4);
+        }
     }
 
     private static async Task RunRasterProbeAsync(MainWindow mainWindow)
