@@ -96,6 +96,7 @@ public sealed class App : Application
         {
             ("Layout principale", () => FriendlyLayoutUi.Attach(window)),
             ("Host single-window", () => SingleWindowOverlayFlowUi.Attach(window)),
+            ("Workflow detached prima del layout", () => DetachedWorkflowRootUi.Attach(window)),
             ("Percorso nativo SW-FLOW-12", () => SingleWindowNativeV11Ui.Attach(window)),
             ("Ingresso percorso nativo", () => SingleWindowNativeEntryBridgeUi.Attach(window)),
             ("Conferma uscita", () => ExitConfirmationUi.Attach(window)),
@@ -112,7 +113,8 @@ public sealed class App : Application
             ("Pipeline visuale unica", () => SingleWindowSafeImageContextExportUi.Attach(window)),
             ("Controllo qualità Vision", () => SingleWindowVisionValidationUi.Attach(window)),
             ("Progetto attivo e ripresa percorso", () => SingleWindowProjectResumeUi.Attach(window)),
-            ("Avvio guidato SW-FLOW-12", () => SingleWindowV5StartupUi.Attach(window))
+            ("Avvio guidato SW-FLOW-12", () => SingleWindowV5StartupUi.Attach(window)),
+            ("Dialoghi progetto Windows rapidi", () => FastWindowsProjectDialogUi.Attach(window))
         };
 
         foreach (var module in modules)
