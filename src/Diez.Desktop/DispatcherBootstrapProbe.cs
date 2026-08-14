@@ -31,24 +31,52 @@ internal static class DispatcherBootstrapProbe
 
     public static void PinAfterPlatformServicesSetup()
     {
-        TraceCachedState("after-platform-before-getter");
+        TraceCachedState("after-platform-before-repair");
 
         try
         {
+            var cached = UiThreadField?.GetValue(null) as Dispatcher;
+            var cachedImpl = cached is null ? null : ImplField?.GetValue(cached);
+            var cachedImplName = cachedImpl?.GetType().FullName ?? "<null>";
+
+            SafeStartupTrace.Write(
+                "dispatcher-bootstrap | stage=repair-check" +
+                " | impl=" + cachedImplName +
+                " | supportsRunLoops=" + (cached?.SupportsRunLoops.ToString() ?? "<null>"));
+
+            // Avalonia 11.3.18 caches Dispatcher.UIThread once. If it is first touched before the Win32
+            // IDispatcherImpl binding exists, CreateUIThreadDispatcher permanently captures NullDispatcherImpl.
+            // At this callback platform services are fully initialized but App has not been created yet, so it is
+            // safe to discard only that premature null dispatcher and let the public getter recreate it from the
+            // now-registered Win32DispatcherImpl.
+            if (cached is not null &&
+                !cached.SupportsRunLoops &&
+                string.Equals(cachedImplName, "Avalonia.Threading.NullDispatcherImpl", StringComparison.Ordinal))
+            {
+                if (UiThreadField is null)
+                    throw new InvalidOperationException("Avalonia Dispatcher.s_uiThread field not found.");
+
+                UiThreadField.SetValue(null, null);
+                SafeStartupTrace.Write("dispatcher-bootstrap | repair=cleared-premature-null-dispatcher");
+            }
+
             var dispatcher = Dispatcher.UIThread;
             var impl = ImplField?.GetValue(dispatcher);
 
             SafeStartupTrace.Write(
-                "dispatcher-bootstrap | stage=after-platform-after-getter" +
+                "dispatcher-bootstrap | stage=after-platform-after-repair" +
                 " | impl=" + (impl?.GetType().FullName ?? "<null>") +
                 " | assembly=" + (impl?.GetType().Assembly.GetName().Version?.ToString() ?? "<null>") +
                 " | controlled=" + (impl is IControlledDispatcherImpl) +
                 " | supportsRunLoops=" + dispatcher.SupportsRunLoops +
                 " | checkAccess=" + dispatcher.CheckAccess());
+
+            if (!dispatcher.SupportsRunLoops)
+                throw new PlatformNotSupportedException("Avalonia UI dispatcher still does not support run loops after Win32 bootstrap repair.");
         }
         catch (Exception ex)
         {
-            SafeStartupTrace.Write("dispatcher-bootstrap | pin-error=" + ex);
+            SafeStartupTrace.Write("dispatcher-bootstrap | repair-error=" + ex);
         }
     }
 }
