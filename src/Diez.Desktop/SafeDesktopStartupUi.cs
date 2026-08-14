@@ -68,7 +68,8 @@ internal static class SafeDesktopStartupUi
             }
         };
 
-        SafeStartupTrace.Reset("bare-shell-created | renderer=Win32RenderingMode.Software");
+        // Do not reset here: Program.Main owns the process-wide trace from before Avalonia initialization.
+        SafeStartupTrace.Write("bare-shell-created | renderer=Win32RenderingMode.Software");
 
         window.Opened += (_, _) =>
         {
