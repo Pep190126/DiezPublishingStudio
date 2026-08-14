@@ -108,13 +108,18 @@ internal static class SingleWindowPhysicalScreenshotProbe
     {
         AssertWorkflowRootMounted(window, host, pageHost, "Tipo libro");
 
+        var frame = Descendants(page).OfType<Border>().FirstOrDefault(b => b.Name == "DiezBookTitleFrame")
+            ?? throw new InvalidOperationException("Cornice visibile Titolo del libro raster mancante.");
         var title = Descendants(page).OfType<TextBox>().FirstOrDefault(t => t.Name == "DiezBookTitle")
             ?? throw new InvalidOperationException("Campo Titolo del libro raster mancante.");
         var button = Descendants(page).OfType<Button>().FirstOrDefault(b => b.Name == "DiezNativeBookTypeApply")
             ?? throw new InvalidOperationException("Pulsante Tipo libro raster mancante.");
 
+        if (frame.BorderThickness.Left < 1 || frame.BorderBrush is null)
+            throw new InvalidOperationException("La cornice Titolo del libro non ha un bordo visibile esplicito.");
         RequireBounds(page, 120, 60, "pagina Tipo libro");
-        RequireBounds(title, 160, 28, "campo Titolo del libro");
+        RequireBounds(frame, 160, 30, "cornice Titolo del libro");
+        RequireBounds(title, 150, 26, "campo Titolo del libro");
         RequireBounds(button, 80, 20, "pulsante Usa questo Tipo libro");
     }
 
