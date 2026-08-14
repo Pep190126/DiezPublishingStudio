@@ -68,12 +68,18 @@ internal static class SafeDesktopStartupUi
             }
         };
 
-        // Do not reset here: Program.Main owns the process-wide trace from before Avalonia initialization.
         SafeStartupTrace.Write("bare-shell-created | renderer=Win32RenderingMode.Software");
 
         window.Opened += (_, _) =>
         {
             SafeStartupTrace.Write("bare-shell-opened");
+
+            // ClassicDesktopStyleApplicationLifetime shows MainWindow before entering the Win32 dispatcher loop.
+            // If a stray WM_QUIT is already queued on this UI thread, GetMessage returns 0 immediately and the
+            // application exits without Closing/Closed/ShutdownRequested events. Probe that exact condition here.
+            var consumedQuit = Win32QuitMessageProbe.ProbeAndConsume(out var quitCode);
+            SafeStartupTrace.Write("bare-shell-opened-wmquit-result | consumed=" + consumedQuit + " | code=" + quitCode);
+
             Dispatcher.UIThread.Post(
                 () => SafeStartupTrace.Write("bare-shell-loaded-dispatcher-turn"),
                 DispatcherPriority.Loaded);
