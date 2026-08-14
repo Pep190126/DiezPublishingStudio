@@ -30,6 +30,11 @@ internal static class SingleWindowPhysicalScreenshotProbe
 
             SingleWindowNativeV11Ui.ShowStart(window);
             await WaitAsync();
+            if (pageHost.Content is not Control bookType ||
+                !Descendants(bookType).OfType<Button>().Any(b => b.Name == "DiezNativeBookTypeApply"))
+                throw new InvalidOperationException("Pagina Tipo libro raster non materializzata.");
+            await SaveWindowAsync(window, Path.Combine(evidenceDirectory, "ui-book-type.png"));
+
             SingleWindowNativeV11Ui.ShowQuantity(window, host);
             await WaitAsync();
             if (pageHost.Content is Control quantity)
