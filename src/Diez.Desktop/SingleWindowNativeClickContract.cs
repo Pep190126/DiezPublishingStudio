@@ -7,7 +7,7 @@ namespace DiezPublishingStudio;
 
 /// <summary>
 /// Exercises the actual production click route instead of calling destination pages directly and verifies
-/// that the active native workflow overlay owns pointer hit testing over every desktop sibling.
+/// that the active native workflow is the only visual root inside the MainWindow content Border.
 /// </summary>
 internal static class SingleWindowNativeClickContract
 {
@@ -97,7 +97,12 @@ internal static class SingleWindowNativeClickContract
         finally
         {
             Dispatcher.UIThread.UnhandledException -= CaptureUnhandled;
-            try { SingleWindowEntryPointUi.Invoke(host, "ShowHome"); } catch { }
+            try
+            {
+                SingleWindowEntryPointUi.Invoke(host, "ShowHome");
+                await DrainAsync();
+            }
+            catch { }
             try { if (File.Exists(temp)) File.Delete(temp); } catch { }
         }
     }
@@ -105,19 +110,18 @@ internal static class SingleWindowNativeClickContract
     private static void AssertInputOwnership(MainWindow window, object host, string stage)
     {
         var overlay = Field<Grid>(host, "_overlay")
-            ?? throw new InvalidOperationException("Overlay workflow non disponibile durante " + stage + ".");
-        if (!overlay.IsVisible || !overlay.IsHitTestVisible || overlay.ZIndex < 1000000)
+            ?? throw new InvalidOperationException("Workflow root non disponibile durante " + stage + ".");
+        if (!overlay.IsVisible || !overlay.IsHitTestVisible)
             throw new InvalidOperationException(
-                $"Overlay non proprietario dell'input durante {stage}: visible={overlay.IsVisible}, hitTest={overlay.IsHitTestVisible}, z={overlay.ZIndex}.");
+                $"Workflow root non operativo durante {stage}: visible={overlay.IsVisible}, hitTest={overlay.IsHitTestVisible}.");
 
-        if (window.Content is not Border border || border.Child is not Grid desktop)
-            throw new InvalidOperationException("Desktop root non disponibile durante " + stage + ".");
-        var stealing = desktop.Children.OfType<Control>()
-            .Where(c => !ReferenceEquals(c, overlay) && c.IsHitTestVisible)
-            .Select(c => (c.Name ?? c.GetType().Name) + ":visible=" + c.IsVisible)
-            .ToList();
-        if (stealing.Count > 0)
-            throw new InvalidOperationException("Sibling desktop può intercettare il mouse durante " + stage + ": " + string.Join(", ", stealing));
+        if (window.Content is not Border border)
+            throw new InvalidOperationException("Border root MainWindow non disponibile durante " + stage + ".");
+        if (!ReferenceEquals(border.Child, overlay))
+            throw new InvalidOperationException(
+                $"Il workflow non è la radice visuale durante {stage}: current={border.Child?.GetType().Name ?? "<null>"}.");
+        if (!ReferenceEquals(overlay.Parent, border))
+            throw new InvalidOperationException("Il workflow root non è parented direttamente al Border durante " + stage + ".");
     }
 
     private static async Task WaitUntilAsync(
