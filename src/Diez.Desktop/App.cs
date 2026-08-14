@@ -30,7 +30,7 @@ public sealed class App : Application
 
                 Dispatcher.UIThread.Post(async () =>
                 {
-                    var failures = await AttachProductionModulesAsync(mainWindow);
+                    var failures = AttachProductionModules(mainWindow);
                     StartupDiagnostics.ShowWarning(mainWindow, failures);
 
                     if (rasterProbe)
@@ -41,9 +41,10 @@ public sealed class App : Application
             }
             else
             {
-                // Keep the diagnostic shell alive independently from automatic lifetime bookkeeping. On affected
-                // machines the standalone window reached Opened and then the dispatcher shut down before its first
-                // Loaded turn. Explicit shutdown removes OnLastWindowClose from that first-frame path entirely.
+                // DispatcherBootstrapProbe has already repaired the known premature NullDispatcherImpl cache in
+                // AfterPlatformServicesSetup. Build the real UI completely before the lifetime shows any window.
+                // This avoids the former safe-shell -> MainWindow transition, which could leave content input/focus
+                // in an inconsistent state even though the Win32 dispatcher itself was healthy.
                 desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
                 SafeStartupTrace.Write("desktop-shutdown-mode=OnExplicitShutdown");
 
@@ -54,61 +55,36 @@ public sealed class App : Application
                 Dispatcher.UIThread.UnhandledException += (_, e) =>
                     SafeStartupTrace.Write("dispatcher-unhandled-exception | " + e.Exception);
 
-                var activationCompleted = false;
-                var userClosingShell = false;
-
-                var safeWindow = SafeDesktopStartupUi.CreateStandalone(async shell =>
+                SafeStartupTrace.Write("before-mainwindow-construction");
+                var mainWindow = new MainWindow(startupProjectPath)
                 {
-                    SafeStartupTrace.Write("before-mainwindow-construction");
-                    shell.Title = ProductInfo.WindowTitle + " — costruzione MainWindow";
-
-                    var mainWindow = new MainWindow(startupProjectPath)
-                    {
-                        Title = ProductInfo.WindowTitle
-                    };
-                    SafeStartupTrace.Write("after-mainwindow-construction");
-
-                    desktop.MainWindow = mainWindow;
-                    SafeStartupTrace.Write("before-mainwindow-show");
-                    mainWindow.Show();
-                    SafeStartupTrace.Write("after-mainwindow-show");
-
-                    await Dispatcher.UIThread.InvokeAsync(
-                        () => SafeStartupTrace.Write("mainwindow-loaded-dispatcher-turn"),
-                        DispatcherPriority.Loaded);
-                    await Task.Delay(100);
-
-                    var failures = await AttachProductionModulesAsync(mainWindow);
-                    StartupDiagnostics.ShowWarning(mainWindow, failures);
-                    SafeStartupTrace.Write("all-production-modules-completed");
-
-                    activationCompleted = true;
-                    desktop.ShutdownMode = ShutdownMode.OnMainWindowClose;
-                    SafeStartupTrace.Write("desktop-shutdown-mode=OnMainWindowClose");
-                    shell.Close();
-                });
-
-                safeWindow.Closing += (_, _) =>
-                {
-                    SafeStartupTrace.Write("bare-shell-closing | activationCompleted=" + activationCompleted);
-                    if (!activationCompleted)
-                        userClosingShell = true;
+                    Title = ProductInfo.WindowTitle
                 };
-                safeWindow.Closed += (_, _) =>
-                {
-                    SafeStartupTrace.Write("bare-shell-closed | activationCompleted=" + activationCompleted);
-                    if (userClosingShell && !activationCompleted)
-                    {
-                        Dispatcher.UIThread.Post(() =>
-                        {
-                            SafeStartupTrace.Write("explicit-shutdown-after-user-shell-close");
-                            desktop.Shutdown();
-                        });
-                    }
-                };
+                SafeStartupTrace.Write("after-mainwindow-construction");
 
-                desktop.MainWindow = safeWindow;
-                SafeStartupTrace.Write("bare-shell-assigned-as-mainwindow");
+                var failures = AttachProductionModules(mainWindow);
+                StartupDiagnostics.ShowWarning(mainWindow, failures);
+                SafeStartupTrace.Write("all-production-modules-completed");
+
+                desktop.MainWindow = mainWindow;
+                desktop.ShutdownMode = ShutdownMode.OnMainWindowClose;
+                SafeStartupTrace.Write("mainwindow-assigned-as-mainwindow");
+                SafeStartupTrace.Write("desktop-shutdown-mode=OnMainWindowClose");
+
+                mainWindow.Opened += (_, _) =>
+                {
+                    SafeStartupTrace.Write(
+                        "mainwindow-opened | enabled=" + mainWindow.IsEnabled +
+                        " | active=" + mainWindow.IsActive +
+                        " | visible=" + mainWindow.IsVisible);
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        mainWindow.Activate();
+                        SafeStartupTrace.Write(
+                            "mainwindow-activated-dispatcher-turn | enabled=" + mainWindow.IsEnabled +
+                            " | active=" + mainWindow.IsActive);
+                    }, DispatcherPriority.Loaded);
+                };
             }
         }
 
@@ -117,7 +93,7 @@ public sealed class App : Application
         SafeStartupTrace.Write("after-framework-initialization-completed-base");
     }
 
-    internal static async Task<IReadOnlyList<string>> AttachProductionModulesAsync(MainWindow window)
+    internal static IReadOnlyList<string> AttachProductionModules(MainWindow window)
     {
         var failures = new List<string>();
         var modules = new (string Name, Action Attach)[]
@@ -156,8 +132,6 @@ public sealed class App : Application
             {
                 SafeStartupTrace.Write("after-module: " + module.Name);
             }
-
-            await Task.Delay(75);
         }
 
         window.Title = ProductInfo.WindowTitle;
@@ -203,7 +177,7 @@ public sealed class App : Application
             await SingleWindowResponseReviewUiContractProbe.RunAsync(mainWindow);
 
             File.WriteAllText(resultFile,
-                "OK\nSW-FLOW-12\nstartup=deferred-safe-first-frame\neditable-inputs=native-textbox-safe-startup\nstructured-scenes=optional\nprompt-provider-compiler-current=3.6\nvision-scene-participants=hard\n");
+                "OK\nSW-FLOW-12\nstartup=direct-completed-mainwindow\neditable-inputs=native-textbox-safe-startup\nstructured-scenes=optional\nprompt-provider-compiler-current=3.6\nvision-scene-participants=hard\n");
             Environment.Exit(0);
         }
         catch (Exception ex)
