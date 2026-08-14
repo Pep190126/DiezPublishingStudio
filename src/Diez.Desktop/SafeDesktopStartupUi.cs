@@ -21,7 +21,7 @@ internal static class SafeDesktopStartupUi
         };
         var details = new TextBlock
         {
-            Text = "Questa è una Window Avalonia minimale con rendering software forzato. Se resta visibile e reattiva, il percorso grafico di base è stabile. Premi il pulsante per creare MainWindow e caricare i moduli tracciati.",
+            Text = "Questa è una Window Avalonia minimale con rendering software forzato. Premi il pulsante per creare MainWindow e caricare i moduli tracciati.",
             TextWrapping = TextWrapping.Wrap,
             HorizontalAlignment = HorizontalAlignment.Center,
             MaxWidth = 720,
@@ -73,13 +73,6 @@ internal static class SafeDesktopStartupUi
         window.Opened += (_, _) =>
         {
             SafeStartupTrace.Write("bare-shell-opened");
-
-            // ClassicDesktopStyleApplicationLifetime shows MainWindow before entering the Win32 dispatcher loop.
-            // If a stray WM_QUIT is already queued on this UI thread, GetMessage returns 0 immediately and the
-            // application exits without Closing/Closed/ShutdownRequested events. Probe that exact condition here.
-            var consumedQuit = Win32QuitMessageProbe.ProbeAndConsume(out var quitCode);
-            SafeStartupTrace.Write("bare-shell-opened-wmquit-result | consumed=" + consumedQuit + " | code=" + quitCode);
-
             Dispatcher.UIThread.Post(
                 () => SafeStartupTrace.Write("bare-shell-loaded-dispatcher-turn"),
                 DispatcherPriority.Loaded);
