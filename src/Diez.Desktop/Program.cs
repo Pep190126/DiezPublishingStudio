@@ -77,6 +77,8 @@ internal static class Program
             using var mutex = new Mutex(true, AppMutexName, out var createdNew);
             if (!createdNew) return 0;
 
+            SafeStartupTrace.Write("rendering-policy | preferred=AngleEgl | fallback=Software");
+
             // Start the desktop lifetime in explicit mode from the very beginning. The normal application switches
             // to OnMainWindowClose only after the real MainWindow is shown and its startup modules are attached.
             var exitCode = BuildAvaloniaApp().StartWithClassicDesktopLifetime(
@@ -97,7 +99,7 @@ internal static class Program
             .UsePlatformDetect()
             .With(new Win32PlatformOptions
             {
-                RenderingMode = new[] { Win32RenderingMode.Software }
+                RenderingMode = new[] { Win32RenderingMode.AngleEgl, Win32RenderingMode.Software }
             })
             .WithInterFont()
             .LogToTrace();
