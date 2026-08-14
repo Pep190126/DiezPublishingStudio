@@ -17,7 +17,15 @@ internal static class SingleWindowNativeClickContract
         var host = SingleWindowEntryPointUi.GetHost(window);
         var pageHost = Field<ContentControl>(host, "_pageHost")
             ?? throw new InvalidOperationException("PageHost nativo non disponibile per il click contract.");
+        Exception? dispatcherUnhandled = null;
 
+        void CaptureUnhandled(object? sender, DispatcherUnhandledExceptionEventArgs e)
+        {
+            dispatcherUnhandled ??= e.Exception;
+            e.Handled = true;
+        }
+
+        Dispatcher.UIThread.UnhandledException += CaptureUnhandled;
         try
         {
             var project = ProjectFileStore.Create("Native Click Contract");
@@ -31,7 +39,8 @@ internal static class SingleWindowNativeClickContract
                 throw new InvalidOperationException("Ingresso Percorso libro nativo non visibile/abilitato.");
 
             entry.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            await WaitUntilAsync(() => HasControl(pageHost, "DiezNativeBookTypePage"), "pagina Tipo libro dopo click Percorso libro");
+            await WaitUntilAsync(() => HasControl(pageHost, "DiezNativeBookTypePage"),
+                "pagina Tipo libro dopo click Percorso libro", () => dispatcherUnhandled);
 
             var typePage = pageHost.Content as Control
                 ?? throw new InvalidOperationException("Pagina Tipo libro non materializzata.");
@@ -43,7 +52,8 @@ internal static class SingleWindowNativeClickContract
             if (!apply.IsEnabled) throw new InvalidOperationException("Pulsante Tipo libro disabilitato prima del click.");
 
             apply.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            await WaitUntilAsync(() => HasControl(pageHost, "DiezNativeV11QuantityPage"), "pagina Quantità dopo click Tipo libro");
+            await WaitUntilAsync(() => HasControl(pageHost, "DiezNativeV11QuantityPage"),
+                "pagina Quantità dopo click Tipo libro", () => dispatcherUnhandled);
 
             var quantity = pageHost.Content as Control
                 ?? throw new InvalidOperationException("Pagina Quantità non materializzata.");
@@ -55,6 +65,7 @@ internal static class SingleWindowNativeClickContract
                 ?? throw new InvalidOperationException("Consistent nativo mancante.");
             consistent.IsChecked = false;
             await DrainAsync();
+            ThrowIfUnhandled(dispatcherUnhandled, "preparazione pagina Quantità");
 
             var next = Descendants(quantity).OfType<Button>().FirstOrDefault(b =>
                 (b.Content?.ToString() ?? string.Empty).Contains("Avanti", StringComparison.OrdinalIgnoreCase))
@@ -63,7 +74,8 @@ internal static class SingleWindowNativeClickContract
                 throw new InvalidOperationException("Avanti è disabilitato con Consistent OFF prima del click reale.");
 
             next.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            await WaitUntilAsync(() => HasControl(pageHost, "DiezNativeV11PromptPage"), "pagina Istruzioni dopo click Avanti");
+            await WaitUntilAsync(() => HasControl(pageHost, "DiezNativeV11PromptPage"),
+                "pagina Istruzioni dopo click Avanti", () => dispatcherUnhandled);
 
             if (!window.IsEnabled)
                 throw new InvalidOperationException("MainWindow risulta disabilitata dopo il click Avanti.");
@@ -76,23 +88,36 @@ internal static class SingleWindowNativeClickContract
                 if (editor is null || !editor.IsEnabled || editor.IsReadOnly)
                     throw new InvalidOperationException("Editor Istruzioni non operativo dopo il click reale: " + name);
             }
+            ThrowIfUnhandled(dispatcherUnhandled, "completamento click Avanti");
         }
         finally
         {
+            Dispatcher.UIThread.UnhandledException -= CaptureUnhandled;
             try { SingleWindowEntryPointUi.Invoke(host, "ShowHome"); } catch { }
             try { if (File.Exists(temp)) File.Delete(temp); } catch { }
         }
     }
 
-    private static async Task WaitUntilAsync(Func<bool> condition, string description)
+    private static async Task WaitUntilAsync(
+        Func<bool> condition,
+        string description,
+        Func<Exception?> getUnhandled)
     {
         for (var i = 0; i < 40; i++)
         {
             await DrainAsync();
+            ThrowIfUnhandled(getUnhandled(), description);
             if (condition()) return;
             await Task.Delay(25);
         }
+        ThrowIfUnhandled(getUnhandled(), description);
         throw new TimeoutException("Timeout nel click contract: " + description + ".");
+    }
+
+    private static void ThrowIfUnhandled(Exception? exception, string stage)
+    {
+        if (exception is null) return;
+        throw new InvalidOperationException("Eccezione async UI durante " + stage + ": " + exception.Message, exception);
     }
 
     private static async Task DrainAsync()
