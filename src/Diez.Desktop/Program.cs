@@ -70,8 +70,6 @@ internal static class Program
         if (args.Any(a => string.Equals(a, "--ui-headless-ci", StringComparison.OrdinalIgnoreCase)))
             return HeadlessCiHarness.RunAsync(args).GetAwaiter().GetResult();
 
-        // Attach fatal diagnostics before Avalonia themes, platform initialization or MainWindow construction.
-        // This guarantees that a real installed-app startup failure leaves an actionable local log.
         CrashDiagnostics.Attach();
 
         try
@@ -79,7 +77,11 @@ internal static class Program
             using var mutex = new Mutex(true, AppMutexName, out var createdNew);
             if (!createdNew) return 0;
 
-            var exitCode = BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+            // Start the desktop lifetime in explicit mode from the very beginning. The normal application switches
+            // to OnMainWindowClose only after the real MainWindow is shown and its startup modules are attached.
+            var exitCode = BuildAvaloniaApp().StartWithClassicDesktopLifetime(
+                args,
+                Avalonia.Controls.ShutdownMode.OnExplicitShutdown);
             GC.KeepAlive(mutex);
             return exitCode;
         }
@@ -93,10 +95,6 @@ internal static class Program
     public static AppBuilder BuildAvaloniaApp() =>
         AppBuilder.Configure<App>()
             .UsePlatformDetect()
-            // Affected Windows machines create the native title bar but never paint the Avalonia client area.
-            // Avalonia's Windows troubleshooting guidance recommends forcing software rendering for exactly
-            // this symptom to bypass GPU/driver/ANGLE failures. Keep this conservative renderer until the
-            // real-machine startup path is proven stable; correctness is more important than GPU acceleration.
             .With(new Win32PlatformOptions
             {
                 RenderingMode = new[] { Win32RenderingMode.Software }
