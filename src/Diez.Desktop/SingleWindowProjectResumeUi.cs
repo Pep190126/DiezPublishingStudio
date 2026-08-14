@@ -1,14 +1,13 @@
 using System.Reflection;
 using Avalonia.Controls;
-using Avalonia.Layout;
 using Avalonia.Threading;
 
 namespace DiezPublishingStudio;
 
 /// <summary>
-/// The project loaded in MainWindow remains the active project until the user creates
-/// or opens another one (or exits). Returning Home only leaves the workflow view.
-/// Re-entering the workflow always resumes from Book Type instead of New/Open project.
+/// Keeps the loaded project active while Home/flow navigation changes. The Home entry itself is owned
+/// exclusively by SingleWindowNativeEntryBridgeUi; this module only updates that one button's label/tooltip.
+/// It must never create, replace or duplicate a Percorso libro button.
 /// </summary>
 internal static class SingleWindowProjectResumeUi
 {
@@ -17,43 +16,24 @@ internal static class SingleWindowProjectResumeUi
     public static void Attach(MainWindow window)
     {
         if (!Attached.Add(window)) return;
-        if (!TryCommandRow(window, out var row)) return;
 
-        var legacy = row.Children.OfType<Button>().FirstOrDefault(b =>
-            string.Equals(b.Content?.ToString(), "Percorso libro", StringComparison.OrdinalIgnoreCase));
-        if (legacy is null) return;
+        var entry = Descendants(window).OfType<Button>().FirstOrDefault(b =>
+            string.Equals(b.Name, SingleWindowNativeEntryBridgeUi.NativeEntryName, StringComparison.Ordinal));
+        if (entry is null)
+            throw new InvalidOperationException("Ingresso nativo unico Percorso libro non disponibile per il resume progetto.");
 
-        var index = row.Children.IndexOf(legacy);
-        var resume = new Button
+        void RefreshLabel()
         {
-            Name = "DiezResumeBookWorkflow",
-            Width = Math.Max(165, legacy.Width),
-            HorizontalContentAlignment = HorizontalAlignment.Center
-        };
-        ToolTip.SetTip(resume,
-            "Il progetto aperto resta attivo. Dalla Home riprendi dalla scelta del Tipo libro, senza creare o riaprire il progetto.");
+            entry.Content = TrySession(window) ? "Avanti · Tipo libro" : "Percorso libro";
+            ToolTip.SetTip(entry, TrySession(window)
+                ? "Il progetto aperto resta attivo. Riprendi dalla scelta del Tipo libro."
+                : "Crea o apri un progetto, poi percorri il libro nella stessa finestra.");
+        }
 
-        void RefreshLabel() => resume.Content = TrySession(window)
-            ? "Avanti · Tipo libro"
-            : "Percorso libro";
+        entry.PointerEntered += (_, _) => RefreshLabel();
+        entry.GotFocus += (_, _) => RefreshLabel();
 
-        resume.Click += (_, _) =>
-        {
-            RefreshLabel();
-            if (!TrySession(window))
-            {
-                SetStatus(window, "Prima crea o apri un progetto .diez.");
-                return;
-            }
-            SingleWindowNativeV11Ui.ShowStart(window);
-        };
-        resume.PointerEntered += (_, _) => RefreshLabel();
-        resume.GotFocus += (_, _) => RefreshLabel();
-
-        row.Children.RemoveAt(index);
-        row.Children.Insert(index, resume);
-
-        foreach (var projectButton in row.Children.OfType<Button>().Where(b =>
+        foreach (var projectButton in Descendants(window).OfType<Button>().Where(b =>
                      string.Equals(b.Content?.ToString(), "Nuovo progetto", StringComparison.OrdinalIgnoreCase) ||
                      string.Equals(b.Content?.ToString(), "Apri progetto", StringComparison.OrdinalIgnoreCase) ||
                      string.Equals(b.Content?.ToString(), "Apri .diez", StringComparison.OrdinalIgnoreCase)))
@@ -74,6 +54,7 @@ internal static class SingleWindowProjectResumeUi
         window.Opened += (_, _) => RefreshLabel();
         window.Closed += (_, _) => Attached.Remove(window);
         RefreshLabel();
+        SafeStartupTrace.Write("project-resume | native-entry-reused=true");
     }
 
     internal static void Resume(MainWindow window)
@@ -105,10 +86,19 @@ internal static class SingleWindowProjectResumeUi
             if (!HasActiveProject(window))
                 throw new InvalidOperationException("Tornando Home il progetto attivo è stato perso.");
 
-            var resumeButton = Descendants(window).OfType<Button>().FirstOrDefault(b => b.Name == "DiezResumeBookWorkflow")
-                ?? throw new InvalidOperationException("Pulsante Avanti/Riprendi non presente nella Home.");
-            if (!string.Equals(resumeButton.Content?.ToString(), "Avanti · Tipo libro", StringComparison.Ordinal))
+            var entries = Descendants(window).OfType<Button>().Where(b =>
+                string.Equals(b.Name, SingleWindowNativeEntryBridgeUi.NativeEntryName, StringComparison.Ordinal)).ToList();
+            if (entries.Count != 1)
+                throw new InvalidOperationException($"La Home deve avere un solo ingresso nativo al percorso libro; trovati {entries.Count}.");
+            if (!string.Equals(entries[0].Content?.ToString(), "Avanti · Tipo libro", StringComparison.Ordinal))
                 throw new InvalidOperationException("Con progetto attivo la Home non mostra 'Avanti · Tipo libro'.");
+
+            var visibleBookFlowButtons = Descendants(window).OfType<Button>().Where(b => b.IsVisible &&
+                ((b.Content?.ToString() ?? string.Empty).Contains("Percorso libro", StringComparison.OrdinalIgnoreCase) ||
+                 (b.Content?.ToString() ?? string.Empty).Contains("Tipo libro", StringComparison.OrdinalIgnoreCase)))
+                .ToList();
+            if (visibleBookFlowButtons.Count != 1)
+                throw new InvalidOperationException($"Sono visibili più ingressi al percorso libro: {visibleBookFlowButtons.Count}.");
 
             Resume(window);
             await WaitAsync();
@@ -149,27 +139,6 @@ internal static class SingleWindowProjectResumeUi
         var project = typeof(MainWindow).GetField("_project", flags)?.GetValue(window) as PreviewProject;
         var path = typeof(MainWindow).GetField("_currentProjectPath", flags)?.GetValue(window) as string;
         return project is not null && !string.IsNullOrWhiteSpace(path);
-    }
-
-    private static void SetStatus(MainWindow window, string text)
-    {
-        var flags = BindingFlags.Instance | BindingFlags.NonPublic;
-        if (typeof(MainWindow).GetField("_status", flags)?.GetValue(window) is TextBlock status)
-            status.Text = text;
-    }
-
-    private static bool TryCommandRow(MainWindow window, out StackPanel row)
-    {
-        row = null!;
-        foreach (var panel in Descendants(window).OfType<StackPanel>())
-        {
-            if (panel.Orientation != Orientation.Horizontal) continue;
-            if (!panel.Children.OfType<Button>().Any(b =>
-                    string.Equals(b.Content?.ToString(), "Percorso libro", StringComparison.OrdinalIgnoreCase))) continue;
-            row = panel;
-            return true;
-        }
-        return false;
     }
 
     private static IEnumerable<Control> Descendants(Control root)
