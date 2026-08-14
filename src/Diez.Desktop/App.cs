@@ -41,10 +41,6 @@ public sealed class App : Application
             }
             else
             {
-                // DispatcherBootstrapProbe has already repaired the known premature NullDispatcherImpl cache in
-                // AfterPlatformServicesSetup. Build the real UI completely before the lifetime shows any window.
-                // This avoids the former safe-shell -> MainWindow transition, which could leave content input/focus
-                // in an inconsistent state even though the Win32 dispatcher itself was healthy.
                 desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
                 SafeStartupTrace.Write("desktop-shutdown-mode=OnExplicitShutdown");
 
@@ -101,6 +97,7 @@ public sealed class App : Application
             ("Layout principale", () => FriendlyLayoutUi.Attach(window)),
             ("Host single-window", () => SingleWindowOverlayFlowUi.Attach(window)),
             ("Percorso nativo SW-FLOW-12", () => SingleWindowNativeV11Ui.Attach(window)),
+            ("Ingresso percorso nativo", () => SingleWindowNativeEntryBridgeUi.Attach(window)),
             ("Conferma uscita", () => ExitConfirmationUi.Attach(window)),
             ("Identità Tipo libro visuale", () => SingleWindowVisualBookIdentityUi.Attach(window)),
             ("Specifiche immagini", () => SingleWindowImageSpecsQuantityOnlyUi.Attach(window)),
@@ -170,6 +167,7 @@ public sealed class App : Application
             if (!ExitConfirmationUi.IsAttached(mainWindow))
                 throw new InvalidOperationException("La conferma uscita non è collegata al MainWindow.");
 
+            await SingleWindowNativeClickContract.RunAsync(mainWindow);
             await SingleWindowV11ContractProbe.RunAsync(mainWindow);
             await MultiSubjectUiContractProbe.RunAsync(mainWindow);
             await StructuredSceneUiContractProbeV2.RunAsync(mainWindow);
@@ -177,7 +175,7 @@ public sealed class App : Application
             await SingleWindowResponseReviewUiContractProbe.RunAsync(mainWindow);
 
             File.WriteAllText(resultFile,
-                "OK\nSW-FLOW-12\nstartup=direct-completed-mainwindow\neditable-inputs=native-textbox-safe-startup\nstructured-scenes=optional\nprompt-provider-compiler-current=3.6\nvision-scene-participants=hard\n");
+                "OK\nSW-FLOW-12\nstartup=direct-completed-mainwindow\nproduction-entry=native-v11\nreal-click-quantity-to-prompt=yes\neditable-inputs=native-textbox-safe-startup\nstructured-scenes=optional\nprompt-provider-compiler-current=3.6\nvision-scene-participants=hard\n");
             Environment.Exit(0);
         }
         catch (Exception ex)
