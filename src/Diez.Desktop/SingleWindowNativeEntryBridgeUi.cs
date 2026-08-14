@@ -109,8 +109,6 @@ internal static class SingleWindowNativeEntryBridgeUi
             return;
         }
 
-        // The logical workflow must also be the physical surface. Do not depend on transparent panels,
-        // insertion order or preview decorators: the active page branch is always above the preview branch.
         overlay.ZIndex = 1000000;
         overlay.IsHitTestVisible = true;
         overlay.Background = Brushes.White;
@@ -147,23 +145,21 @@ internal static class SingleWindowNativeEntryBridgeUi
         pageHost.IsHitTestVisible = true;
         previewHost.IsHitTestVisible = false;
 
-        Grid? body = null;
-        Control? pageSurface = null;
-        Control? previewSurface = null;
-        foreach (var grid in Descendants(overlay).OfType<Grid>())
+        // SingleWindowOverlayFlowHost owns exactly one direct body Grid in overlay row 1.
+        // Resolve that stable structure directly: never walk the entire logical tree looking for a match.
+        var body = overlay.Children.OfType<Grid>().FirstOrDefault(grid => Grid.GetRow(grid) == 1);
+        if (body is null)
         {
-            var pageChild = grid.Children.OfType<Control>().FirstOrDefault(child => Contains(child, pageHost));
-            var previewChild = grid.Children.OfType<Control>().FirstOrDefault(child => Contains(child, previewHost));
-            if (pageChild is null || previewChild is null || ReferenceEquals(pageChild, previewChild)) continue;
-            body = grid;
-            pageSurface = pageChild;
-            previewSurface = previewChild;
-            break;
+            SafeStartupTrace.Write("ui-surface-layout | direct-body=missing");
+            return;
         }
 
-        if (body is null || pageSurface is null || previewSurface is null)
+        var pageSurface = body.Children.OfType<Border>().FirstOrDefault(surface => ReferenceEquals(surface.Child, pageHost));
+        var previewSurface = body.Children.OfType<Border>().FirstOrDefault(surface =>
+            !ReferenceEquals(surface, pageSurface) && surface.Child is Control child && Contains(child, previewHost));
+        if (pageSurface is null || previewSurface is null)
         {
-            SafeStartupTrace.Write("ui-surface-layout | body-with-distinct-surfaces=missing");
+            SafeStartupTrace.Write("ui-surface-layout | direct-page-or-preview=missing");
             return;
         }
 
@@ -178,8 +174,6 @@ internal static class SingleWindowNativeEntryBridgeUi
         var bookTypePage = string.Equals(title, "Tipo libro", StringComparison.Ordinal);
         if (bookTypePage)
         {
-            // The first actionable page does not need an interactive preview. Give the page the complete
-            // body surface so no right-hand decorator can sit above the ComboBox or confirmation button.
             previewSurface.IsVisible = false;
             Grid.SetColumn(pageSurface, 0);
             Grid.SetColumnSpan(pageSurface, Math.Max(1, body.ColumnDefinitions.Count));
