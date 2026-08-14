@@ -6,8 +6,8 @@ using Avalonia.Threading;
 namespace DiezPublishingStudio;
 
 /// <summary>
-/// Exercises the actual production click route instead of calling the destination pages directly.
-/// This closes the gap where the headless contract could be green while a physical user's Avanti click failed.
+/// Exercises the actual production click route instead of calling destination pages directly and verifies
+/// that the active native workflow overlay owns pointer hit testing over every desktop sibling.
 /// </summary>
 internal static class SingleWindowNativeClickContract
 {
@@ -33,14 +33,15 @@ internal static class SingleWindowNativeClickContract
             await ProjectFileStore.SaveAsync(temp, project);
             SetSession(window, project, temp);
 
-            var entry = Descendants(window).OfType<Button>().FirstOrDefault(b =>
-                string.Equals(b.Name, SingleWindowNativeEntryBridgeUi.NativeEntryName, StringComparison.Ordinal));
-            if (entry is null || !entry.IsVisible || !entry.IsEnabled)
-                throw new InvalidOperationException("Ingresso Percorso libro nativo non visibile/abilitato.");
+            var entries = Descendants(window).OfType<Button>().Where(b =>
+                string.Equals(b.Name, SingleWindowNativeEntryBridgeUi.NativeEntryName, StringComparison.Ordinal)).ToList();
+            if (entries.Count != 1 || !entries[0].IsVisible || !entries[0].IsEnabled || !entries[0].IsHitTestVisible)
+                throw new InvalidOperationException($"Ingresso Percorso libro nativo non unico/operativo: count={entries.Count}.");
 
-            entry.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            entries[0].RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await WaitUntilAsync(() => HasControl(pageHost, "DiezNativeBookTypePage"),
                 "pagina Tipo libro dopo click Percorso libro", () => dispatcherUnhandled);
+            AssertInputOwnership(window, host, "Tipo libro");
 
             var typePage = pageHost.Content as Control
                 ?? throw new InvalidOperationException("Pagina Tipo libro non materializzata.");
@@ -49,11 +50,13 @@ internal static class SingleWindowNativeClickContract
             var apply = Descendants(typePage).OfType<Button>().FirstOrDefault(b => b.Name == "DiezNativeBookTypeApply")
                 ?? throw new InvalidOperationException("Pulsante Tipo libro nativo mancante.");
             combo.SelectedItem = BookTypeProfileService.ColoringBook;
-            if (!apply.IsEnabled) throw new InvalidOperationException("Pulsante Tipo libro disabilitato prima del click.");
+            if (!apply.IsEnabled || !apply.IsHitTestVisible)
+                throw new InvalidOperationException("Pulsante Tipo libro non cliccabile prima del click.");
 
             apply.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await WaitUntilAsync(() => HasControl(pageHost, "DiezNativeV11QuantityPage"),
                 "pagina Quantità dopo click Tipo libro", () => dispatcherUnhandled);
+            AssertInputOwnership(window, host, "Quantità");
 
             var quantity = pageHost.Content as Control
                 ?? throw new InvalidOperationException("Pagina Quantità non materializzata.");
@@ -70,12 +73,13 @@ internal static class SingleWindowNativeClickContract
             var next = Descendants(quantity).OfType<Button>().FirstOrDefault(b =>
                 (b.Content?.ToString() ?? string.Empty).Contains("Avanti", StringComparison.OrdinalIgnoreCase))
                 ?? throw new InvalidOperationException("Pulsante Avanti nativo mancante.");
-            if (!next.IsEnabled)
-                throw new InvalidOperationException("Avanti è disabilitato con Consistent OFF prima del click reale.");
+            if (!next.IsEnabled || !next.IsHitTestVisible)
+                throw new InvalidOperationException("Avanti non è fisicamente cliccabile con Consistent OFF.");
 
             next.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await WaitUntilAsync(() => HasControl(pageHost, "DiezNativeV11PromptPage"),
                 "pagina Istruzioni dopo click Avanti", () => dispatcherUnhandled);
+            AssertInputOwnership(window, host, "Istruzioni");
 
             if (!window.IsEnabled)
                 throw new InvalidOperationException("MainWindow risulta disabilitata dopo il click Avanti.");
@@ -85,7 +89,7 @@ internal static class SingleWindowNativeClickContract
             foreach (var name in new[] { "MustDoEditor", "MustNotDoEditor", "PromptEditor" })
             {
                 var editor = Descendants(prompt).OfType<TextBox>().FirstOrDefault(t => t.Name == name);
-                if (editor is null || !editor.IsEnabled || editor.IsReadOnly)
+                if (editor is null || !editor.IsEnabled || editor.IsReadOnly || !editor.IsHitTestVisible)
                     throw new InvalidOperationException("Editor Istruzioni non operativo dopo il click reale: " + name);
             }
             ThrowIfUnhandled(dispatcherUnhandled, "completamento click Avanti");
@@ -96,6 +100,24 @@ internal static class SingleWindowNativeClickContract
             try { SingleWindowEntryPointUi.Invoke(host, "ShowHome"); } catch { }
             try { if (File.Exists(temp)) File.Delete(temp); } catch { }
         }
+    }
+
+    private static void AssertInputOwnership(MainWindow window, object host, string stage)
+    {
+        var overlay = Field<Grid>(host, "_overlay")
+            ?? throw new InvalidOperationException("Overlay workflow non disponibile durante " + stage + ".");
+        if (!overlay.IsVisible || !overlay.IsHitTestVisible || overlay.ZIndex < 1000000)
+            throw new InvalidOperationException(
+                $"Overlay non proprietario dell'input durante {stage}: visible={overlay.IsVisible}, hitTest={overlay.IsHitTestVisible}, z={overlay.ZIndex}.");
+
+        if (window.Content is not Border border || border.Child is not Grid desktop)
+            throw new InvalidOperationException("Desktop root non disponibile durante " + stage + ".");
+        var stealing = desktop.Children.OfType<Control>()
+            .Where(c => !ReferenceEquals(c, overlay) && c.IsHitTestVisible)
+            .Select(c => (c.Name ?? c.GetType().Name) + ":visible=" + c.IsVisible)
+            .ToList();
+        if (stealing.Count > 0)
+            throw new InvalidOperationException("Sibling desktop può intercettare il mouse durante " + stage + ": " + string.Join(", ", stealing));
     }
 
     private static async Task WaitUntilAsync(
