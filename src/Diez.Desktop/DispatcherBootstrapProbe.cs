@@ -1,5 +1,4 @@
 using System.Reflection;
-using Avalonia;
 using Avalonia.Threading;
 
 namespace DiezPublishingStudio;
@@ -9,6 +8,10 @@ internal static class DispatcherBootstrapProbe
     private static readonly FieldInfo? UiThreadField = typeof(Dispatcher).GetField(
         "s_uiThread",
         BindingFlags.Static | BindingFlags.NonPublic);
+
+    private static readonly FieldInfo? ImplField = typeof(Dispatcher).GetField(
+        "_impl",
+        BindingFlags.Instance | BindingFlags.NonPublic);
 
     public static void TraceCachedState(string stage)
     {
@@ -32,15 +35,14 @@ internal static class DispatcherBootstrapProbe
 
         try
         {
-            var platformImpl = AvaloniaLocator.Current.GetService<IDispatcherImpl>();
-            SafeStartupTrace.Write(
-                "dispatcher-bootstrap | platformImpl=" + (platformImpl?.GetType().FullName ?? "<null>") +
-                " | assembly=" + (platformImpl?.GetType().Assembly.GetName().Version?.ToString() ?? "<null>") +
-                " | controlled=" + (platformImpl is IControlledDispatcherImpl));
-
             var dispatcher = Dispatcher.UIThread;
+            var impl = ImplField?.GetValue(dispatcher);
+
             SafeStartupTrace.Write(
                 "dispatcher-bootstrap | stage=after-platform-after-getter" +
+                " | impl=" + (impl?.GetType().FullName ?? "<null>") +
+                " | assembly=" + (impl?.GetType().Assembly.GetName().Version?.ToString() ?? "<null>") +
+                " | controlled=" + (impl is IControlledDispatcherImpl) +
                 " | supportsRunLoops=" + dispatcher.SupportsRunLoops +
                 " | checkAccess=" + dispatcher.CheckAccess());
         }
