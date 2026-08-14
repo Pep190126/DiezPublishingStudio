@@ -1,4 +1,5 @@
 using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Themes.Fluent;
 using Avalonia.Threading;
@@ -40,9 +41,22 @@ public sealed class App : Application
             }
             else
             {
-                // Real desktop startup now creates no MainWindow and no feature module at all. The first visible
-                // frame is a standalone Window with an opaque background. MainWindow construction itself is
-                // deferred until explicit activation so a machine-specific render failure can be isolated cleanly.
+                // Keep the diagnostic shell alive independently from automatic lifetime bookkeeping. On affected
+                // machines the standalone window reached Opened and then the dispatcher shut down before its first
+                // Loaded turn. Explicit shutdown removes OnLastWindowClose from that first-frame path entirely.
+                desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+                SafeStartupTrace.Write("desktop-shutdown-mode=OnExplicitShutdown");
+
+                desktop.Exit += (_, e) => SafeStartupTrace.Write("desktop-exit | code=" + e.ApplicationExitCode);
+                desktop.ShutdownRequested += (_, _) => SafeStartupTrace.Write("desktop-shutdown-requested");
+                Dispatcher.UIThread.ShutdownStarted += (_, _) => SafeStartupTrace.Write("dispatcher-shutdown-started");
+                Dispatcher.UIThread.ShutdownFinished += (_, _) => SafeStartupTrace.Write("dispatcher-shutdown-finished");
+                Dispatcher.UIThread.UnhandledException += (_, e) =>
+                    SafeStartupTrace.Write("dispatcher-unhandled-exception | " + e.Exception);
+
+                var activationCompleted = false;
+                var userClosingShell = false;
+
                 var safeWindow = SafeDesktopStartupUi.CreateStandalone(async shell =>
                 {
                     SafeStartupTrace.Write("before-mainwindow-construction");
@@ -68,14 +82,39 @@ public sealed class App : Application
                     StartupDiagnostics.ShowWarning(mainWindow, failures);
                     SafeStartupTrace.Write("all-production-modules-completed");
 
+                    activationCompleted = true;
+                    desktop.ShutdownMode = ShutdownMode.OnMainWindowClose;
+                    SafeStartupTrace.Write("desktop-shutdown-mode=OnMainWindowClose");
                     shell.Close();
                 });
 
+                safeWindow.Closing += (_, _) =>
+                {
+                    SafeStartupTrace.Write("bare-shell-closing | activationCompleted=" + activationCompleted);
+                    if (!activationCompleted)
+                        userClosingShell = true;
+                };
+                safeWindow.Closed += (_, _) =>
+                {
+                    SafeStartupTrace.Write("bare-shell-closed | activationCompleted=" + activationCompleted);
+                    if (userClosingShell && !activationCompleted)
+                    {
+                        Dispatcher.UIThread.Post(() =>
+                        {
+                            SafeStartupTrace.Write("explicit-shutdown-after-user-shell-close");
+                            desktop.Shutdown();
+                        });
+                    }
+                };
+
                 desktop.MainWindow = safeWindow;
+                SafeStartupTrace.Write("bare-shell-assigned-as-mainwindow");
             }
         }
 
+        SafeStartupTrace.Write("before-framework-initialization-completed-base");
         base.OnFrameworkInitializationCompleted();
+        SafeStartupTrace.Write("after-framework-initialization-completed-base");
     }
 
     internal static async Task<IReadOnlyList<string>> AttachProductionModulesAsync(MainWindow window)
@@ -118,8 +157,6 @@ public sealed class App : Application
                 SafeStartupTrace.Write("after-module: " + module.Name);
             }
 
-            // Yield between modules. If a module starts a runaway dispatcher/layout cascade, the trace and
-            // window title preserve the last completed stage instead of hiding it behind later attaches.
             await Task.Delay(75);
         }
 
