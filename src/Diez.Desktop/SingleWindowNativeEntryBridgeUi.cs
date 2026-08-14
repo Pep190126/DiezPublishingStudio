@@ -147,26 +147,28 @@ internal static class SingleWindowNativeEntryBridgeUi
         pageHost.IsHitTestVisible = true;
         previewHost.IsHitTestVisible = false;
 
-        var body = Descendants(overlay).OfType<Grid>().FirstOrDefault(grid =>
-            grid.Children.OfType<Control>().Any(child => Contains(child, pageHost)) &&
-            grid.Children.OfType<Control>().Any(child => Contains(child, previewHost)));
-        if (body is null)
+        Grid? body = null;
+        Control? pageSurface = null;
+        Control? previewSurface = null;
+        foreach (var grid in Descendants(overlay).OfType<Grid>())
         {
-            SafeStartupTrace.Write("ui-surface-layout | body=missing");
+            var pageChild = grid.Children.OfType<Control>().FirstOrDefault(child => Contains(child, pageHost));
+            var previewChild = grid.Children.OfType<Control>().FirstOrDefault(child => Contains(child, previewHost));
+            if (pageChild is null || previewChild is null || ReferenceEquals(pageChild, previewChild)) continue;
+            body = grid;
+            pageSurface = pageChild;
+            previewSurface = previewChild;
+            break;
+        }
+
+        if (body is null || pageSurface is null || previewSurface is null)
+        {
+            SafeStartupTrace.Write("ui-surface-layout | body-with-distinct-surfaces=missing");
             return;
         }
 
         body.Background = Brushes.White;
         body.ClipToBounds = true;
-
-        var pageSurface = body.Children.OfType<Control>().FirstOrDefault(child => Contains(child, pageHost));
-        var previewSurface = body.Children.OfType<Control>().FirstOrDefault(child => Contains(child, previewHost));
-        if (pageSurface is null || previewSurface is null)
-        {
-            SafeStartupTrace.Write("ui-surface-layout | page-or-preview-surface=missing");
-            return;
-        }
-
         pageSurface.ZIndex = 1000;
         pageSurface.IsHitTestVisible = true;
         previewSurface.ZIndex = 0;
@@ -185,6 +187,7 @@ internal static class SingleWindowNativeEntryBridgeUi
         else
         {
             previewSurface.IsVisible = true;
+            Grid.SetColumn(pageSurface, 0);
             Grid.SetColumnSpan(pageSurface, 1);
         }
 
