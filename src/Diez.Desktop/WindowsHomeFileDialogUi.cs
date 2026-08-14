@@ -267,9 +267,7 @@ internal static class WindowsHomeFileDialogUi
 
             var result = ok ? ParseSelection(fileBuffer, capacity, request.AllowMultiple) : [];
             if (result.Count > 0)
-                _lastDirectory = request.AllowMultiple && result.Count > 1
-                    ? Path.GetDirectoryName(result[0])
-                    : Path.GetDirectoryName(result[0]);
+                _lastDirectory = Path.GetDirectoryName(result[0]);
 
             SafeStartupTrace.Write(
                 "home-file-dialog | operation=" + OperationName(request) +
@@ -373,7 +371,7 @@ internal static class WindowsHomeFileDialogUi
     {
         var method = typeof(MainWindow).GetMethod("RefreshViews", BindingFlags.Instance | BindingFlags.NonPublic)
             ?? throw new MissingMethodException(nameof(MainWindow), "RefreshViews");
-        method.Invoke(window, null);
+        method.Invoke(window, new object?[] { null, null, null });
     }
 
     private static void SelectMaterial(MainWindow window, PreviewProject project, MaterialEntry? material)
