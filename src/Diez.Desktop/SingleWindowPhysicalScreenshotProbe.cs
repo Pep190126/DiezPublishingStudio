@@ -2,6 +2,7 @@ using System.Collections;
 using System.Reflection;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Interactivity;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 
@@ -27,12 +28,20 @@ internal static class SingleWindowPhysicalScreenshotProbe
             window.Width = 1400;
             window.Height = 900;
             window.Show();
-
-            SingleWindowNativeV11Ui.ShowStart(window);
             await WaitAsync();
-            if (pageHost.Content is not Control bookType ||
-                !Descendants(bookType).OfType<Button>().Any(b => b.Name == "DiezNativeBookTypeApply"))
+
+            var entry = Descendants(window).OfType<Button>().FirstOrDefault(b =>
+                string.Equals(b.Name, SingleWindowNativeEntryBridgeUi.NativeEntryName, StringComparison.Ordinal))
+                ?? throw new InvalidOperationException("Ingresso Percorso libro nativo raster mancante.");
+            if (!entry.IsVisible || !entry.IsEnabled || !entry.IsHitTestVisible)
+                throw new InvalidOperationException("Ingresso Percorso libro raster non operativo.");
+
+            entry.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await WaitAsync();
+
+            if (pageHost.Content is not Control bookType)
                 throw new InvalidOperationException("Pagina Tipo libro raster non materializzata.");
+            AssertBookTypePhysicallyMounted(window, host, pageHost, bookType);
             await SaveWindowAsync(window, Path.Combine(evidenceDirectory, "ui-book-type.png"));
 
             SingleWindowNativeV11Ui.ShowQuantity(window, host);
@@ -43,6 +52,7 @@ internal static class SingleWindowPhysicalScreenshotProbe
                 FindTextBox(quantity, "VisualEnvironmentInstructions").Text = "TEST AMBIENTAZIONE VISIBILE";
             }
             await WaitAsync();
+            AssertWorkflowRootMounted(window, host, pageHost, "Quantità");
             await SaveWindowAsync(window, Path.Combine(evidenceDirectory, "ui-quantity.png"));
 
             if (pageHost.Content is Control consistencyPage)
@@ -84,12 +94,47 @@ internal static class SingleWindowPhysicalScreenshotProbe
                 FindTextBox(prompt, "PromptEditor").Text = "TEST PROMPT VISIBILE";
             }
             await WaitAsync();
+            AssertWorkflowRootMounted(window, host, pageHost, "Istruzioni");
             await SaveWindowAsync(window, Path.Combine(evidenceDirectory, "ui-prompt.png"));
         }
         finally
         {
+            try { SingleWindowEntryPointUi.Invoke(host, "ShowHome"); } catch { }
             try { if (File.Exists(tempPath)) File.Delete(tempPath); } catch { }
         }
+    }
+
+    private static void AssertBookTypePhysicallyMounted(MainWindow window, object host, ContentControl pageHost, Control page)
+    {
+        AssertWorkflowRootMounted(window, host, pageHost, "Tipo libro");
+
+        var button = Descendants(page).OfType<Button>().FirstOrDefault(b => b.Name == "DiezNativeBookTypeApply")
+            ?? throw new InvalidOperationException("Pulsante Tipo libro raster mancante.");
+
+        RequireBounds(page, 120, 60, "pagina Tipo libro");
+        RequireBounds(button, 80, 20, "pulsante Usa questo Tipo libro");
+    }
+
+    private static void AssertWorkflowRootMounted(MainWindow window, object host, ContentControl pageHost, string stage)
+    {
+        var overlay = host.GetType().GetField("_overlay", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(host) as Grid
+            ?? throw new InvalidOperationException("Workflow root raster non disponibile durante " + stage + ".");
+        if (window.Content is not Border border || !ReferenceEquals(border.Child, overlay))
+            throw new InvalidOperationException("Workflow non montato come Border.Child durante " + stage + ".");
+        if (!ReferenceEquals(overlay.Parent, border))
+            throw new InvalidOperationException("Parent fisico del workflow errato durante " + stage + ".");
+
+        RequireBounds(overlay, 200, 150, "workflow root " + stage);
+        RequireBounds(pageHost, 100, 60, "pageHost " + stage);
+        if (pageHost.Content is Control page)
+            RequireBounds(page, 100, 50, "pagina " + stage);
+    }
+
+    private static void RequireBounds(Control control, double minWidth, double minHeight, string label)
+    {
+        if (control.Bounds.Width < minWidth || control.Bounds.Height < minHeight)
+            throw new InvalidOperationException(
+                $"Il controllo '{label}' non partecipa al layout fisico: {control.Bounds.Width:0.##} × {control.Bounds.Height:0.##}.");
     }
 
     private static void BringBridgeIntoView(TextBox source)
