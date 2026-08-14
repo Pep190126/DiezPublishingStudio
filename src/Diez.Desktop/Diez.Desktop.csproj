@@ -7,6 +7,7 @@
     <AssemblyName>DiezPublishingStudio</AssemblyName>
     <RootNamespace>DiezPublishingStudio</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <StartupObject>DiezPublishingStudio.DiagnosticDesktopEntryPoint</StartupObject>
     <Version>1.0.0-rc8</Version>
   </PropertyGroup>
   <ItemGroup>
