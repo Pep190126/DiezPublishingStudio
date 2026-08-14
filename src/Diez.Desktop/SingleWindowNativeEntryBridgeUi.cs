@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Reflection;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -9,22 +10,26 @@ using Avalonia.Threading;
 namespace DiezPublishingStudio;
 
 /// <summary>
-/// Owns the single production Home entry for SW-FLOW-12 and makes the active single-window overlay
-/// the explicit pointer-input owner. Older workflow entry buttons remain present only as hidden legacy
-/// controls; they must never compete with the native entry or with the active page for hit testing.
+/// Owns the single production Home entry for SW-FLOW-12. The active workflow is not layered over the
+/// Home desktop anymore: it becomes the Border's only child while active, then the Home Grid is restored.
+/// This keeps one physical MainWindow while removing every overlapping/sibling input surface.
 /// </summary>
 internal static class SingleWindowNativeEntryBridgeUi
 {
     internal const string NativeEntryName = "DiezNativeBookFlowEntry";
     private static readonly HashSet<MainWindow> Attached = [];
     private static readonly HashSet<Button> WiredButtons = [];
-    private static readonly Dictionary<MainWindow, Dictionary<Control, bool>> DesktopSiblingHitTestState = [];
+    private static readonly Dictionary<MainWindow, Grid> HomeRoots = [];
+    private static readonly Dictionary<MainWindow, ProjectOperationProbe> ProjectOperationProbes = [];
 
     public static void Attach(MainWindow window)
     {
         if (!Attached.Add(window)) return;
-        if (!TryCommandRow(window, out var row))
+        if (!TryHomeSurface(window, out _, out var homeRoot, out var row))
             throw new InvalidOperationException("Riga comandi progetto non disponibile per l'ingresso nativo.");
+
+        HomeRoots[window] = homeRoot;
+        InstallProjectTimingProbe(window, row);
 
         foreach (var legacy in row.Children.OfType<Button>().Where(IsLegacyBookFlowEntry).ToList())
         {
@@ -62,18 +67,21 @@ internal static class SingleWindowNativeEntryBridgeUi
             {
                 EnsureWorkflowInputOwnership(window, host, pageHost.Content is not null);
                 TraceCurrentPage(window, host, pageHost);
+                Dispatcher.UIThread.Post(() => TraceMountedLayout(window, host, pageHost), DispatcherPriority.Render);
             }, DispatcherPriority.Loaded);
         };
 
+        // Tunnel is enough to observe the real hit target and avoids duplicate trace lines for one click.
         window.AddHandler(InputElement.PointerPressedEvent, (_, e) => TracePointer(window, host, e),
-            RoutingStrategies.Tunnel | RoutingStrategies.Bubble, handledEventsToo: true);
+            RoutingStrategies.Tunnel, handledEventsToo: true);
 
         window.Closed += (_, _) =>
         {
-            RestoreDesktopSiblingHitTesting(window);
+            HomeRoots.Remove(window);
+            ProjectOperationProbes.Remove(window);
             Attached.Remove(window);
         };
-        SafeStartupTrace.Write("native-entry-bridge-attached | legacy-disabled=true | input-owner=workflow-page-surface");
+        SafeStartupTrace.Write("native-entry-bridge-attached | legacy-disabled=true | input-owner=workflow-root-swap");
     }
 
     private static void OpenNative(MainWindow window)
@@ -84,10 +92,13 @@ internal static class SingleWindowNativeEntryBridgeUi
             " | active=" + window.IsActive);
         try
         {
-            SingleWindowNativeV11Ui.ShowStart(window);
             var host = SingleWindowEntryPointUi.GetHost(window);
+            if (!MountWorkflowRoot(window, host))
+                throw new InvalidOperationException("La superficie del Percorso libro non può diventare la radice della MainWindow.");
+
+            SingleWindowNativeV11Ui.ShowStart(window);
             EnsureWorkflowInputOwnership(window, host, active: true);
-            SafeStartupTrace.Write("ui-navigation | target=native-v11-start | success=true");
+            SafeStartupTrace.Write("ui-navigation | target=native-v11-start | success=true | rootSwap=true");
         }
         catch (Exception ex)
         {
@@ -96,44 +107,98 @@ internal static class SingleWindowNativeEntryBridgeUi
         }
     }
 
+    private static bool MountWorkflowRoot(MainWindow window, object host)
+    {
+        var overlay = Field<Grid>(host, "_overlay");
+        if (overlay is null || window.Content is not Border border) return false;
+        if (!HomeRoots.TryGetValue(window, out var homeRoot)) return false;
+
+        if (ReferenceEquals(border.Child, overlay)) return true;
+        if (!ReferenceEquals(border.Child, homeRoot))
+        {
+            SafeStartupTrace.Write(
+                "ui-root-swap | mount=false | unexpectedCurrentRoot=" +
+                (border.Child?.GetType().FullName ?? "<null>"));
+            return false;
+        }
+
+        if (overlay.Parent is Panel oldParent)
+            oldParent.Children.Remove(overlay);
+        else if (overlay.Parent is not null)
+        {
+            SafeStartupTrace.Write("ui-root-swap | mount=false | unexpectedOverlayParent=" + overlay.Parent.GetType().FullName);
+            return false;
+        }
+
+        overlay.HorizontalAlignment = HorizontalAlignment.Stretch;
+        overlay.VerticalAlignment = VerticalAlignment.Stretch;
+        overlay.IsHitTestVisible = true;
+        overlay.Background = Brushes.White;
+        overlay.ClipToBounds = true;
+        border.Child = overlay;
+
+        var mounted = ReferenceEquals(border.Child, overlay);
+        SafeStartupTrace.Write(
+            "ui-root-swap | mount=" + mounted +
+            " | homeDetached=" + (homeRoot.Parent is null) +
+            " | overlayParent=" + (overlay.Parent?.GetType().FullName ?? "<null>"));
+        return mounted;
+    }
+
+    private static void RestoreHomeRoot(MainWindow window, object host)
+    {
+        if (window.Content is not Border border || !HomeRoots.TryGetValue(window, out var homeRoot)) return;
+        var overlay = Field<Grid>(host, "_overlay");
+        if (overlay is null) return;
+
+        if (ReferenceEquals(border.Child, homeRoot)) return;
+        if (!ReferenceEquals(border.Child, overlay))
+        {
+            SafeStartupTrace.Write(
+                "ui-root-swap | restore=false | unexpectedCurrentRoot=" +
+                (border.Child?.GetType().FullName ?? "<null>"));
+            return;
+        }
+
+        border.Child = homeRoot;
+        SafeStartupTrace.Write(
+            "ui-root-swap | restore=true | homeParent=" + (homeRoot.Parent?.GetType().FullName ?? "<null>") +
+            " | overlayDetached=" + (overlay.Parent is null));
+    }
+
     private static void EnsureWorkflowInputOwnership(MainWindow window, object host, bool active)
     {
-        if (window.Content is not Border border || border.Child is not Grid desktop) return;
         var overlay = Field<Grid>(host, "_overlay");
         if (overlay is null) return;
 
         if (!active || !overlay.IsVisible)
         {
-            RestoreDesktopSiblingHitTesting(window);
-            SafeStartupTrace.Write("ui-input-owner | active=false | siblings-restored=true");
+            RestoreHomeRoot(window, host);
+            SafeStartupTrace.Write("ui-input-owner | active=false | home-root-restored=true");
             return;
         }
 
-        overlay.ZIndex = 1000000;
+        if (!MountWorkflowRoot(window, host))
+        {
+            SafeStartupTrace.Write("ui-input-owner | active=true | mountedAsRoot=false | siblings-untouched=true");
+            return;
+        }
+
+        overlay.ZIndex = 0;
         overlay.IsHitTestVisible = true;
         overlay.Background = Brushes.White;
         overlay.ClipToBounds = true;
         ConfigureWorkflowSurface(host, overlay);
 
-        if (!DesktopSiblingHitTestState.TryGetValue(window, out var saved))
-        {
-            saved = [];
-            DesktopSiblingHitTestState[window] = saved;
-        }
-
-        foreach (var sibling in desktop.Children.OfType<Control>())
-        {
-            if (ReferenceEquals(sibling, overlay)) continue;
-            if (!saved.ContainsKey(sibling)) saved[sibling] = sibling.IsHitTestVisible;
-            sibling.IsHitTestVisible = false;
-        }
-
+        var border = window.Content as Border;
         SafeStartupTrace.Write(
-            "ui-input-owner | active=true | overlayVisible=" + overlay.IsVisible +
+            "ui-input-owner | active=true | rootSwap=true" +
+            " | mountedAsRoot=" + ReferenceEquals(border?.Child, overlay) +
+            " | overlayVisible=" + overlay.IsVisible +
             " | overlayHitTest=" + overlay.IsHitTestVisible +
-            " | overlayZ=" + overlay.ZIndex +
             " | overlayBounds=" + overlay.Bounds +
-            " | siblingCount=" + saved.Count);
+            " | borderBounds=" + (border?.Bounds.ToString() ?? "<na>") +
+            " | siblingsDisabled=0");
     }
 
     private static void ConfigureWorkflowSurface(object host, Grid overlay)
@@ -145,8 +210,6 @@ internal static class SingleWindowNativeEntryBridgeUi
         pageHost.IsHitTestVisible = true;
         previewHost.IsHitTestVisible = false;
 
-        // SingleWindowOverlayFlowHost owns exactly one direct body Grid in overlay row 1.
-        // Resolve that stable structure directly: never walk the entire logical tree looking for a match.
         var body = overlay.Children.OfType<Grid>().FirstOrDefault(grid => Grid.GetRow(grid) == 1);
         if (body is null)
         {
@@ -165,7 +228,7 @@ internal static class SingleWindowNativeEntryBridgeUi
 
         body.Background = Brushes.White;
         body.ClipToBounds = true;
-        pageSurface.ZIndex = 1000;
+        pageSurface.ZIndex = 1;
         pageSurface.IsHitTestVisible = true;
         previewSurface.ZIndex = 0;
         previewSurface.IsHitTestVisible = false;
@@ -197,15 +260,6 @@ internal static class SingleWindowNativeEntryBridgeUi
             " | previewZ=" + previewSurface.ZIndex);
     }
 
-    private static void RestoreDesktopSiblingHitTesting(MainWindow window)
-    {
-        if (!DesktopSiblingHitTestState.Remove(window, out var saved)) return;
-        foreach (var pair in saved)
-        {
-            try { pair.Key.IsHitTestVisible = pair.Value; } catch { }
-        }
-    }
-
     private static void TracePointer(MainWindow window, object host, PointerPressedEventArgs e)
     {
         try
@@ -219,6 +273,7 @@ internal static class SingleWindowNativeEntryBridgeUi
             var pointerOver = buttons.Where(button => button.IsPointerOver)
                 .Select(button => (button.Name ?? "<unnamed>") + ":" + (button.Content?.ToString() ?? "<null>"))
                 .ToList();
+            var mountedAsRoot = window.Content is Border border && ReferenceEquals(border.Child, overlay);
 
             SafeStartupTrace.Write(
                 "ui-pointer | event=pressed" +
@@ -228,8 +283,8 @@ internal static class SingleWindowNativeEntryBridgeUi
                 " | sourceHitTest=" + (source?.IsHitTestVisible.ToString() ?? "<na>") +
                 " | pointerOverButtons=" + (pointerOver.Count == 0 ? "<none>" : string.Join(",", pointerOver)) +
                 " | pageHostBounds=" + (pageHost?.Bounds.ToString() ?? "<na>") +
+                " | mountedAsRoot=" + mountedAsRoot +
                 " | overlayHitTest=" + overlay.IsHitTestVisible +
-                " | overlayZ=" + overlay.ZIndex +
                 " | windowEnabled=" + window.IsEnabled);
         }
         catch (Exception ex)
@@ -279,6 +334,71 @@ internal static class SingleWindowNativeEntryBridgeUi
         }
     }
 
+    private static void TraceMountedLayout(MainWindow window, object host, ContentControl pageHost)
+    {
+        try
+        {
+            var overlay = Field<Grid>(host, "_overlay");
+            if (overlay?.IsVisible != true) return;
+            var page = pageHost.Content as Control;
+            var mounted = window.Content is Border border && ReferenceEquals(border.Child, overlay);
+            SafeStartupTrace.Write(
+                "ui-layout-after-render | mountedAsRoot=" + mounted +
+                " | overlayBounds=" + overlay.Bounds +
+                " | pageHostBounds=" + pageHost.Bounds +
+                " | pageBounds=" + (page?.Bounds.ToString() ?? "<none>"));
+        }
+        catch (Exception ex)
+        {
+            SafeStartupTrace.Write("ui-layout-after-render-error | " + ex.GetBaseException().Message);
+        }
+    }
+
+    private static void InstallProjectTimingProbe(MainWindow window, StackPanel row)
+    {
+        var status = typeof(MainWindow).GetField("_status", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(window) as TextBlock;
+        if (status is null) return;
+
+        var probe = new ProjectOperationProbe();
+        ProjectOperationProbes[window] = probe;
+
+        foreach (var button in row.Children.OfType<Button>())
+        {
+            var text = button.Content?.ToString() ?? string.Empty;
+            if (string.Equals(text, "Apri progetto", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(text, "Apri .diez", StringComparison.OrdinalIgnoreCase))
+            {
+                button.Click += (_, _) => probe.Arm("open-project");
+            }
+            else if (string.Equals(text, "Nuovo progetto", StringComparison.OrdinalIgnoreCase))
+            {
+                button.Click += (_, _) => probe.Arm("create-project");
+            }
+        }
+
+        window.Activated += (_, _) =>
+        {
+            if (probe.Armed && !probe.Running)
+            {
+                probe.StartAfterDialog();
+                SafeStartupTrace.Write("project-timing | operation=" + probe.Operation + " | phase=dialog-returned");
+            }
+        };
+
+        status.PropertyChanged += (_, e) =>
+        {
+            if (e.Property != TextBlock.TextProperty || !probe.Running) return;
+            var text = status.Text ?? string.Empty;
+            var completed = probe.Operation == "open-project"
+                ? text.StartsWith("Aperto", StringComparison.OrdinalIgnoreCase)
+                : text.StartsWith("Creato pacchetto", StringComparison.OrdinalIgnoreCase);
+            if (!completed) return;
+            SafeStartupTrace.Write(
+                "project-timing | operation=" + probe.Operation +
+                " | phase=completed | elapsedMs=" + probe.StopElapsedMilliseconds());
+        };
+    }
+
     private static bool IsLegacyBookFlowEntry(Button button)
     {
         if (string.Equals(button.Name, NativeEntryName, StringComparison.Ordinal)) return false;
@@ -287,16 +407,22 @@ internal static class SingleWindowNativeEntryBridgeUi
                text.Contains("Percorso libro · SW-FLOW-", StringComparison.Ordinal);
     }
 
-    private static bool TryCommandRow(MainWindow window, out StackPanel row)
+    private static bool TryHomeSurface(MainWindow window, out Border border, out Grid desktop, out StackPanel row)
     {
+        border = null!;
+        desktop = null!;
         row = null!;
-        if (window.Content is not Border border || border.Child is not Grid desktop) return false;
-        var header = desktop.Children.OfType<Grid>().FirstOrDefault(c => Grid.GetRow(c) == 0);
+        if (window.Content is not Border rootBorder || rootBorder.Child is not Grid rootDesktop) return false;
+        var header = rootDesktop.Children.OfType<Grid>().FirstOrDefault(c => Grid.GetRow(c) == 0);
         if (header is null) return false;
-        row = header.Children.OfType<StackPanel>().FirstOrDefault(p =>
+        var commandRow = header.Children.OfType<StackPanel>().FirstOrDefault(p =>
             p.Orientation == Orientation.Horizontal &&
-            p.Children.OfType<Button>().Any(b => string.Equals(b.Content?.ToString(), "Nuovo progetto", StringComparison.OrdinalIgnoreCase)))!;
-        return row is not null;
+            p.Children.OfType<Button>().Any(b => string.Equals(b.Content?.ToString(), "Nuovo progetto", StringComparison.OrdinalIgnoreCase)));
+        if (commandRow is null) return false;
+        border = rootBorder;
+        desktop = rootDesktop;
+        row = commandRow;
+        return true;
     }
 
     private static T? Field<T>(object host, string name) where T : class =>
@@ -324,6 +450,34 @@ internal static class SingleWindowNativeEntryBridgeUi
                 case ScrollViewer scroll when scroll.Content is Control child: stack.Push(child); break;
                 case ContentControl content when content.Content is Control child: stack.Push(child); break;
             }
+        }
+    }
+
+    private sealed class ProjectOperationProbe
+    {
+        private readonly Stopwatch _watch = new();
+        public string Operation { get; private set; } = string.Empty;
+        public bool Armed { get; private set; }
+        public bool Running => _watch.IsRunning;
+
+        public void Arm(string operation)
+        {
+            Operation = operation;
+            Armed = true;
+            _watch.Reset();
+        }
+
+        public void StartAfterDialog()
+        {
+            if (!Armed) return;
+            _watch.Restart();
+        }
+
+        public long StopElapsedMilliseconds()
+        {
+            _watch.Stop();
+            Armed = false;
+            return _watch.ElapsedMilliseconds;
         }
     }
 }
