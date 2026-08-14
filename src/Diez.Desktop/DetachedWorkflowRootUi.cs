@@ -1,6 +1,8 @@
 using System.Reflection;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Threading;
 
@@ -10,7 +12,9 @@ namespace DiezPublishingStudio;
 /// Keeps the logical book workflow detached until the user enters it.
 /// On some real Win32/Avalonia combinations a Grid first measured as an invisible child can remain
 /// stuck at 0x0 after runtime reparenting. Detaching before the first Window layout avoids carrying
-/// that stale layout state into the active Border root. A zero-size recovery is retained as a guard.
+/// that stale layout state into the active Border root. The detached root is kept Visible while it
+/// has no parent so the later Border.Child assignment performs its first measure as a visible root.
+/// A zero-size recovery is retained as a guard.
 /// </summary>
 internal static class DetachedWorkflowRootUi
 {
@@ -32,11 +36,27 @@ internal static class DetachedWorkflowRootUi
         else if (overlay.Parent is not null)
             throw new InvalidOperationException("Il workflow root ha un parent inatteso prima del primo layout: " + previousParent);
 
-        overlay.IsVisible = false;
+        // Detached controls are not rendered. Keeping the workflow Visible while detached is therefore
+        // safe for Home, but it prevents the later Border.Child assignment from mounting an invisible
+        // root that Win32/Avalonia may leave at 0x0 until another complete layout cycle.
+        overlay.IsVisible = true;
         overlay.HorizontalAlignment = HorizontalAlignment.Stretch;
         overlay.VerticalAlignment = VerticalAlignment.Stretch;
         Grid.SetRow(overlay, 0);
         Grid.SetRowSpan(overlay, 1);
+
+        // ShowHome sets the detached root back to IsVisible=false. For every later physical mouse entry,
+        // restore visibility during PointerPressed, before Button.Click performs the root swap.
+        window.AddHandler(InputElement.PointerPressedEvent, (_, e) =>
+        {
+            if (!IsNativeEntryPointer(e.Source)) return;
+            if (overlay.Parent is not null) return;
+            overlay.IsVisible = true;
+            overlay.InvalidateMeasure();
+            overlay.InvalidateArrange();
+            SafeStartupTrace.Write(
+                "workflow-root-before-click | visible=true | parent=<null> | physical-pointer=true");
+        }, RoutingStrategies.Tunnel, handledEventsToo: true);
 
         pageHost.PropertyChanged += (_, e) =>
         {
@@ -48,7 +68,21 @@ internal static class DetachedWorkflowRootUi
         SafeStartupTrace.Write(
             "workflow-root-pre-detached | previousParent=" + previousParent +
             " | currentParent=" + (overlay.Parent?.GetType().FullName ?? "<null>") +
+            " | visibleWhileDetached=" + overlay.IsVisible +
             " | before-first-window-layout=true");
+    }
+
+    private static bool IsNativeEntryPointer(object? source)
+    {
+        var current = source as Control;
+        while (current is not null)
+        {
+            if (current is Button button &&
+                string.Equals(button.Name, SingleWindowNativeEntryBridgeUi.NativeEntryName, StringComparison.Ordinal))
+                return true;
+            current = current.Parent as Control;
+        }
+        return false;
     }
 
     private static void RecoverMountedLayout(MainWindow window, Grid overlay, ContentControl pageHost)
