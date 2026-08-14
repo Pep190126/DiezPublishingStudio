@@ -46,6 +46,7 @@ jobs:
             throw "UI raster probe failed with code $($p.ExitCode)"
           }
           foreach ($file in @(
+            "artifacts\ui-evidence\ui-book-type.png",
             "artifacts\ui-evidence\ui-quantity.png",
             "artifacts\ui-evidence\ui-consistent-variation.png",
             "artifacts\ui-evidence\ui-consistent-notes.png",
@@ -60,6 +61,7 @@ jobs:
         with:
           name: DiezPublishingStudio-SW-FLOW-12-Raster-Evidence
           path: |
+            artifacts/ui-evidence/ui-book-type.png
             artifacts/ui-evidence/ui-quantity.png
             artifacts/ui-evidence/ui-consistent-variation.png
             artifacts/ui-evidence/ui-consistent-notes.png
