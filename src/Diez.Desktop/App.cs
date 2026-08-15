@@ -26,22 +26,27 @@ public sealed class App : Application
 
             if (rasterProbe || flowProbe || homeFileDialogProbe)
             {
+                // Probe startup must match production startup: build the complete visual tree before MainWindow
+                // is ever presented. Mounting stable-root after Opened creates a synthetic zero-layout state that
+                // the installed application never uses.
                 var mainWindow = new MainWindow(startupProjectPath);
+                var failures = AttachProductionModules(mainWindow);
+                StartupDiagnostics.ShowWarning(mainWindow, failures);
+
                 var probeOpened = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
                 mainWindow.Opened += (_, _) =>
                 {
                     probeOpened.TrySetResult(true);
                     SafeStartupTrace.Write(
                         "probe-mainwindow-opened | visible=" + mainWindow.IsVisible +
-                        " | clientSize=" + mainWindow.ClientSize);
+                        " | clientSize=" + mainWindow.ClientSize +
+                        " | stableRootInstalled=" + StableWorkflowRootUi.IsInstalled(mainWindow));
                 };
+
                 desktop.MainWindow = mainWindow;
 
                 Dispatcher.UIThread.Post(async () =>
                 {
-                    var failures = AttachProductionModules(mainWindow);
-                    StartupDiagnostics.ShowWarning(mainWindow, failures);
-
                     if (homeFileDialogProbe)
                         await RunHomeFileDialogProbeAsync(mainWindow);
                     else if (rasterProbe)
