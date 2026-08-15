@@ -220,6 +220,7 @@ public sealed class App : Application
                 throw new InvalidOperationException("La conferma uscita non è collegata al MainWindow.");
 
             await SingleWindowNativeClickContract.RunAsync(mainWindow);
+            await UserReportedUsabilityContractProbe.RunAsync(mainWindow);
             await FlowContractRootMountProbe.EnsureMountedAsync(mainWindow);
             await SingleWindowV11ContractProbe.RunAsync(mainWindow);
             await MultiSubjectUiContractProbe.RunAsync(mainWindow);
@@ -228,7 +229,7 @@ public sealed class App : Application
             await SingleWindowResponseReviewUiContractProbe.RunAsync(mainWindow);
 
             File.WriteAllText(resultFile,
-                "OK\nSW-FLOW-12\nstartup=direct-completed-mainwindow\nproduction-entry=native-v11\nvisual-root=permanent-home-workflow\nruntime-root-swap=no\nreal-click-quantity-to-prompt=yes\neditable-inputs=native-textbox-safe-startup\nstructured-scenes=optional\nprompt-provider-compiler-current=3.6\nvision-scene-participants=hard\n");
+                "OK\nSW-FLOW-12\nstartup=direct-completed-mainwindow\nproduction-entry=native-v11\nvisual-root=permanent-home-workflow\nruntime-root-swap=no\nreal-click-quantity-to-prompt=yes\nuser-reported-home-materials=yes\nuser-reported-home-project=yes\nuser-reported-book-title=yes\nuser-reported-quantity-preview=yes\nuser-reported-quantity-scroll=yes\neditable-inputs=native-textbox-safe-startup\nstructured-scenes=optional\nprompt-provider-compiler-current=3.6\nvision-scene-participants=hard\n");
             Environment.Exit(0);
         }
         catch (Exception ex)
