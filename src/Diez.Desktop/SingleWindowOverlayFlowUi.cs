@@ -50,7 +50,7 @@ internal sealed class SingleWindowOverlayFlowHost
     private readonly Grid _desktop;
     private readonly List<Control> _homeControls;
     private readonly Grid _overlay;
-    private readonly ContentControl _pageHost = new();
+    private readonly StableWorkflowPageHost _pageHost = new();
     private readonly ContentControl _previewHost = new();
     private readonly TextBlock _title = new() { FontSize = 23, TextWrapping = Avalonia.Media.TextWrapping.Wrap };
     private readonly TextBlock _status = new() { TextWrapping = Avalonia.Media.TextWrapping.Wrap };
@@ -567,7 +567,7 @@ internal sealed class SingleWindowOverlayFlowHost
         foreach (var control in _homeControls) control.IsVisible = false;
         _overlay.IsVisible = true;
         _title.Text = page.Title;
-        _pageHost.Content = page.Content;
+        _pageHost.Show(page.Content);
         SetPreview(page.Preview);
         _status.Text = page.Status;
         _back.IsEnabled = _history.Count > 1;
@@ -583,7 +583,7 @@ internal sealed class SingleWindowOverlayFlowHost
     private void ShowHome()
     {
         _history.Clear();
-        _pageHost.Content = null;
+        _pageHost.Show(null);
         _previewHost.Content = null;
         _overlay.IsVisible = false;
         foreach (var control in _homeControls) control.IsVisible = true;
@@ -638,6 +638,65 @@ internal sealed class SingleWindowOverlayFlowHost
     };
     private static TextBlock Label(string text) => new() { Text = text, FontSize = 16 };
     private static Button MakeButton(string text, double width) => new() { Content = text, Width = width, HorizontalContentAlignment = HorizontalAlignment.Center };
+
+    private sealed class StableWorkflowPageHost : ContentControl
+    {
+        private readonly Grid _stack = new()
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            ClipToBounds = true
+        };
+        private Control? _activePage;
+
+        public StableWorkflowPageHost()
+        {
+            Content = _stack;
+        }
+
+        public void Show(Control? page)
+        {
+            if (ReferenceEquals(_activePage, page))
+            {
+                RaisePropertyChanged(ContentProperty, _stack, _stack);
+                return;
+            }
+
+            if (_activePage is not null && _stack.Children.Contains(_activePage))
+                _stack.Children.Remove(_activePage);
+
+            _activePage = page;
+            if (page is not null)
+            {
+                page.IsVisible = true;
+                page.IsEnabled = true;
+                page.IsHitTestVisible = true;
+                page.HorizontalAlignment = HorizontalAlignment.Stretch;
+                page.VerticalAlignment = VerticalAlignment.Stretch;
+                Panel.SetZIndex(page, 1);
+                _stack.Children.Add(page);
+            }
+
+            _stack.InvalidateMeasure();
+            _stack.InvalidateArrange();
+            _stack.InvalidateVisual();
+            if (page is not null)
+            {
+                page.InvalidateMeasure();
+                page.InvalidateArrange();
+                page.InvalidateVisual();
+            }
+
+            // Keep the ContentPresenter child stable for the lifetime of the window while preserving the existing
+            // ContentProperty notification contract used by layout/title/quantity observers.
+            RaisePropertyChanged(ContentProperty, _stack, _stack);
+            SafeStartupTrace.Write(
+                "workflow-page-stack | contentPresenterChild=stable" +
+                " | active=" + (page?.GetType().Name ?? "<none>") +
+                " | children=" + _stack.Children.Count +
+                " | contentSame=True");
+        }
+    }
 
     private sealed class ColoringState
     {
