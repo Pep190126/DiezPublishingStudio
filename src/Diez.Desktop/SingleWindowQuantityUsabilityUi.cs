@@ -168,7 +168,8 @@ internal static class SingleWindowQuantityUsabilityUi
 
     private static void ConfigureScroll(ScrollViewer scroll)
     {
-        scroll.Name ??= "DiezNativeQuantityScroll";
+        // Do not assign Name here: at ContentChanged the control may already be styled, and Avalonia forbids
+        // renaming a StyledElement at that point. The Quantity page is identified by its named content root.
         scroll.VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Visible;
         scroll.HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled;
         scroll.IsHitTestVisible = true;
