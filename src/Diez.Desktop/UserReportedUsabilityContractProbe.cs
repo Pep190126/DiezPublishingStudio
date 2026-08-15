@@ -2,6 +2,7 @@ using System.Collections;
 using System.Reflection;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
@@ -73,11 +74,27 @@ internal static class UserReportedUsabilityContractProbe
             var frame = Require<Border>(typePage, "DiezBookTitleFrame");
             if (!string.Equals(title.Text, project.Name, StringComparison.Ordinal))
                 throw new InvalidOperationException("Il Titolo del libro non parte dal nome del progetto.");
-            if (title.IsReadOnly || !title.IsEnabled || !title.IsHitTestVisible)
+            if (title.IsReadOnly || !title.IsEnabled || !title.IsHitTestVisible || !title.Focusable)
                 throw new InvalidOperationException("Il Titolo del libro iniziale non resta editabile.");
             if (title.TextAlignment != TextAlignment.Left || frame.HorizontalAlignment != HorizontalAlignment.Left)
                 throw new InvalidOperationException("Il Titolo del libro non è allineato a sinistra con la label.");
             RequireBounds(title, 180, 26, "Titolo del libro");
+
+            // Exercise TextBox input routing instead of merely reading IsEnabled/IsReadOnly. This catches the
+            // installed-app failure where the field looked correct but behaved like a non-editable label.
+            var originalTitle = title.Text ?? string.Empty;
+            if (!title.Focus() || !title.IsFocused)
+                throw new InvalidOperationException("Il Titolo del libro non accetta il focus reale.");
+            title.CaretIndex = originalTitle.Length;
+            title.RaiseEvent(new TextInputEventArgs
+            {
+                RoutedEvent = InputElement.TextInputEvent,
+                Source = title,
+                Text = " X"
+            });
+            await WaitAsync(window, "book-title-text-input", 80);
+            if (!string.Equals(title.Text, originalTitle + " X", StringComparison.Ordinal))
+                throw new InvalidOperationException("Il Titolo del libro riceve focus ma non accetta input testuale routed.");
 
             var homeProject = Descendants(StableWorkflowRootUi.WorkflowRoot(window) ?? throw new InvalidOperationException("Workflow root assente."))
                 .OfType<Button>()
@@ -108,15 +125,30 @@ internal static class UserReportedUsabilityContractProbe
             RequireBounds(scroll, 180, 100, "ScrollViewer Coloring 1/4");
             if (scroll.VerticalScrollBarVisibility != Avalonia.Controls.Primitives.ScrollBarVisibility.Visible)
                 throw new InvalidOperationException("La scrollbar verticale Coloring 1/4 non è resa esplicitamente visibile.");
+            if (!scroll.IsEnabled || !scroll.IsHitTestVisible)
+                throw new InvalidOperationException("Coloring 1/4 è visibile ma lo ScrollViewer non possiede input.");
             if (scroll.Extent.Height <= scroll.Viewport.Height + 1)
                 throw new InvalidOperationException($"Coloring 1/4 non risulta scrollabile: extent={scroll.Extent}, viewport={scroll.Viewport}.");
 
-            var maxY = Math.Max(0, scroll.Extent.Height - scroll.Viewport.Height);
-            var targetY = Math.Min(maxY, 180);
-            scroll.Offset = new Vector(scroll.Offset.X, targetY);
-            await WaitAsync(window, "quantity-scroll-offset");
-            if (targetY > 1 && scroll.Offset.Y < 1)
-                throw new InvalidOperationException("Coloring 1/4 espone contenuto oltre il viewport ma l'offset verticale non cambia.");
+            // Route an actual PointerWheelChanged event through the ScrollViewer. The old contract assigned Offset
+            // directly and therefore passed even when a physical mouse wheel did nothing over child editors.
+            scroll.Offset = new Vector(scroll.Offset.X, 0);
+            using (var pointer = new Pointer(0xD1E2, PointerType.Mouse, true))
+            {
+                var wheel = new PointerWheelEventArgs(
+                    scroll,
+                    pointer,
+                    window,
+                    new Point(20, 20),
+                    (ulong)Environment.TickCount64,
+                    new PointerPointProperties(),
+                    KeyModifiers.None,
+                    new Vector(0, -1));
+                scroll.RaiseEvent(wheel);
+            }
+            await WaitAsync(window, "quantity-wheel-input", 80);
+            if (scroll.Offset.Y < 1)
+                throw new InvalidOperationException("Coloring 1/4 espone contenuto oltre il viewport ma una vera rotella routed non sposta lo scroll.");
 
             // The usability module asynchronously decodes the latest imported image into the permanent preview host.
             await WaitAsync(window, "quantity-image-preview", 500);
@@ -131,8 +163,9 @@ internal static class UserReportedUsabilityContractProbe
             SafeStartupTrace.Write(
                 "user-usability-contract | OK" +
                 " | homeMaterials=" + project.Materials.Count +
-                " | titleLeftEditable=true" +
+                " | titleTextInput=true" +
                 " | homeProject=true" +
+                " | wheelInput=true" +
                 " | scrollExtent=" + scroll.Extent +
                 " | scrollViewport=" + scroll.Viewport +
                 " | previewImage=true");
