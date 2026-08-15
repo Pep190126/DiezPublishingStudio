@@ -166,7 +166,7 @@ internal static class UserReportedUsabilityContractProbe
                 "user-usability-contract | OK" +
                 " | homeMaterials=" + project.Materials.Count +
                 " | titlePhysicalHit=true" +
-                " | titleTextInput=true" +
+                " | titleTextInput=true"+
                 " | homeProject=true" +
                 " | scrollBarPhysicalHit=true" +
                 " | wheelInput=true" +
@@ -224,10 +224,33 @@ internal static class UserReportedUsabilityContractProbe
             " | hitName=" + ((hit as Control)?.Name ?? "<unnamed>") +
             " | reachesTarget=" + reachesTarget +
             " | targetBounds=" + target.Bounds);
+        SafeStartupTrace.Write(
+            "physical-input-hit-path | target=" + label +
+            " | hitPath=" + VisualPath(hitVisual) +
+            " | targetPath=" + VisualPath(target));
 
         if (!reachesTarget)
             throw new InvalidOperationException(
                 $"Il punto fisico di '{label}' viene intercettato da '{hit?.GetType().FullName ?? "<null>"}' invece del controllo atteso.");
+    }
+
+    private static string VisualPath(Visual? visual)
+    {
+        if (visual is null) return "<null>";
+        return string.Join(" > ", new[] { visual }.Concat(visual.GetVisualAncestors()).Take(18).Select(DescribeVisual));
+    }
+
+    private static string DescribeVisual(Visual visual)
+    {
+        if (visual is not Control control) return visual.GetType().Name;
+        return control.GetType().Name +
+               "[name=" + (control.Name ?? "-") +
+               ",bounds=" + control.Bounds +
+               ",hit=" + control.IsHitTestVisible +
+               ",enabled=" + control.IsEnabled +
+               ",visible=" + control.IsVisible +
+               ",z=" + control.ZIndex +
+               ",opacity=" + control.Opacity.ToString("0.##") + "]";
     }
 
     private static T Require<T>(Control root, string name) where T : Control =>
