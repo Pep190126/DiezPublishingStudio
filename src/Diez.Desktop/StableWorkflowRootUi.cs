@@ -6,9 +6,9 @@ namespace DiezPublishingStudio;
 
 /// <summary>
 /// Permanent single-window visual root. Home and Workflow are parented once during startup and are never
-/// reparented during navigation. Both surfaces stay measurable and permanently registered for pointer input;
-/// opacity and Z-order alone select the active surface. Workflow uses a separate transparent backstop behind
-/// its content so empty-area clicks cannot fall through without making the Workflow root itself terminal.
+/// reparented during navigation. Workflow stays permanently registered for pointer input; Home stays mounted
+/// and measurable but is removed from hit testing only while Workflow is active. Workflow uses a separate
+/// transparent backstop behind its content so empty-area clicks cannot fall through to Home.
 /// </summary>
 internal static class StableWorkflowRootUi
 {
@@ -42,11 +42,11 @@ internal static class StableWorkflowRootUi
         overlay.Margin = new Avalonia.Thickness(0);
         overlay.ClipToBounds = true;
 
-        // Input-tree invariant: neither root is ever disabled or removed from hit testing. The physical Windows
-        // contract proved that this permanently registers the Workflow branch, but a transparent Background on
-        // the Workflow Grid made that Grid itself the terminal hit surface. Keep the root background null so
-        // Avalonia descends into header/body/page controls, then add a transparent full-area backstop underneath
-        // all real Workflow content to prevent empty-area pointer fall-through to Home.
+        // Workflow must be registered for input from its first parent onward; that was the critical branch that
+        // previously failed when enabled late. Home is different: it is born interactive and already passes the
+        // physical Win32 click probe, so while Workflow owns the surface Home can safely be gated out of hit
+        // testing without ever unregistering Workflow. A transparent full-area backstop remains behind Workflow
+        // content so empty-area pointer input cannot fall through when Home is gated.
         homeRoot.Background ??= Avalonia.Media.Brushes.Transparent;
         overlay.Background = null;
         var workflowBackstop = new Border
@@ -99,8 +99,9 @@ internal static class StableWorkflowRootUi
             " | workflowMargin=" + overlay.Margin +
             " | workflowVisibleBeforeFirstParent=true" +
             " | workflowVisibilityOwnedByStableRoot=true" +
-            " | permanentInputTree=true" +
-            " | inputOwnership=z-order" +
+            " | workflowPermanentlyHitTestable=true" +
+            " | inactiveHomeHitGate=true" +
+            " | inputOwnership=workflow-permanent-home-gated" +
             " | workflowRootHitSurface=null" +
             " | workflowBackstop=transparent-behind-content" +
             " | runtime-reparenting=false");
@@ -114,7 +115,7 @@ internal static class StableWorkflowRootUi
         state.HomeRoot.IsVisible = true;
         state.HomeRoot.Opacity = 0;
         state.HomeRoot.IsEnabled = true;
-        state.HomeRoot.IsHitTestVisible = true;
+        state.HomeRoot.IsHitTestVisible = false;
         state.HomeRoot.ZIndex = 0;
 
         state.Overlay.IsVisible = true;
@@ -134,8 +135,9 @@ internal static class StableWorkflowRootUi
             " | homeBounds=" + state.HomeRoot.Bounds +
             " | workflowBounds=" + state.Overlay.Bounds +
             " | workflowMargin=" + state.Overlay.Margin +
-            " | permanentInputTree=true" +
-            " | inputOwnership=z-order" +
+            " | workflowPermanentlyHitTestable=true" +
+            " | inactiveHomeHitGate=true" +
+            " | inputOwnership=workflow-permanent-home-gated" +
             " | homeHit=" + state.HomeRoot.IsHitTestVisible +
             " | workflowHit=" + state.Overlay.IsHitTestVisible +
             " | workflowRootHitSurface=null" +
@@ -154,8 +156,9 @@ internal static class StableWorkflowRootUi
             " | homeBounds=" + state.HomeRoot.Bounds +
             " | workflowBounds=" + state.Overlay.Bounds +
             " | workflowMargin=" + state.Overlay.Margin +
-            " | permanentInputTree=true" +
-            " | inputOwnership=z-order" +
+            " | workflowPermanentlyHitTestable=true" +
+            " | inactiveHomeHitGate=true" +
+            " | inputOwnership=workflow-permanent-home-gated" +
             " | homeHit=" + state.HomeRoot.IsHitTestVisible +
             " | workflowHit=" + state.Overlay.IsHitTestVisible +
             " | workflowRootHitSurface=null" +
@@ -174,7 +177,7 @@ internal static class StableWorkflowRootUi
                ReferenceEquals(state.WorkflowBackstop.Parent, state.Overlay) &&
                state.Overlay.IsVisible && state.Overlay.IsHitTestVisible && state.Overlay.IsEnabled &&
                state.WorkflowBackstop.IsVisible && state.WorkflowBackstop.IsHitTestVisible && state.WorkflowBackstop.IsEnabled &&
-               state.HomeRoot.IsVisible && state.HomeRoot.IsHitTestVisible && state.HomeRoot.IsEnabled &&
+               state.HomeRoot.IsVisible && !state.HomeRoot.IsHitTestVisible && state.HomeRoot.IsEnabled &&
                state.Overlay.ZIndex > state.HomeRoot.ZIndex && state.Overlay.Opacity > state.HomeRoot.Opacity;
     }
 
@@ -197,8 +200,9 @@ internal static class StableWorkflowRootUi
         state.HomeRoot.IsHitTestVisible = true;
         state.HomeRoot.ZIndex = 1;
 
-        // Workflow remains fully registered for input below the Home surface. Home has the higher ZIndex, while
-        // the Workflow backstop remains part of the lower subtree so the platform never has to register it later.
+        // Workflow remains fully registered for input below the Home surface. Home is a full transparent hit
+        // surface while active, so pointer input cannot reach the lower Workflow subtree. Activating Workflow
+        // never requires re-registering it with the platform; only Home's already-proven hit gate changes.
         state.Overlay.IsVisible = true;
         state.Overlay.Opacity = 0;
         state.Overlay.IsEnabled = true;
