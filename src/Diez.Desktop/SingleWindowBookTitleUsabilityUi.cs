@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Reflection;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -5,6 +6,7 @@ using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 
 namespace DiezPublishingStudio;
 
@@ -114,6 +116,103 @@ internal static class SingleWindowBookTitleUsabilityUi
             " | editorWidth=" + width.ToString("0.##") +
             " | withinMountedPage=" + (mountedWidth <= 0 || width <= mountedWidth) +
             " | editable=" + (!title.IsReadOnly && title.IsEnabled && title.IsHitTestVisible && title.Focusable));
+
+        // Diagnostic only: physical Windows hit testing sees the Workflow backstop while the title and all of
+        // its Avalonia bounds are valid. Inspect the compositor linkage without altering layout/input. The first
+        // child->parent pair where CompositionVisual exists but is not present in the parent's Children collection
+        // is the exact point where the rendered visual tree stops participating in compositor hit testing.
+        Dispatcher.UIThread.Post(() => TraceCompositionChain(title), DispatcherPriority.Render);
+    }
+
+    private static void TraceCompositionChain(Control target)
+    {
+        try
+        {
+            var visualType = typeof(Avalonia.Visual);
+            var compositionProperty = visualType.GetProperty(
+                "CompositionVisual",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            if (compositionProperty is null)
+            {
+                SafeStartupTrace.Write("book-title-compositor-chain | compositionProperty=<missing>");
+                return;
+            }
+
+            var visuals = new[] { (Avalonia.Visual)target }
+                .Concat(target.GetVisualAncestors())
+                .Take(16)
+                .ToList();
+            var parts = new List<string>();
+
+            for (var i = 0; i < visuals.Count; i++)
+            {
+                var visual = visuals[i];
+                var composition = compositionProperty.GetValue(visual);
+                bool? linkedToParent = null;
+                string parentChildrenState = "n/a";
+
+                if (i + 1 < visuals.Count)
+                {
+                    var parentComposition = compositionProperty.GetValue(visuals[i + 1]);
+                    if (composition is null || parentComposition is null)
+                    {
+                        linkedToParent = false;
+                        parentChildrenState = parentComposition is null ? "parent-comp-null" : "child-comp-null";
+                    }
+                    else
+                    {
+                        var childrenProperty = FindProperty(parentComposition.GetType(), "Children");
+                        if (childrenProperty?.GetValue(parentComposition) is IEnumerable children)
+                        {
+                            var childObjects = children.Cast<object>().ToList();
+                            linkedToParent = childObjects.Any(child => ReferenceEquals(child, composition));
+                            parentChildrenState = "count=" + childObjects.Count;
+                        }
+                        else
+                        {
+                            parentChildrenState = "children-unavailable";
+                        }
+                    }
+                }
+
+                parts.Add(
+                    Describe(visual) +
+                    ":comp=" + (composition is null ? "null" : composition.GetType().Name) +
+                    ":linked=" + (linkedToParent.HasValue ? linkedToParent.Value.ToString() : "root") +
+                    ":parentChildren=" + parentChildrenState);
+            }
+
+            SafeStartupTrace.Write("book-title-compositor-chain | " + string.Join(" > ", parts));
+        }
+        catch (Exception ex)
+        {
+            SafeStartupTrace.Write("book-title-compositor-chain | error=" + ex.GetBaseException().Message);
+        }
+    }
+
+    private static PropertyInfo? FindProperty(Type type, string name)
+    {
+        for (var current = type; current is not null; current = current.BaseType)
+        {
+            var property = current.GetProperty(
+                name,
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
+            if (property is not null) return property;
+        }
+        return null;
+    }
+
+    private static string Describe(Avalonia.Visual visual)
+    {
+        if (visual is not Control control) return visual.GetType().Name;
+        return control.GetType().Name +
+               "[name=" + (control.Name ?? "-") +
+               ",bounds=" + control.Bounds +
+               ",visible=" + control.IsVisible +
+               ",hit=" + control.IsHitTestVisible +
+               ",enabled=" + control.IsEnabled +
+               ",z=" + control.ZIndex +
+               ",opacity=" + control.Opacity.ToString("0.##") + "]";
     }
 
     private static T? Field<T>(object owner, string name) where T : class =>
