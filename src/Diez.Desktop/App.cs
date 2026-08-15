@@ -189,6 +189,7 @@ public sealed class App : Application
                 throw new InvalidOperationException("La conferma uscita non è collegata al MainWindow.");
 
             await SingleWindowNativeClickContract.RunAsync(mainWindow);
+            await FlowContractRootMountProbe.EnsureMountedAsync(mainWindow);
             await SingleWindowV11ContractProbe.RunAsync(mainWindow);
             await MultiSubjectUiContractProbe.RunAsync(mainWindow);
             await StructuredSceneUiContractProbeV2.RunAsync(mainWindow);
