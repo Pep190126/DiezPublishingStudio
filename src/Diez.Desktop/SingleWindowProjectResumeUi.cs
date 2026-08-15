@@ -59,7 +59,7 @@ internal static class SingleWindowProjectResumeUi
 
     internal static void Resume(MainWindow window)
     {
-        if (TrySession(window)) SingleWindowNativeV11Ui.ShowStart(window);
+        if (TrySession(window)) SingleWindowStableEntryBridgeUi.ShowStartPrepared(window);
     }
 
     internal static bool HasActiveProject(MainWindow window) => TrySession(window);
@@ -77,7 +77,7 @@ internal static class SingleWindowProjectResumeUi
             await ProjectFileStore.SaveAsync(tempPath, project);
             SetSession(window, project, tempPath);
 
-            SingleWindowNativeV11Ui.ShowStart(window);
+            SingleWindowStableEntryBridgeUi.ShowStartPrepared(window);
             await WaitAsync();
             AssertText(pageHost.Content as Control, "Quale libro stai preparando?");
 
