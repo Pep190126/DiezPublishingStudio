@@ -93,6 +93,7 @@ internal static class HeadlessCiHarness
         // Keep a durable breadcrumb before and after every sub-contract. The workflow has an external
         // process timeout, so even a hard UI hang leaves the last START marker available for diagnosis.
         await RunPhaseAsync(resultFile, nameof(SingleWindowNativeClickContract), () => SingleWindowNativeClickContract.RunAsync(window));
+        await RunPhaseAsync(resultFile, nameof(FlowContractRootMountProbe), () => FlowContractRootMountProbe.EnsureMountedAsync(window));
         await RunPhaseAsync(resultFile, nameof(SingleWindowV11ContractProbe), () => SingleWindowV11ContractProbe.RunAsync(window));
         await RunPhaseAsync(resultFile, nameof(MultiSubjectUiContractProbe), () => MultiSubjectUiContractProbe.RunAsync(window));
         await RunPhaseAsync(resultFile, nameof(StructuredSceneUiContractProbeV2), () => StructuredSceneUiContractProbeV2.RunAsync(window));
