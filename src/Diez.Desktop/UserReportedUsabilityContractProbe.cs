@@ -64,7 +64,8 @@ internal static class UserReportedUsabilityContractProbe
             RequireBounds(materialsList, 120, 40, "box Materiali Home");
 
             var entry = FindHomeEntry(window);
-            entry.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            RequireBounds(entry, 100, 24, "Percorso libro Home");
+            await RequirePhysicalHitAsync(window, entry, "Percorso libro Home");
             await WaitAsync(window, "open-book-flow");
 
             if (!StableWorkflowRootUi.IsWorkflowActive(window))
@@ -166,6 +167,7 @@ internal static class UserReportedUsabilityContractProbe
             SafeStartupTrace.Write(
                 "user-usability-contract | OK" +
                 " | homeMaterials=" + project.Materials.Count +
+                " | homeEntryPhysicalHit=true" +
                 " | titlePhysicalHit=true" +
                 " | titleTextInput=true"+
                 " | homeProject=true" +
