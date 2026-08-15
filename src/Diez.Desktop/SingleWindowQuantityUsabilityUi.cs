@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
@@ -44,8 +45,18 @@ internal static class SingleWindowQuantityUsabilityUi
             Dispatcher.UIThread.Post(() =>
             {
                 ConfigureCurrentPage(pageHost, "loaded");
+
+                // On the affected classic-Win32 path Avalonia can finish measure/arrange while the HWND still
+                // presents the previous page. Force a real window repaint only after the stable layout turn;
+                // this does not reparent controls and does not manually Measure/Arrange anything.
+                ForceWin32Frame(window, "page-content-loaded");
+
                 _ = LoadPreviewAsync(window, pageHost, previewHost);
-                Dispatcher.UIThread.Post(() => ConfigureCurrentPage(pageHost, "render"), DispatcherPriority.Render);
+                Dispatcher.UIThread.Post(() =>
+                {
+                    ConfigureCurrentPage(pageHost, "render");
+                    ForceWin32Frame(window, "page-content-render");
+                }, DispatcherPriority.Render);
             }, DispatcherPriority.Loaded);
         };
 
@@ -154,6 +165,7 @@ internal static class SingleWindowQuantityUsabilityUi
             };
 
             AvaloniaLayoutPumpUi.Execute(window, "quantity-preview-content");
+            ForceWin32Frame(window, "quantity-preview-content");
             SafeStartupTrace.Write(
                 "quantity-usability | preview=image | file=" + imageMaterial.FileName +
                 " | bytes=" + bytes.Length +
@@ -199,6 +211,39 @@ internal static class SingleWindowQuantityUsabilityUi
             " | viewport=" + scroll.Viewport);
     }
 
+    private static void ForceWin32Frame(MainWindow window, string reason)
+    {
+        // Keep Avalonia's own invalidation first. RedrawWindow is only a classic-Win32 presentation fallback
+        // for the observed case where layout is current but the compositor still displays the previous page.
+        window.InvalidateVisual();
+        StableWorkflowRootUi.StableRoot(window)?.InvalidateVisual();
+        StableWorkflowRootUi.WorkflowRoot(window)?.InvalidateVisual();
+
+        if (!OperatingSystem.IsWindows()) return;
+        var handle = window.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
+        if (handle == IntPtr.Zero)
+        {
+            SafeStartupTrace.Write("win32-frame-refresh | reason=" + reason + " | hwnd=none | executed=false");
+            return;
+        }
+
+        try
+        {
+            var flags = RdwInvalidate | RdwErase | RdwAllChildren | RdwUpdateNow | RdwFrame;
+            var executed = RedrawWindow(handle, IntPtr.Zero, IntPtr.Zero, flags);
+            SafeStartupTrace.Write(
+                "win32-frame-refresh | reason=" + reason +
+                " | hwnd=0x" + handle.ToInt64().ToString("X") +
+                " | executed=" + executed);
+        }
+        catch (Exception ex)
+        {
+            SafeStartupTrace.Write(
+                "win32-frame-refresh | reason=" + reason +
+                " | error=" + ex.GetBaseException().GetType().Name + ": " + ex.GetBaseException().Message);
+        }
+    }
+
     private static bool IsImageMaterial(MaterialEntry material) =>
         ImageExtensions.Contains(Path.GetExtension(material.FileName ?? string.Empty));
 
@@ -232,4 +277,14 @@ internal static class SingleWindowQuantityUsabilityUi
             }
         }
     }
+
+    private const uint RdwInvalidate = 0x0001;
+    private const uint RdwErase = 0x0004;
+    private const uint RdwAllChildren = 0x0080;
+    private const uint RdwUpdateNow = 0x0100;
+    private const uint RdwFrame = 0x0400;
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool RedrawWindow(IntPtr hWnd, IntPtr updateRect, IntPtr updateRegion, uint flags);
 }
