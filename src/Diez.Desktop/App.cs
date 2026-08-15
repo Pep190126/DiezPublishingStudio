@@ -98,10 +98,13 @@ public sealed class App : Application
         var modules = new (string Name, Action Attach)[]
         {
             ("Layout principale", () => FriendlyLayoutUi.Attach(window)),
+            // Attach the already-proven owned Win32 Home commands while the original Home Grid is still
+            // the Border child. StableWorkflowRootUi will parent that same Home Grid permanently afterwards.
+            ("Dialoghi Home Windows owned", () => WindowsHomeFileDialogUi.Attach(window)),
             ("Host single-window", () => SingleWindowOverlayFlowUi.Attach(window)),
-            ("Workflow detached prima del layout", () => DetachedWorkflowRootUi.Attach(window)),
+            ("Radice Home/Workflow stabile", () => StableWorkflowRootUi.Attach(window)),
             ("Percorso nativo SW-FLOW-12", () => SingleWindowNativeV11Ui.Attach(window)),
-            ("Ingresso percorso nativo", () => SingleWindowNativeEntryBridgeUi.Attach(window)),
+            ("Ingresso percorso nativo stabile", () => SingleWindowStableEntryBridgeUi.Attach(window)),
             ("Conferma uscita", () => ExitConfirmationUi.Attach(window)),
             ("Identità Tipo libro visuale", () => SingleWindowVisualBookIdentityUi.Attach(window)),
             ("Specifiche immagini", () => SingleWindowImageSpecsQuantityOnlyUi.Attach(window)),
@@ -116,8 +119,7 @@ public sealed class App : Application
             ("Pipeline visuale unica", () => SingleWindowSafeImageContextExportUi.Attach(window)),
             ("Controllo qualità Vision", () => SingleWindowVisionValidationUi.Attach(window)),
             ("Progetto attivo e ripresa percorso", () => SingleWindowProjectResumeUi.Attach(window)),
-            ("Avvio guidato SW-FLOW-12", () => SingleWindowV5StartupUi.Attach(window)),
-            ("Dialoghi Home Windows owned", () => WindowsHomeFileDialogUi.Attach(window))
+            ("Avvio guidato SW-FLOW-12", () => SingleWindowV5StartupUi.Attach(window))
         };
 
         foreach (var module in modules)
@@ -197,7 +199,7 @@ public sealed class App : Application
             await SingleWindowResponseReviewUiContractProbe.RunAsync(mainWindow);
 
             File.WriteAllText(resultFile,
-                "OK\nSW-FLOW-12\nstartup=direct-completed-mainwindow\nproduction-entry=native-v11\nreal-click-quantity-to-prompt=yes\neditable-inputs=native-textbox-safe-startup\nstructured-scenes=optional\nprompt-provider-compiler-current=3.6\nvision-scene-participants=hard\n");
+                "OK\nSW-FLOW-12\nstartup=direct-completed-mainwindow\nproduction-entry=native-v11\nvisual-root=permanent-home-workflow\nruntime-root-swap=no\nreal-click-quantity-to-prompt=yes\neditable-inputs=native-textbox-safe-startup\nstructured-scenes=optional\nprompt-provider-compiler-current=3.6\nvision-scene-participants=hard\n");
             Environment.Exit(0);
         }
         catch (Exception ex)
