@@ -3,7 +3,6 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
-using Avalonia.Media;
 using Avalonia.Threading;
 
 namespace DiezPublishingStudio;
@@ -82,7 +81,7 @@ internal static class SingleWindowStableEntryBridgeUi
 
         window.Closed += (_, _) => Attached.Remove(window);
         SafeStartupTrace.Write(
-            "native-entry-stable-bridge-attached | legacy-disabled=true | input-owner=stable-root | runtime-root-swap=false | page-span=stable-one-column");
+            "native-entry-stable-bridge-attached | legacy-disabled=true | input-owner=stable-root | runtime-root-swap=false | page-span=stable-one-column | body-hit-surface=transparent");
     }
 
     private static void OpenNative(MainWindow window)
@@ -120,7 +119,10 @@ internal static class SingleWindowStableEntryBridgeUi
             !ReferenceEquals(surface, pageSurface) && surface.Child is Control child && Contains(child, previewHost));
         if (pageSurface is null || previewSurface is null) return;
 
-        body.Background = Brushes.White;
+        // The body is a layout container, not an input surface. Giving it a background makes Avalonia return
+        // the Grid itself from InputHitTest on Windows even when an editable child is visibly underneath.
+        // Keep it transparent so pointer hit testing descends into pageSurface/pageHost and the active controls.
+        body.Background = null;
         body.ClipToBounds = true;
         pageSurface.ZIndex = 1;
         pageSurface.IsHitTestVisible = true;
@@ -143,7 +145,7 @@ internal static class SingleWindowStableEntryBridgeUi
             " | pageBounds=" + pageSurface.Bounds +
             " | pageColumnSpan=" + Grid.GetColumnSpan(pageSurface) +
             " | previewVisible=" + previewSurface.IsVisible +
-            " | inputGeometry=stable");
+            " | inputGeometry=stable | bodyHitSurface=transparent");
     }
 
     private static void TraceCurrentPage(MainWindow window, object host, ContentControl pageHost)
