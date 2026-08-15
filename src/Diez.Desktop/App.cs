@@ -114,6 +114,7 @@ public sealed class App : Application
             ("Dialoghi Home Windows owned", () => WindowsHomeFileDialogUi.Attach(window)),
             ("Host single-window", () => SingleWindowOverlayFlowUi.Attach(window)),
             ("Radice Home/Workflow stabile", () => StableWorkflowRootUi.Attach(window)),
+            ("Content host pagine stabile", () => StablePageContentHostUi.Attach(window)),
             ("Percorso nativo SW-FLOW-12", () => SingleWindowNativeV11Ui.Attach(window)),
             ("Ingresso percorso nativo stabile", () => SingleWindowStableEntryBridgeUi.Attach(window)),
             ("Conferma uscita", () => ExitConfirmationUi.Attach(window)),
