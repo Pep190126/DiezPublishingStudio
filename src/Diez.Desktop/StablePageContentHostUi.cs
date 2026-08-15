@@ -12,16 +12,19 @@ namespace DiezPublishingStudio;
 /// physically measured on classic Win32. Avalonia 11.3.18 queues invalidated layout through MediaContext's
 /// next-render callback; on the affected Win32 path that callback can be delayed while the new Content page
 /// remains attached but measure-invalid at 0x0. We first use normal invalidation, then execute Avalonia's own
-/// queued LayoutManager pass only when the page is still zero-sized after Loaded. We never manually Measure/
-/// Arrange controls and never reparent Home/Workflow at runtime.
+/// queued LayoutManager pass only when the page is still layout-invalid after Loaded. The same narrow fallback
+/// is used when an already-mounted page reveals hidden controls, which is the other observed classic-Win32
+/// failure mode. We never manually Measure/Arrange controls and never reparent Home/Workflow at runtime.
 /// </summary>
 internal static class StablePageContentHostUi
 {
     private static readonly HashSet<MainWindow> Attached = [];
+    private static readonly Dictionary<MainWindow, HashSet<Control>> VisibilityWired = [];
 
     public static void Attach(MainWindow window)
     {
         if (!Attached.Add(window)) return;
+        VisibilityWired[window] = [];
 
         var host = SingleWindowEntryPointUi.GetHost(window);
         var pageHost = host.GetType().GetField("_pageHost", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(host) as ContentControl
@@ -33,6 +36,9 @@ internal static class StablePageContentHostUi
         pageHost.PropertyChanged += (_, e) =>
         {
             if (e.Property != ContentControl.ContentProperty) return;
+
+            if (pageHost.Content is Control currentPage)
+                WireDynamicVisibilityLayout(window, pageHost, currentPage);
 
             var presenter = pageHost.Presenter;
             SafeStartupTrace.Write(
@@ -53,6 +59,7 @@ internal static class StablePageContentHostUi
                 var executed = ExecuteQueuedAvaloniaLayoutPassIfNeeded(window, pageHost);
                 SafeStartupTrace.Write(
                     "stable-page-layout-manager-pass" +
+                    " | reason=content-change" +
                     " | executed=" + executed +
                     " | pageBounds=" + ((pageHost.Content as Control)?.Bounds.ToString() ?? "<none>") +
                     " | hostMeasureValid=" + pageHost.IsMeasureValid +
@@ -64,13 +71,54 @@ internal static class StablePageContentHostUi
         };
 
         window.Opened += (_, _) => Dispatcher.UIThread.Post(() => Trace(pageHost, "opened"), DispatcherPriority.Render);
-        window.Closed += (_, _) => Attached.Remove(window);
+        window.Closed += (_, _) =>
+        {
+            Attached.Remove(window);
+            VisibilityWired.Remove(window);
+        };
 
         SafeStartupTrace.Write(
             "stable-page-content-host-attached" +
             " | horizontal=Stretch | vertical=Stretch | manual-arrange=false" +
             " | content-invalidation=measured-workflow-chain" +
-            " | zero-page-fallback=avalonia-layout-manager-pass");
+            " | zero-page-fallback=avalonia-layout-manager-pass" +
+            " | dynamic-visibility-fallback=avalonia-layout-manager-pass");
+    }
+
+    private static void WireDynamicVisibilityLayout(MainWindow window, ContentControl pageHost, Control page)
+    {
+        if (!VisibilityWired.TryGetValue(window, out var wired)) return;
+
+        foreach (var control in Descendants(page))
+        {
+            if (!wired.Add(control)) continue;
+            control.PropertyChanged += (_, change) =>
+            {
+                if (!string.Equals(change.Property.Name, nameof(Control.IsVisible), StringComparison.Ordinal)) return;
+                if (!ReferenceEquals(pageHost.Content, page)) return;
+
+                SafeStartupTrace.Write(
+                    "stable-page-dynamic-visibility" +
+                    " | control=" + (control.Name ?? control.GetType().Name) +
+                    " | visible=" + control.IsVisible +
+                    " | pageBounds=" + page.Bounds);
+
+                InvalidateWorkflowChain(window, pageHost);
+                Dispatcher.UIThread.Post(() =>
+                {
+                    if (!ReferenceEquals(pageHost.Content, page)) return;
+                    var executed = ExecuteQueuedAvaloniaLayoutPassIfNeeded(window, pageHost);
+                    SafeStartupTrace.Write(
+                        "stable-page-layout-manager-pass" +
+                        " | reason=visibility-change" +
+                        " | executed=" + executed +
+                        " | control=" + (control.Name ?? control.GetType().Name) +
+                        " | pageBounds=" + page.Bounds +
+                        " | pageMeasureValid=" + page.IsMeasureValid +
+                        " | pageArrangeValid=" + page.IsArrangeValid);
+                }, DispatcherPriority.Loaded);
+            };
+        }
     }
 
     private static bool ExecuteQueuedAvaloniaLayoutPassIfNeeded(MainWindow window, ContentControl pageHost)
@@ -195,6 +243,34 @@ internal static class StablePageContentHostUi
         catch (Exception ex)
         {
             SafeStartupTrace.Write("stable-page-content-layout | phase=" + phase + " | trace-error=" + ex.GetBaseException().Message);
+        }
+    }
+
+    private static IEnumerable<Control> Descendants(Control root)
+    {
+        var stack = new Stack<Control>();
+        var seen = new HashSet<Control>();
+        stack.Push(root);
+        while (stack.Count > 0)
+        {
+            var current = stack.Pop();
+            if (!seen.Add(current)) continue;
+            yield return current;
+            switch (current)
+            {
+                case Panel panel:
+                    for (var i = panel.Children.Count - 1; i >= 0; i--) stack.Push(panel.Children[i]);
+                    break;
+                case Border border when border.Child is Control child:
+                    stack.Push(child);
+                    break;
+                case ScrollViewer scroll when scroll.Content is Control child:
+                    stack.Push(child);
+                    break;
+                case ContentControl content when content.Content is Control child:
+                    stack.Push(child);
+                    break;
+            }
         }
     }
 }
