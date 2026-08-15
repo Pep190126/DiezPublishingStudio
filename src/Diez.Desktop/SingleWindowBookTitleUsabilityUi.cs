@@ -1,5 +1,7 @@
 using System.Reflection;
 using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
@@ -13,6 +15,7 @@ namespace DiezPublishingStudio;
 internal static class SingleWindowBookTitleUsabilityUi
 {
     private static readonly HashSet<MainWindow> Attached = [];
+    private static readonly HashSet<TextBox> WiredTitles = [];
 
     public static void Attach(MainWindow window)
     {
@@ -55,19 +58,52 @@ internal static class SingleWindowBookTitleUsabilityUi
         const double width = 620;
         field.Width = width;
         field.HorizontalAlignment = HorizontalAlignment.Left;
+        field.IsEnabled = true;
+        field.IsHitTestVisible = true;
         frame.Width = width;
         frame.MaxWidth = width;
         frame.HorizontalAlignment = HorizontalAlignment.Left;
+        frame.IsEnabled = true;
+        frame.IsHitTestVisible = true;
         title.HorizontalAlignment = HorizontalAlignment.Stretch;
         title.TextAlignment = TextAlignment.Left;
+
+        // Do not rely on inherited/default TextBox input state for this late-added field. The installed Win32
+        // failure rendered the field correctly while it behaved like a label. Make its edit contract explicit.
+        title.IsReadOnly = false;
+        title.IsEnabled = true;
+        title.IsHitTestVisible = true;
+        title.Focusable = true;
+        title.IsUndoEnabled = true;
+
+        if (WiredTitles.Add(title))
+        {
+            frame.AddHandler(InputElement.PointerPressedEvent, (_, _) =>
+            {
+                var focused = title.Focus();
+                SafeStartupTrace.Write(
+                    "book-title-input | event=pointer-pressed" +
+                    " | focusRequested=" + focused +
+                    " | enabled=" + title.IsEnabled +
+                    " | hitTest=" + title.IsHitTestVisible +
+                    " | readOnly=" + title.IsReadOnly);
+            }, RoutingStrategies.Tunnel, handledEventsToo: true);
+
+            title.GotFocus += (_, _) => SafeStartupTrace.Write(
+                "book-title-input | event=got-focus | focused=" + title.IsFocused);
+            title.TextChanged += (_, _) => SafeStartupTrace.Write(
+                "book-title-input | event=text-changed | length=" + (title.Text?.Length ?? 0));
+        }
 
         foreach (var label in field.Children.OfType<TextBlock>())
             label.HorizontalAlignment = HorizontalAlignment.Left;
 
+        SingleWindowQuantityUsabilityUi.ForceWin32Frame(window, "book-title-input-ready");
         SafeStartupTrace.Write(
             "book-title-usability | title=" + (title.Text ?? string.Empty) +
             " | source=" + (string.Equals(title.Text, project.Name, StringComparison.Ordinal) ? "project-name" : "edition-title") +
-            " | alignment=left | editable=" + (!title.IsReadOnly && title.IsEnabled));
+            " | alignment=left" +
+            " | editable=" + (!title.IsReadOnly && title.IsEnabled && title.IsHitTestVisible && title.Focusable));
     }
 
     private static T? Field<T>(object owner, string name) where T : class =>
