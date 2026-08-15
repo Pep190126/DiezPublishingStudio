@@ -64,12 +64,11 @@ internal static class SingleWindowBookTitleUsabilityUi
         frame.MaxWidth = width;
         frame.HorizontalAlignment = HorizontalAlignment.Left;
         frame.IsEnabled = true;
-        frame.IsHitTestVisible = true;
+        // The frame is now a decorative sibling behind the TextBox. It must never win physical hit testing.
+        frame.IsHitTestVisible = false;
         title.HorizontalAlignment = HorizontalAlignment.Stretch;
         title.TextAlignment = TextAlignment.Left;
 
-        // Do not rely on inherited/default TextBox input state for this late-added field. The installed Win32
-        // failure rendered the field correctly while it behaved like a label. Make its edit contract explicit.
         title.IsReadOnly = false;
         title.IsEnabled = true;
         title.IsHitTestVisible = true;
@@ -78,12 +77,11 @@ internal static class SingleWindowBookTitleUsabilityUi
 
         if (WiredTitles.Add(title))
         {
-            frame.AddHandler(InputElement.PointerPressedEvent, (_, _) =>
+            title.AddHandler(InputElement.PointerPressedEvent, (_, _) =>
             {
-                var focused = title.Focus();
                 SafeStartupTrace.Write(
                     "book-title-input | event=pointer-pressed" +
-                    " | focusRequested=" + focused +
+                    " | focused=" + title.IsFocused +
                     " | enabled=" + title.IsEnabled +
                     " | hitTest=" + title.IsHitTestVisible +
                     " | readOnly=" + title.IsReadOnly);
