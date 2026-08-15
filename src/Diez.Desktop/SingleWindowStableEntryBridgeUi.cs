@@ -66,8 +66,6 @@ internal static class SingleWindowStableEntryBridgeUi
             if (e.Property != ContentControl.ContentProperty) return;
             if (pageHost.Content is not null)
             {
-                // SingleWindowOverlayFlowHost has already hidden its old direct Home children before setting
-                // Content. Restore those children immediately and select Workflow at the stable-root level.
                 StableWorkflowRootUi.ActivateWorkflow(window);
                 ConfigureWorkflowSurface(host, overlay);
                 TraceCurrentPage(window, host, pageHost);
@@ -75,8 +73,6 @@ internal static class SingleWindowStableEntryBridgeUi
             }
             else
             {
-                // ShowHome sets Content=null before it sets overlay.IsVisible=false. Normalize after that method
-                // completes so Workflow stays parented/measurable but transparent and non-interactive.
                 Dispatcher.UIThread.Post(() => StableWorkflowRootUi.ActivateHome(window), DispatcherPriority.Loaded);
             }
         };
@@ -86,7 +82,7 @@ internal static class SingleWindowStableEntryBridgeUi
 
         window.Closed += (_, _) => Attached.Remove(window);
         SafeStartupTrace.Write(
-            "native-entry-stable-bridge-attached | legacy-disabled=true | input-owner=stable-root | runtime-root-swap=false");
+            "native-entry-stable-bridge-attached | legacy-disabled=true | input-owner=stable-root | runtime-root-swap=false | page-span=stable-one-column");
     }
 
     private static void OpenNative(MainWindow window)
@@ -134,15 +130,20 @@ internal static class SingleWindowStableEntryBridgeUi
         var title = Field<TextBlock>(host, "_title")?.Text ?? string.Empty;
         var bookTypePage = string.Equals(title, "Tipo libro", StringComparison.Ordinal);
         previewSurface.IsVisible = !bookTypePage;
+
+        // Keep the interactive page surface in one invariant grid slot. The installed Windows path and the
+        // physical CI hit-test both proved that changing ColumnSpan at runtime can update rendering while the
+        // input map remains on the old geometry. Hiding the preview must not reshape the page hit-test tree.
         Grid.SetColumn(pageSurface, 0);
-        Grid.SetColumnSpan(pageSurface, bookTypePage ? Math.Max(1, body.ColumnDefinitions.Count) : 1);
+        Grid.SetColumnSpan(pageSurface, 1);
 
         SafeStartupTrace.Write(
             "ui-surface-layout | title=" + (string.IsNullOrWhiteSpace(title) ? "<untitled>" : title) +
             " | stableRoot=true | bodyBounds=" + body.Bounds +
             " | pageBounds=" + pageSurface.Bounds +
             " | pageColumnSpan=" + Grid.GetColumnSpan(pageSurface) +
-            " | previewVisible=" + previewSurface.IsVisible);
+            " | previewVisible=" + previewSurface.IsVisible +
+            " | inputGeometry=stable");
     }
 
     private static void TraceCurrentPage(MainWindow window, object host, ContentControl pageHost)
