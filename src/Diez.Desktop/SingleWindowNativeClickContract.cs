@@ -122,10 +122,15 @@ internal static class SingleWindowNativeClickContract
             throw new InvalidOperationException("Home/Workflow non sono entrambi parented alla radice stabile durante " + stage + ".");
         if (window.Content is not Border border || !ReferenceEquals(border.Child, stableRoot))
             throw new InvalidOperationException("MainWindow non conserva la radice visuale stabile durante " + stage + ".");
+
+        // Permanent-input-tree invariant: neither surface is ever removed from hit testing. Workflow owns the
+        // active pointer surface only because it is opaque and above Home; Home remains registered underneath
+        // with opacity zero. This keeps both subtrees in the platform hit map from first parent onward.
         if (!overlay.IsVisible || !overlay.IsEnabled || !overlay.IsHitTestVisible ||
-            homeRoot.IsEnabled || homeRoot.IsHitTestVisible)
+            !homeRoot.IsVisible || !homeRoot.IsEnabled || !homeRoot.IsHitTestVisible ||
+            overlay.ZIndex <= homeRoot.ZIndex || overlay.Opacity <= homeRoot.Opacity)
             throw new InvalidOperationException(
-                $"Ownership stabile errata durante {stage}: workflowVisible={overlay.IsVisible}, workflowEnabled={overlay.IsEnabled}, workflowHit={overlay.IsHitTestVisible}, homeEnabled={homeRoot.IsEnabled}, homeHit={homeRoot.IsHitTestVisible}.");
+                $"Ownership stabile errata durante {stage}: workflowVisible={overlay.IsVisible}, workflowEnabled={overlay.IsEnabled}, workflowHit={overlay.IsHitTestVisible}, workflowZ={overlay.ZIndex}, workflowOpacity={overlay.Opacity}, homeVisible={homeRoot.IsVisible}, homeEnabled={homeRoot.IsEnabled}, homeHit={homeRoot.IsHitTestVisible}, homeZ={homeRoot.ZIndex}, homeOpacity={homeRoot.Opacity}.");
     }
 
     private static async Task WaitUntilAsync(
