@@ -27,6 +27,14 @@ public sealed class App : Application
             if (rasterProbe || flowProbe || homeFileDialogProbe)
             {
                 var mainWindow = new MainWindow(startupProjectPath);
+                var probeOpened = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                mainWindow.Opened += (_, _) =>
+                {
+                    probeOpened.TrySetResult(true);
+                    SafeStartupTrace.Write(
+                        "probe-mainwindow-opened | visible=" + mainWindow.IsVisible +
+                        " | clientSize=" + mainWindow.ClientSize);
+                };
                 desktop.MainWindow = mainWindow;
 
                 Dispatcher.UIThread.Post(async () =>
@@ -39,7 +47,7 @@ public sealed class App : Application
                     else if (rasterProbe)
                         await RunRasterProbeAsync(mainWindow);
                     else
-                        await RunFlowProbeAsync(mainWindow);
+                        await RunFlowProbeAsync(mainWindow, probeOpened.Task);
                 }, DispatcherPriority.Loaded);
             }
             else
@@ -98,8 +106,6 @@ public sealed class App : Application
         var modules = new (string Name, Action Attach)[]
         {
             ("Layout principale", () => FriendlyLayoutUi.Attach(window)),
-            // Attach the already-proven owned Win32 Home commands while the original Home Grid is still
-            // the Border child. StableWorkflowRootUi will parent that same Home Grid permanently afterwards.
             ("Dialoghi Home Windows owned", () => WindowsHomeFileDialogUi.Attach(window)),
             ("Host single-window", () => SingleWindowOverlayFlowUi.Attach(window)),
             ("Radice Home/Workflow stabile", () => StableWorkflowRootUi.Attach(window)),
@@ -179,34 +185,23 @@ public sealed class App : Application
         }
     }
 
-    private static async Task RunFlowProbeAsync(MainWindow mainWindow)
+    private static async Task RunFlowProbeAsync(MainWindow mainWindow, Task openedTask)
     {
         var resultFile = Path.Combine(AppContext.BaseDirectory, "ui-flow-contract.txt");
         try
         {
             if (File.Exists(resultFile)) File.Delete(resultFile);
 
-            // The classic Win32 probe must not infer presentation from IsVisible alone. Wait for the actual
-            // TopLevel.Opened event first; only then is it meaningful to require physical stable-root bounds.
             if (!mainWindow.IsVisible)
-            {
-                var opened = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-                void OnOpened(object? sender, EventArgs args) => opened.TrySetResult(true);
-                mainWindow.Opened += OnOpened;
-                try
-                {
-                    mainWindow.Show();
-                    var completed = await Task.WhenAny(opened.Task, Task.Delay(3000));
-                    if (!ReferenceEquals(completed, opened.Task))
-                        throw new TimeoutException("Classic flow probe non ha ricevuto MainWindow.Opened entro 3 secondi.");
-                    await opened.Task;
-                    SafeStartupTrace.Write("classic-flow-window-opened | visible=" + mainWindow.IsVisible + " | clientSize=" + mainWindow.ClientSize);
-                }
-                finally
-                {
-                    mainWindow.Opened -= OnOpened;
-                }
-            }
+                mainWindow.Show();
+
+            var openedCompleted = await Task.WhenAny(openedTask, Task.Delay(3000));
+            if (!ReferenceEquals(openedCompleted, openedTask))
+                throw new TimeoutException("Classic flow probe non ha ricevuto MainWindow.Opened entro 3 secondi.");
+            await openedTask;
+            SafeStartupTrace.Write(
+                "classic-flow-window-opened | visible=" + mainWindow.IsVisible +
+                " | clientSize=" + mainWindow.ClientSize);
 
             await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Render);
             await WaitForClassicProbeLayoutAsync(mainWindow);
