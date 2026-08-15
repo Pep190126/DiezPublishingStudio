@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
@@ -81,7 +82,7 @@ internal static class UserReportedUsabilityContractProbe
                 titleField.HorizontalAlignment != HorizontalAlignment.Left)
                 throw new InvalidOperationException("Il Titolo del libro non è allineato a sinistra con la label.");
             RequireBounds(title, 180, 26, "Titolo del libro");
-            RequirePhysicalHit(window, title, "Titolo del libro");
+            await RequirePhysicalHitAsync(window, title, "Titolo del libro");
 
             var originalTitle = title.Text ?? string.Empty;
             if (!title.Focus() || !title.IsFocused)
@@ -133,7 +134,7 @@ internal static class UserReportedUsabilityContractProbe
             var verticalBar = scroll.GetVisualDescendants().OfType<ScrollBar>()
                 .FirstOrDefault(bar => bar.Orientation == Orientation.Vertical && bar.Bounds.Width > 0 && bar.Bounds.Height > 20)
                 ?? throw new InvalidOperationException("Coloring 1/4 dichiara scrollbar verticale visibile ma non espone una ScrollBar verticale fisicamente misurata.");
-            RequirePhysicalHit(window, verticalBar, "ScrollBar verticale Coloring 1/4");
+            await RequirePhysicalHitAsync(window, verticalBar, "ScrollBar verticale Coloring 1/4");
 
             scroll.Offset = new Vector(scroll.Offset.X, 0);
             using (var pointer = new Avalonia.Input.Pointer(0xD1E2, PointerType.Mouse, true))
@@ -207,7 +208,7 @@ internal static class UserReportedUsabilityContractProbe
                 $"Il controllo '{label}' non partecipa al layout fisico: {control.Bounds.Width:0.##} × {control.Bounds.Height:0.##}.");
     }
 
-    private static void RequirePhysicalHit(MainWindow window, Control target, string label)
+    private static async Task RequirePhysicalHitAsync(MainWindow window, Control target, string label)
     {
         var center = new Point(Math.Max(1, target.Bounds.Width / 2), Math.Max(1, target.Bounds.Height / 2));
         var windowPoint = target.TranslatePoint(center, window)
@@ -229,9 +230,62 @@ internal static class UserReportedUsabilityContractProbe
             " | hitPath=" + VisualPath(hitVisual) +
             " | targetPath=" + VisualPath(target));
 
-        if (!reachesTarget)
-            throw new InvalidOperationException(
-                $"Il punto fisico di '{label}' viene intercettato da '{hit?.GetType().FullName ?? "<null>"}' invece del controllo atteso.");
+        if (!OperatingSystem.IsWindows())
+        {
+            if (!reachesTarget)
+                throw new InvalidOperationException(
+                    $"Il punto fisico di '{label}' viene intercettato da '{hit?.GetType().FullName ?? "<null>"}' invece del controllo atteso.");
+            return;
+        }
+
+        var routedPressed = false;
+        target.AddHandler(InputElement.PointerPressedEvent, OnPressed,
+            RoutingStrategies.Tunnel | RoutingStrategies.Bubble, handledEventsToo: true);
+        GetCursorPos(out var previousCursor);
+        try
+        {
+            var screenPoint = window.PointToScreen(windowPoint);
+            var handle = window.TryGetPlatformHandle();
+            if (handle is not null && string.Equals(handle.HandleDescriptor, "HWND", StringComparison.OrdinalIgnoreCase))
+                SetForegroundWindow(handle.Handle);
+            if (!SetCursorPos(screenPoint.X, screenPoint.Y))
+                throw new InvalidOperationException($"Non riesco a posizionare il puntatore Win32 su '{label}'.");
+
+            var inputs = new[]
+            {
+                new INPUT { type = INPUT_MOUSE, U = new InputUnion { mi = new MOUSEINPUT { dwFlags = MOUSEEVENTF_LEFTDOWN } } },
+                new INPUT { type = INPUT_MOUSE, U = new InputUnion { mi = new MOUSEINPUT { dwFlags = MOUSEEVENTF_LEFTUP } } }
+            };
+            var sent = SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<INPUT>());
+            if (sent != inputs.Length)
+                throw new InvalidOperationException($"SendInput ha inviato {sent}/{inputs.Length} eventi per '{label}' (Win32={Marshal.GetLastWin32Error()}).");
+
+            await WaitAsync(window, "native-pointer-" + label.Replace(' ', '-'), 100);
+            SafeStartupTrace.Write(
+                "physical-native-pointer | target=" + label +
+                " | screenPoint=" + screenPoint +
+                " | routedPressed=" + routedPressed +
+                " | programmaticHit=" + reachesTarget);
+
+            if (!routedPressed)
+                throw new InvalidOperationException(
+                    $"Il click Win32 reale sul centro di '{label}' non attraversa il controllo target.");
+        }
+        finally
+        {
+            target.RemoveHandler(InputElement.PointerPressedEvent, OnPressed);
+            SetCursorPos(previousCursor.X, previousCursor.Y);
+        }
+
+        void OnPressed(object? sender, PointerPressedEventArgs e)
+        {
+            routedPressed = true;
+            SafeStartupTrace.Write(
+                "physical-native-pointer | target=" + label +
+                " | event=pointer-pressed" +
+                " | source=" + (e.Source?.GetType().FullName ?? "<null>") +
+                " | targetFocused=" + target.IsFocused);
+        }
     }
 
     private static string VisualPath(Visual? visual)
@@ -294,4 +348,54 @@ internal static class UserReportedUsabilityContractProbe
             }
         }
     }
+
+    private const uint INPUT_MOUSE = 0;
+    private const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
+    private const uint MOUSEEVENTF_LEFTUP = 0x0004;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct INPUT
+    {
+        public uint type;
+        public InputUnion U;
+    }
+
+    [StructLayout(LayoutKind.Explicit)]
+    private struct InputUnion
+    {
+        [FieldOffset(0)] public MOUSEINPUT mi;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MOUSEINPUT
+    {
+        public int dx;
+        public int dy;
+        public uint mouseData;
+        public uint dwFlags;
+        public uint time;
+        public UIntPtr dwExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct POINT
+    {
+        public int X;
+        public int Y;
+    }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern uint SendInput(uint cInputs, INPUT[] pInputs, int cbSize);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetCursorPos(int x, int y);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetCursorPos(out POINT point);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
 }
