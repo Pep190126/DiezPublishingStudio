@@ -131,6 +131,7 @@ public sealed class App : Application
             ("Prompt Compiler 3.6", () => SingleWindowPromptTargetAiUi.Attach(window)),
             ("Contesto immagini V3", () => SingleWindowAiImageContextUi.Attach(window)),
             ("Anteprima e scroll Quantità", () => SingleWindowQuantityUsabilityUi.Attach(window)),
+            ("Layout dinamico Consistent", () => SingleWindowDynamicLayoutPumpUi.Attach(window)),
             ("Pipeline visuale unica", () => SingleWindowSafeImageContextExportUi.Attach(window)),
             ("Controllo qualità Vision", () => SingleWindowVisionValidationUi.Attach(window)),
             ("Progetto attivo e ripresa percorso", () => SingleWindowProjectResumeUi.Attach(window)),
