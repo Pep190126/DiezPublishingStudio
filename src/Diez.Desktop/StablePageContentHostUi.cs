@@ -10,7 +10,8 @@ namespace DiezPublishingStudio;
 /// <summary>
 /// Owns only the permanent workflow page ContentControl layout policy. The stable top-level root is already
 /// physically measured on classic Win32; this module keeps each dynamically replaced page stretched inside
-/// that measured host and records the actual presenter/child geometry without forcing Measure/Arrange manually.
+/// that measured host and explicitly reschedules the host measure when Content changes. It never calls
+/// Measure/Arrange directly and never touches the top-level stable root.
 /// </summary>
 internal static class StablePageContentHostUi
 {
@@ -30,6 +31,21 @@ internal static class StablePageContentHostUi
         pageHost.PropertyChanged += (_, e) =>
         {
             if (e.Property != ContentControl.ContentProperty) return;
+
+            var presenter = pageHost.Presenter;
+            SafeStartupTrace.Write(
+                "stable-page-content-invalidate" +
+                " | hostMeasureValidBefore=" + pageHost.IsMeasureValid +
+                " | hostArrangeValidBefore=" + pageHost.IsArrangeValid +
+                " | presenterMeasureValidBefore=" + (presenter?.IsMeasureValid.ToString() ?? "<none>") +
+                " | presenterArrangeValidBefore=" + (presenter?.IsArrangeValid.ToString() ?? "<none>") +
+                " | action=InvalidateMeasure(host-only)");
+
+            // On classic Win32 the ContentPresenter and the new page become measure-invalid after Content changes,
+            // while ContentControl itself can incorrectly remain measure-valid. Invalidate the host so Avalonia's
+            // normal layout manager propagates a fresh measure pass; do not manually Measure/Arrange children.
+            pageHost.InvalidateMeasure();
+
             Dispatcher.UIThread.Post(() => Trace(pageHost), DispatcherPriority.Render);
         };
 
@@ -38,7 +54,7 @@ internal static class StablePageContentHostUi
 
         SafeStartupTrace.Write(
             "stable-page-content-host-attached" +
-            " | horizontal=Stretch | vertical=Stretch | manual-arrange=false");
+            " | horizontal=Stretch | vertical=Stretch | manual-arrange=false | content-invalidation=host-measure");
     }
 
     private static void Trace(ContentControl pageHost)
