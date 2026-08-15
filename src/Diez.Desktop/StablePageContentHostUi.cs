@@ -9,9 +9,10 @@ namespace DiezPublishingStudio;
 
 /// <summary>
 /// Owns only the permanent workflow page ContentControl layout policy. The stable top-level root is already
-/// physically measured on classic Win32; this module keeps each dynamically replaced page stretched inside
-/// that measured host and explicitly reschedules the host measure when Content changes. It never calls
-/// Measure/Arrange directly and never touches the top-level stable root.
+/// physically measured on classic Win32. When Content changes, classic Win32 can leave the new page and its
+/// ContentPresenter measure-invalid at 0x0 even though pageHost already has valid bounds. Reschedule Avalonia's
+/// normal layout from the nearest already-measured workflow ancestors; never call Measure/Arrange manually and
+/// never reparent Home/Workflow at runtime.
 /// </summary>
 internal static class StablePageContentHostUi
 {
@@ -39,25 +40,73 @@ internal static class StablePageContentHostUi
                 " | hostArrangeValidBefore=" + pageHost.IsArrangeValid +
                 " | presenterMeasureValidBefore=" + (presenter?.IsMeasureValid.ToString() ?? "<none>") +
                 " | presenterArrangeValidBefore=" + (presenter?.IsArrangeValid.ToString() ?? "<none>") +
-                " | action=InvalidateMeasure(host-only)");
+                " | action=InvalidateMeasuredWorkflowChain");
 
-            // On classic Win32 the ContentPresenter and the new page become measure-invalid after Content changes,
-            // while ContentControl itself can incorrectly remain measure-valid. Invalidate the host so Avalonia's
-            // normal layout manager propagates a fresh measure pass; do not manually Measure/Arrange children.
-            pageHost.InvalidateMeasure();
+            InvalidateWorkflowChain(window, pageHost);
 
-            Dispatcher.UIThread.Post(() => Trace(pageHost), DispatcherPriority.Render);
+            // ContentPresenter realization itself can happen after the Content property notification. Repeat the
+            // same normal invalidation once at Loaded so the newly realized presenter/page participates in the
+            // next layout pass. This is deliberately not a manual Measure/Arrange workaround.
+            Dispatcher.UIThread.Post(() =>
+            {
+                InvalidateWorkflowChain(window, pageHost);
+                Trace(pageHost, "loaded");
+                Dispatcher.UIThread.Post(() => Trace(pageHost, "render"), DispatcherPriority.Render);
+            }, DispatcherPriority.Loaded);
         };
 
-        window.Opened += (_, _) => Dispatcher.UIThread.Post(() => Trace(pageHost), DispatcherPriority.Render);
+        window.Opened += (_, _) => Dispatcher.UIThread.Post(() => Trace(pageHost, "opened"), DispatcherPriority.Render);
         window.Closed += (_, _) => Attached.Remove(window);
 
         SafeStartupTrace.Write(
             "stable-page-content-host-attached" +
-            " | horizontal=Stretch | vertical=Stretch | manual-arrange=false | content-invalidation=host-measure");
+            " | horizontal=Stretch | vertical=Stretch | manual-arrange=false" +
+            " | content-invalidation=measured-workflow-chain");
     }
 
-    private static void Trace(ContentControl pageHost)
+    private static void InvalidateWorkflowChain(MainWindow window, ContentControl pageHost)
+    {
+        var workflowRoot = StableWorkflowRootUi.WorkflowRoot(window);
+        var presenter = pageHost.Presenter;
+        if (presenter is not null)
+        {
+            presenter.HorizontalContentAlignment = HorizontalAlignment.Stretch;
+            presenter.VerticalContentAlignment = VerticalAlignment.Stretch;
+            Invalidate(presenter);
+        }
+
+        if (pageHost.Content is Control page)
+        {
+            page.HorizontalAlignment = HorizontalAlignment.Stretch;
+            page.VerticalAlignment = VerticalAlignment.Stretch;
+            Invalidate(page);
+        }
+
+        Control? current = pageHost;
+        var seen = new HashSet<Control>();
+        while (current is not null && seen.Add(current))
+        {
+            Invalidate(current);
+            if (workflowRoot is not null && ReferenceEquals(current, workflowRoot)) break;
+            current = current.Parent as Control;
+        }
+
+        SafeStartupTrace.Write(
+            "stable-page-content-chain" +
+            " | hostBounds=" + pageHost.Bounds +
+            " | presenterBounds=" + (presenter?.Bounds.ToString() ?? "<none>") +
+            " | workflowBounds=" + (workflowRoot?.Bounds.ToString() ?? "<none>") +
+            " | reachedWorkflowRoot=" + (workflowRoot is not null && seen.Contains(workflowRoot)));
+    }
+
+    private static void Invalidate(Control control)
+    {
+        control.InvalidateMeasure();
+        control.InvalidateArrange();
+        control.InvalidateVisual();
+    }
+
+    private static void Trace(ContentControl pageHost, string phase)
     {
         try
         {
@@ -68,6 +117,7 @@ internal static class StablePageContentHostUi
 
             SafeStartupTrace.Write(
                 "stable-page-content-layout" +
+                " | phase=" + phase +
                 " | hostBounds=" + pageHost.Bounds +
                 " | hostDesired=" + pageHost.DesiredSize +
                 " | hostVisible=" + pageHost.IsVisible +
@@ -98,7 +148,7 @@ internal static class StablePageContentHostUi
         }
         catch (Exception ex)
         {
-            SafeStartupTrace.Write("stable-page-content-layout | trace-error=" + ex.GetBaseException().Message);
+            SafeStartupTrace.Write("stable-page-content-layout | phase=" + phase + " | trace-error=" + ex.GetBaseException().Message);
         }
     }
 }
