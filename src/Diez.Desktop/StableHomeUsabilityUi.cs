@@ -29,7 +29,14 @@ internal static class StableHomeUsabilityUi
                 text.StartsWith("Aperto:", StringComparison.OrdinalIgnoreCase) ||
                 text.StartsWith("Creato pacchetto", StringComparison.OrdinalIgnoreCase))
             {
-                Dispatcher.UIThread.Post(() => RefreshMaterials(window, selectLatest: text.StartsWith("Importati ", StringComparison.OrdinalIgnoreCase)), DispatcherPriority.Loaded);
+                Dispatcher.UIThread.Post(() =>
+                {
+                    RefreshMaterials(window, selectLatest: text.StartsWith("Importati ", StringComparison.OrdinalIgnoreCase));
+                    SingleWindowQuantityUsabilityUi.ForceWin32Frame(window,
+                        text.StartsWith("Aperto:", StringComparison.OrdinalIgnoreCase) ? "home-project-opened" :
+                        text.StartsWith("Importati ", StringComparison.OrdinalIgnoreCase) ? "home-materials-imported" :
+                        "home-project-created");
+                }, DispatcherPriority.Loaded);
             }
         };
 
@@ -37,7 +44,7 @@ internal static class StableHomeUsabilityUi
         RefreshMaterials(window, selectLatest: false);
 
         window.Closed += (_, _) => Attached.Remove(window);
-        SafeStartupTrace.Write("stable-home-usability | attached=true | material-refresh=explicit | home-return=synchronous");
+        SafeStartupTrace.Write("stable-home-usability | attached=true | material-refresh=explicit | home-return=synchronous | win32-refresh=project-mutations");
     }
 
     private static void WireHomeProjectButton(MainWindow window)
@@ -55,6 +62,7 @@ internal static class StableHomeUsabilityUi
         {
             StableWorkflowRootUi.ActivateHome(window);
             RefreshMaterials(window, selectLatest: false);
+            SingleWindowQuantityUsabilityUi.ForceWin32Frame(window, "home-project-button");
             SafeStartupTrace.Write("stable-home-usability | action=home-project | activeHome=true");
         };
     }
