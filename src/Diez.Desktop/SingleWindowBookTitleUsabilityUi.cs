@@ -41,9 +41,8 @@ internal static class SingleWindowBookTitleUsabilityUi
         if (project is null || pageHost.Content is not Control page) return;
 
         var title = Descendants(page).OfType<TextBox>().FirstOrDefault(c => c.Name == "DiezBookTitle");
-        var frame = Descendants(page).OfType<Border>().FirstOrDefault(c => c.Name == "DiezBookTitleFrame");
         var field = Descendants(page).OfType<StackPanel>().FirstOrDefault(c => c.Name == "DiezBookTitleField");
-        if (title is null || frame is null || field is null) return;
+        if (title is null || field is null) return;
 
         if (string.IsNullOrWhiteSpace(project.EditionMetadata.Title))
         {
@@ -60,14 +59,14 @@ internal static class SingleWindowBookTitleUsabilityUi
         field.HorizontalAlignment = HorizontalAlignment.Left;
         field.IsEnabled = true;
         field.IsHitTestVisible = true;
-        frame.Width = width;
-        frame.MaxWidth = width;
-        frame.HorizontalAlignment = HorizontalAlignment.Left;
-        frame.IsEnabled = true;
-        // The frame is now a decorative sibling behind the TextBox. It must never win physical hit testing.
-        frame.IsHitTestVisible = false;
-        title.HorizontalAlignment = HorizontalAlignment.Stretch;
+        title.Width = width;
+        title.MaxWidth = width;
+        title.HorizontalAlignment = HorizontalAlignment.Left;
         title.TextAlignment = TextAlignment.Left;
+        title.Background = Brushes.White;
+        title.Foreground = Brushes.Black;
+        title.BorderBrush = Brushes.Gray;
+        title.BorderThickness = new Avalonia.Thickness(2);
 
         title.IsReadOnly = false;
         title.IsEnabled = true;
