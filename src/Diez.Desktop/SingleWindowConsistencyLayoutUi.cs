@@ -1,15 +1,16 @@
 using System.Reflection;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Threading;
 
 namespace DiezPublishingStudio;
 
 /// <summary>
-/// Keeps the native Consistent section physically attached to the Quantity layout. On classic Win32
-/// Avalonia, toggling the whole panel from IsVisible=false to true underneath the page ScrollViewer can
-/// leave that panel at 0x0 even though the containing page is fully measured. OFF therefore collapses
-/// the already-attached panel to zero height instead of removing it from layout participation; ON restores
-/// automatic height and schedules normal Avalonia layout invalidation. No reparenting or Win32 repainting.
+/// Repairs one classic-desktop layout edge discovered by the physical flow probe. NativeConsistencyEditor
+/// correctly toggles DiezConsistencyCriteriaPanel.IsVisible, but on classic Win32 the ScrollViewer can keep
+/// the extent measured while the panel was collapsed. After NativeConsistent changes, this module forces a
+/// fresh Avalonia measure/arrange of the current Quantity ScrollViewer only. It never reparents the workflow
+/// and never calls Win32 repaint APIs.
 /// </summary>
 internal static class SingleWindowConsistencyLayoutUi
 {
@@ -52,31 +53,26 @@ internal static class SingleWindowConsistencyLayoutUi
 
         if (consistent is null || panel is null || notes is null) return;
 
-        void Apply() => ApplyState(pageHost, page, panel, notes, consistent.IsChecked == true);
-
         if (Wired.Add(consistent))
-            consistent.IsCheckedChanged += (_, _) => Apply();
+        {
+            // NativeConsistencyEditor registered its handler when the page was constructed, before this
+            // module sees the page. Its IsVisible change therefore happens first; we then remeasure the
+            // already-mounted scroll surface using that new visibility state.
+            consistent.IsCheckedChanged += (_, _) =>
+                ScheduleLayout(pageHost, page, panel, notes, consistent.IsChecked == true);
+        }
 
-        // NativeConsistencyEditor may have constructed the panel with IsVisible=false before it was
-        // attached to the page. Normalize that state immediately once the real page is mounted.
-        Apply();
+        if (consistent.IsChecked == true)
+            ScheduleLayout(pageHost, page, panel, notes, enabled: true);
     }
 
-    private static void ApplyState(
+    private static void ScheduleLayout(
         ContentControl pageHost,
         Control page,
         Control panel,
         TextBox notes,
         bool enabled)
     {
-        panel.IsVisible = true;
-        panel.IsEnabled = enabled;
-        panel.IsHitTestVisible = enabled;
-        panel.Opacity = enabled ? 1d : 0d;
-        panel.MinHeight = 0d;
-        panel.Height = enabled ? double.NaN : 0d;
-        panel.ClipToBounds = !enabled;
-
         InvalidateLayoutChain(panel);
         Invalidate(page);
         Invalidate(pageHost);
@@ -84,19 +80,29 @@ internal static class SingleWindowConsistencyLayoutUi
 
         Dispatcher.UIThread.Post(() =>
         {
-            InvalidateLayoutChain(panel);
-            Invalidate(page);
-            Invalidate(pageHost);
-            Trace("loaded", enabled, pageHost, page, panel, notes);
+            ForceCurrentPageLayout(pageHost, page);
+            Trace("forced-layout", enabled, pageHost, page, panel, notes);
 
             Dispatcher.UIThread.Post(() =>
             {
-                InvalidateLayoutChain(panel);
-                Invalidate(page);
-                Invalidate(pageHost);
                 Trace("render", enabled, pageHost, page, panel, notes);
             }, DispatcherPriority.Render);
         }, DispatcherPriority.Loaded);
+    }
+
+    private static void ForceCurrentPageLayout(ContentControl pageHost, Control page)
+    {
+        var width = pageHost.Bounds.Width;
+        var height = pageHost.Bounds.Height;
+        if (width <= 0 || height <= 0) return;
+
+        var viewport = new Size(width, height);
+        page.InvalidateMeasure();
+        page.InvalidateArrange();
+        page.Measure(viewport);
+        page.Arrange(new Rect(0, 0, width, height));
+        page.InvalidateVisual();
+        pageHost.InvalidateVisual();
     }
 
     private static void InvalidateLayoutChain(Control start)
@@ -131,8 +137,6 @@ internal static class SingleWindowConsistencyLayoutUi
             "consistency-layout | phase=" + phase +
             " | enabled=" + enabled +
             " | panelVisible=" + panel.IsVisible +
-            " | panelEnabled=" + panel.IsEnabled +
-            " | panelHeight=" + (double.IsNaN(panel.Height) ? "Auto" : panel.Height.ToString("0.##")) +
             " | pageHostBounds=" + pageHost.Bounds +
             " | pageBounds=" + page.Bounds +
             " | panelParent=" + (panelParent?.GetType().Name ?? "<null>") +
