@@ -127,12 +127,23 @@ internal static class SingleWindowPhysicalScreenshotProbe
     {
         var overlay = host.GetType().GetField("_overlay", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(host) as Grid
             ?? throw new InvalidOperationException("Workflow root raster non disponibile durante " + stage + ".");
-        if (window.Content is not Border border || !ReferenceEquals(border.Child, overlay))
-            throw new InvalidOperationException("Workflow non montato come Border.Child durante " + stage + ".");
-        if (!ReferenceEquals(overlay.Parent, border))
-            throw new InvalidOperationException("Parent fisico del workflow errato durante " + stage + ".");
+        var stableRoot = StableWorkflowRootUi.StableRoot(window)
+            ?? throw new InvalidOperationException("Radice stabile raster non disponibile durante " + stage + ".");
+        var homeRoot = StableWorkflowRootUi.HomeRoot(window)
+            ?? throw new InvalidOperationException("Home root raster non disponibile durante " + stage + ".");
 
+        if (!StableWorkflowRootUi.IsWorkflowActive(window))
+            throw new InvalidOperationException("Workflow non attivo nella radice stabile durante " + stage + ".");
+        if (window.Content is not Border border || !ReferenceEquals(border.Child, stableRoot))
+            throw new InvalidOperationException("MainWindow non conserva la radice stabile durante " + stage + ".");
+        if (!ReferenceEquals(overlay.Parent, stableRoot) || !ReferenceEquals(homeRoot.Parent, stableRoot))
+            throw new InvalidOperationException("Home e Workflow non sono entrambi parented alla radice stabile durante " + stage + ".");
+        if (homeRoot.IsEnabled || homeRoot.IsHitTestVisible || !overlay.IsEnabled || !overlay.IsHitTestVisible)
+            throw new InvalidOperationException("Ownership input stabile errata durante " + stage + ".");
+
+        RequireBounds(stableRoot, 200, 150, "stable root " + stage);
         RequireBounds(overlay, 200, 150, "workflow root " + stage);
+        RequireBounds(homeRoot, 200, 150, "home root mantenuto " + stage);
         RequireBounds(pageHost, 100, 60, "pageHost " + stage);
         if (pageHost.Content is Control page)
             RequireBounds(page, 100, 50, "pagina " + stage);
