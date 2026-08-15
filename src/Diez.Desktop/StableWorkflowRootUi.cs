@@ -45,6 +45,22 @@ internal static class StableWorkflowRootUi
         overlay.Background = null;
         overlay.ClipToBounds = true;
 
+        // Stable-root invariant: the Workflow is never collapsed. It must already be visible before receiving
+        // its first parent, otherwise Windows can keep a platform hit-test map that excludes the subtree even
+        // after Avalonia later measures and paints it. Home/Workflow ownership is expressed only through
+        // opacity, IsEnabled and IsHitTestVisible.
+        overlay.IsVisible = true;
+        overlay.Opacity = 0;
+        overlay.IsEnabled = false;
+        overlay.IsHitTestVisible = false;
+        overlay.PropertyChanged += (_, e) =>
+        {
+            if (!string.Equals(e.Property.Name, "IsVisible", StringComparison.Ordinal) || overlay.IsVisible) return;
+            overlay.IsVisible = true;
+            SafeStartupTrace.Write(
+                "stable-root-visibility-guard | surface=workflow | requested=false | coerced=true");
+        };
+
         var stableRoot = new Grid
         {
             Name = RootName,
@@ -66,6 +82,8 @@ internal static class StableWorkflowRootUi
             " | homeParent=" + (homeRoot.Parent?.GetType().Name ?? "<null>") +
             " | workflowParent=" + (overlay.Parent?.GetType().Name ?? "<null>") +
             " | workflowMargin=" + overlay.Margin +
+            " | workflowVisibleBeforeFirstParent=true" +
+            " | workflowVisibilityOwnedByStableRoot=true" +
             " | workflowHitSurface=transparent" +
             " | runtime-reparenting=false");
     }
@@ -94,6 +112,7 @@ internal static class StableWorkflowRootUi
             " | homeBounds=" + state.HomeRoot.Bounds +
             " | workflowBounds=" + state.Overlay.Bounds +
             " | workflowMargin=" + state.Overlay.Margin +
+            " | workflowVisibilityOwnedByStableRoot=true" +
             " | workflowHitSurface=transparent" +
             " | runtime-reparenting=false");
     }
@@ -109,6 +128,7 @@ internal static class StableWorkflowRootUi
             " | homeBounds=" + state.HomeRoot.Bounds +
             " | workflowBounds=" + state.Overlay.Bounds +
             " | workflowMargin=" + state.Overlay.Margin +
+            " | workflowVisibilityOwnedByStableRoot=true" +
             " | workflowHitSurface=transparent" +
             " | runtime-reparenting=false");
     }
