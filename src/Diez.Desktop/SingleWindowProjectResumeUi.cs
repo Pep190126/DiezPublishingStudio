@@ -22,13 +22,7 @@ internal static class SingleWindowProjectResumeUi
         if (entry is null)
             throw new InvalidOperationException("Ingresso nativo unico Percorso libro non disponibile per il resume progetto.");
 
-        void RefreshLabel()
-        {
-            entry.Content = TrySession(window) ? "Avanti · Tipo libro" : "Percorso libro";
-            ToolTip.SetTip(entry, TrySession(window)
-                ? "Il progetto aperto resta attivo. Riprendi dalla scelta del Tipo libro."
-                : "Crea o apri un progetto, poi percorri il libro nella stessa finestra.");
-        }
+        void RefreshLabel() => RefreshEntry(window);
 
         entry.PointerEntered += (_, _) => RefreshLabel();
         entry.GotFocus += (_, _) => RefreshLabel();
@@ -57,8 +51,25 @@ internal static class SingleWindowProjectResumeUi
         SafeStartupTrace.Write("project-resume | native-entry-reused=true");
     }
 
+    internal static void RefreshEntry(MainWindow window)
+    {
+        var entry = Descendants(window).OfType<Button>().FirstOrDefault(b =>
+            string.Equals(b.Name, SingleWindowNativeEntryBridgeUi.NativeEntryName, StringComparison.Ordinal));
+        if (entry is null) return;
+
+        var active = TrySession(window);
+        entry.Content = active ? "Avanti · Tipo libro" : "Percorso libro";
+        ToolTip.SetTip(entry, active
+            ? "Il progetto aperto resta attivo. Riprendi dalla scelta del Tipo libro."
+            : "Crea o apri un progetto, poi percorri il libro nella stessa finestra.");
+        SafeStartupTrace.Write(
+            "project-resume-label | activeProject=" + active +
+            " | content=" + (entry.Content?.ToString() ?? string.Empty));
+    }
+
     internal static void Resume(MainWindow window)
     {
+        RefreshEntry(window);
         if (TrySession(window)) SingleWindowStableEntryBridgeUi.ShowStartPrepared(window);
     }
 
