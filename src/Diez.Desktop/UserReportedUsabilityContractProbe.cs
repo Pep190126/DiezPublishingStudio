@@ -2,11 +2,13 @@ using System.Collections;
 using System.Reflection;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 
 namespace DiezPublishingStudio;
 
@@ -79,9 +81,10 @@ internal static class UserReportedUsabilityContractProbe
             if (title.TextAlignment != TextAlignment.Left || frame.HorizontalAlignment != HorizontalAlignment.Left)
                 throw new InvalidOperationException("Il Titolo del libro non è allineato a sinistra con la label.");
             RequireBounds(title, 180, 26, "Titolo del libro");
+            RequirePhysicalHit(window, title, "Titolo del libro");
 
-            // Exercise TextBox input routing instead of merely reading IsEnabled/IsReadOnly. This catches the
-            // installed-app failure where the field looked correct but behaved like a non-editable label.
+            // Exercise TextBox input routing after proving that its physical coordinates actually hit the
+            // TextBox visual subtree. The previous contract skipped that geometric ownership check.
             var originalTitle = title.Text ?? string.Empty;
             if (!title.Focus() || !title.IsFocused)
                 throw new InvalidOperationException("Il Titolo del libro non accetta il focus reale.");
@@ -130,8 +133,13 @@ internal static class UserReportedUsabilityContractProbe
             if (scroll.Extent.Height <= scroll.Viewport.Height + 1)
                 throw new InvalidOperationException($"Coloring 1/4 non risulta scrollabile: extent={scroll.Extent}, viewport={scroll.Viewport}.");
 
-            // Route an actual PointerWheelChanged event through the ScrollViewer. The old contract assigned Offset
-            // directly and therefore passed even when a physical mouse wheel did nothing over child editors.
+            var verticalBar = scroll.GetVisualDescendants().OfType<ScrollBar>()
+                .FirstOrDefault(bar => bar.Orientation == Orientation.Vertical && bar.Bounds.Width > 0 && bar.Bounds.Height > 20)
+                ?? throw new InvalidOperationException("Coloring 1/4 dichiara scrollbar verticale visibile ma non espone una ScrollBar verticale fisicamente misurata.");
+            RequirePhysicalHit(window, verticalBar, "ScrollBar verticale Coloring 1/4");
+
+            // Route an actual PointerWheelChanged event through the ScrollViewer after verifying the physical
+            // hit target. Direct RaiseEvent alone is not accepted as proof that a real mouse can reach the page.
             scroll.Offset = new Vector(scroll.Offset.X, 0);
             using (var pointer = new Avalonia.Input.Pointer(0xD1E2, PointerType.Mouse, true))
             {
@@ -163,8 +171,10 @@ internal static class UserReportedUsabilityContractProbe
             SafeStartupTrace.Write(
                 "user-usability-contract | OK" +
                 " | homeMaterials=" + project.Materials.Count +
+                " | titlePhysicalHit=true" +
                 " | titleTextInput=true" +
                 " | homeProject=true" +
+                " | scrollBarPhysicalHit=true" +
                 " | wheelInput=true" +
                 " | scrollExtent=" + scroll.Extent +
                 " | scrollViewport=" + scroll.Viewport +
@@ -201,6 +211,29 @@ internal static class UserReportedUsabilityContractProbe
         if (control.Bounds.Width < minWidth || control.Bounds.Height < minHeight)
             throw new InvalidOperationException(
                 $"Il controllo '{label}' non partecipa al layout fisico: {control.Bounds.Width:0.##} × {control.Bounds.Height:0.##}.");
+    }
+
+    private static void RequirePhysicalHit(MainWindow window, Control target, string label)
+    {
+        var center = new Point(Math.Max(1, target.Bounds.Width / 2), Math.Max(1, target.Bounds.Height / 2));
+        var windowPoint = target.TranslatePoint(center, window)
+            ?? throw new InvalidOperationException($"Il controllo '{label}' non può tradurre le proprie coordinate verso MainWindow.");
+        var hit = window.InputHitTest(windowPoint);
+        var hitVisual = hit as Visual;
+        var reachesTarget = hitVisual is not null &&
+            (ReferenceEquals(hitVisual, target) || hitVisual.GetVisualAncestors().Any(ancestor => ReferenceEquals(ancestor, target)));
+
+        SafeStartupTrace.Write(
+            "physical-input-hit | target=" + label +
+            " | point=" + windowPoint +
+            " | hitType=" + (hit?.GetType().FullName ?? "<null>") +
+            " | hitName=" + ((hit as Control)?.Name ?? "<unnamed>") +
+            " | reachesTarget=" + reachesTarget +
+            " | targetBounds=" + target.Bounds);
+
+        if (!reachesTarget)
+            throw new InvalidOperationException(
+                $"Il punto fisico di '{label}' viene intercettato da '{hit?.GetType().FullName ?? "<null>"}' invece del controllo atteso.");
     }
 
     private static T Require<T>(Control root, string name) where T : Control =>
