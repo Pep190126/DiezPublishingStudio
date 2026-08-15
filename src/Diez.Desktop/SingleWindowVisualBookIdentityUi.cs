@@ -78,44 +78,23 @@ internal static class SingleWindowVisualBookIdentityUi
                 (text.Text ?? string.Empty).Contains("Quale libro stai preparando?", StringComparison.OrdinalIgnoreCase)));
         if (root is null) return;
 
+        // The TextBox itself is both the visual box and the input surface. Do not wrap it in a painted
+        // Border/Grid: the installed Win32 path proved those wrappers can win physical hit testing.
         var title = new TextBox
         {
             Name = "DiezBookTitle",
             Text = project.EditionMetadata?.Title ?? string.Empty,
             Watermark = "Titolo del libro",
-            MinHeight = 40,
+            MinHeight = 42,
             MaxWidth = 620,
             HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
             Background = Brushes.White,
             Foreground = Brushes.Black,
-            BorderThickness = new Thickness(0),
-            Padding = new Thickness(9, 7),
-            ZIndex = 1
-        };
-        title.TextChanged += (_, _) => project.EditionMetadata.Title = (title.Text ?? string.Empty).Trim();
-
-        // The outline is a sibling behind the TextBox, never its input parent. A Border with a painted
-        // background was the physical hit target on Win32 and prevented the TextBox from receiving the mouse.
-        var titleFrame = new Border
-        {
-            Name = "DiezBookTitleFrame",
-            MaxWidth = 620,
-            MinHeight = 42,
-            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
-            Background = Brushes.White,
             BorderBrush = Brushes.Gray,
             BorderThickness = new Thickness(2),
-            CornerRadius = new CornerRadius(3),
-            IsHitTestVisible = false,
-            ZIndex = 0
+            Padding = new Thickness(9, 7)
         };
-        var titleSurface = new Grid
-        {
-            MaxWidth = 620,
-            MinHeight = 42,
-            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
-            Children = { titleFrame, title }
-        };
+        title.TextChanged += (_, _) => project.EditionMetadata.Title = (title.Text ?? string.Empty).Trim();
 
         var field = new StackPanel
         {
@@ -124,7 +103,7 @@ internal static class SingleWindowVisualBookIdentityUi
             Children =
             {
                 new TextBlock { Text = "Titolo del libro", FontSize = 15 },
-                titleSurface,
+                title,
                 new TextBlock
                 {
                     Text = "Serve per nomi file leggibili (diez-[titolo]-prompt-pack/response-vNNN). L'identità interna del progetto resta l'ID Diez.",
