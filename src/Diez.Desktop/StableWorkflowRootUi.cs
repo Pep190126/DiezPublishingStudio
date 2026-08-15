@@ -7,8 +7,8 @@ namespace DiezPublishingStudio;
 /// <summary>
 /// Permanent single-window visual root. Home and Workflow are parented once during startup and are never
 /// reparented during navigation. Both surfaces stay measurable and permanently registered for pointer input;
-/// opacity and Z-order alone select the active surface. Full transparent root hit surfaces prevent pointer
-/// fall-through to the inactive sibling without removing either subtree from Avalonia's hit-test tree.
+/// opacity and Z-order alone select the active surface. Workflow uses a separate transparent backstop behind
+/// its content so empty-area clicks cannot fall through without making the Workflow root itself terminal.
 /// </summary>
 internal static class StableWorkflowRootUi
 {
@@ -42,13 +42,24 @@ internal static class StableWorkflowRootUi
         overlay.Margin = new Avalonia.Thickness(0);
         overlay.ClipToBounds = true;
 
-        // Input-tree invariant: unlike the previous implementation, neither root is ever disabled or removed
-        // from hit testing. The physical Windows contract proved that Home (born hittable) receives SendInput,
-        // while Workflow (born IsHitTestVisible=false/IsEnabled=false) can remain absent from platform hit testing
-        // after later activation even though Avalonia Bounds and rendering are correct. Keep both roots registered
-        // from the start and use an all-area transparent surface plus Z-order to prevent click-through.
+        // Input-tree invariant: neither root is ever disabled or removed from hit testing. The physical Windows
+        // contract proved that this permanently registers the Workflow branch, but a transparent Background on
+        // the Workflow Grid made that Grid itself the terminal hit surface. Keep the root background null so
+        // Avalonia descends into header/body/page controls, then add a transparent full-area backstop underneath
+        // all real Workflow content to prevent empty-area pointer fall-through to Home.
         homeRoot.Background ??= Avalonia.Media.Brushes.Transparent;
-        overlay.Background = Avalonia.Media.Brushes.Transparent;
+        overlay.Background = null;
+        var workflowBackstop = new Border
+        {
+            Background = Avalonia.Media.Brushes.Transparent,
+            IsHitTestVisible = true,
+            IsEnabled = true,
+            ZIndex = -100
+        };
+        Grid.SetRow(workflowBackstop, 0);
+        Grid.SetRowSpan(workflowBackstop, Math.Max(1, overlay.RowDefinitions.Count));
+        overlay.Children.Insert(0, workflowBackstop);
+
         homeRoot.IsVisible = true;
         homeRoot.IsEnabled = true;
         homeRoot.IsHitTestVisible = true;
@@ -76,7 +87,7 @@ internal static class StableWorkflowRootUi
         stableRoot.Children.Add(overlay);
         border.Child = stableRoot;
 
-        var state = new RootState(border, stableRoot, homeRoot, overlay);
+        var state = new RootState(border, stableRoot, homeRoot, overlay, workflowBackstop);
         States[window] = state;
         ActivateHomeCore(state);
 
@@ -90,7 +101,8 @@ internal static class StableWorkflowRootUi
             " | workflowVisibilityOwnedByStableRoot=true" +
             " | permanentInputTree=true" +
             " | inputOwnership=z-order" +
-            " | rootHitSurfaces=transparent" +
+            " | workflowRootHitSurface=null" +
+            " | workflowBackstop=transparent-behind-content" +
             " | runtime-reparenting=false");
     }
 
@@ -110,6 +122,9 @@ internal static class StableWorkflowRootUi
         state.Overlay.IsEnabled = true;
         state.Overlay.IsHitTestVisible = true;
         state.Overlay.ZIndex = 1;
+        state.WorkflowBackstop.IsVisible = true;
+        state.WorkflowBackstop.IsEnabled = true;
+        state.WorkflowBackstop.IsHitTestVisible = true;
         state.WorkflowActive = true;
 
         Invalidate(state.StableRoot);
@@ -123,7 +138,8 @@ internal static class StableWorkflowRootUi
             " | inputOwnership=z-order" +
             " | homeHit=" + state.HomeRoot.IsHitTestVisible +
             " | workflowHit=" + state.Overlay.IsHitTestVisible +
-            " | rootHitSurfaces=transparent" +
+            " | workflowRootHitSurface=null" +
+            " | workflowBackstopBounds=" + state.WorkflowBackstop.Bounds +
             " | runtime-reparenting=false");
     }
 
@@ -142,7 +158,8 @@ internal static class StableWorkflowRootUi
             " | inputOwnership=z-order" +
             " | homeHit=" + state.HomeRoot.IsHitTestVisible +
             " | workflowHit=" + state.Overlay.IsHitTestVisible +
-            " | rootHitSurfaces=transparent" +
+            " | workflowRootHitSurface=null" +
+            " | workflowBackstopBounds=" + state.WorkflowBackstop.Bounds +
             " | runtime-reparenting=false");
     }
 
@@ -154,7 +171,9 @@ internal static class StableWorkflowRootUi
                ReferenceEquals(border.Child, state.StableRoot) &&
                ReferenceEquals(state.HomeRoot.Parent, state.StableRoot) &&
                ReferenceEquals(state.Overlay.Parent, state.StableRoot) &&
+               ReferenceEquals(state.WorkflowBackstop.Parent, state.Overlay) &&
                state.Overlay.IsVisible && state.Overlay.IsHitTestVisible && state.Overlay.IsEnabled &&
+               state.WorkflowBackstop.IsVisible && state.WorkflowBackstop.IsHitTestVisible && state.WorkflowBackstop.IsEnabled &&
                state.HomeRoot.IsVisible && state.HomeRoot.IsHitTestVisible && state.HomeRoot.IsEnabled &&
                state.Overlay.ZIndex > state.HomeRoot.ZIndex && state.Overlay.Opacity > state.HomeRoot.Opacity;
     }
@@ -178,13 +197,16 @@ internal static class StableWorkflowRootUi
         state.HomeRoot.IsHitTestVisible = true;
         state.HomeRoot.ZIndex = 1;
 
-        // Workflow remains fully registered for input below the Home surface. The transparent Home root catches
-        // empty-area clicks while its higher ZIndex prevents pointer fall-through to this invisible sibling.
+        // Workflow remains fully registered for input below the Home surface. Home has the higher ZIndex, while
+        // the Workflow backstop remains part of the lower subtree so the platform never has to register it later.
         state.Overlay.IsVisible = true;
         state.Overlay.Opacity = 0;
         state.Overlay.IsEnabled = true;
         state.Overlay.IsHitTestVisible = true;
         state.Overlay.ZIndex = 0;
+        state.WorkflowBackstop.IsVisible = true;
+        state.WorkflowBackstop.IsEnabled = true;
+        state.WorkflowBackstop.IsHitTestVisible = true;
         state.WorkflowActive = false;
     }
 
@@ -209,18 +231,20 @@ internal static class StableWorkflowRootUi
 
     private sealed class RootState
     {
-        public RootState(Border border, Grid stableRoot, Grid homeRoot, Grid overlay)
+        public RootState(Border border, Grid stableRoot, Grid homeRoot, Grid overlay, Border workflowBackstop)
         {
             Border = border;
             StableRoot = stableRoot;
             HomeRoot = homeRoot;
             Overlay = overlay;
+            WorkflowBackstop = workflowBackstop;
         }
 
         public Border Border { get; }
         public Grid StableRoot { get; }
         public Grid HomeRoot { get; }
         public Grid Overlay { get; }
+        public Border WorkflowBackstop { get; }
         public bool WorkflowActive { get; set; }
     }
 }
