@@ -9,10 +9,11 @@ namespace DiezPublishingStudio;
 
 /// <summary>
 /// Owns only the permanent workflow page ContentControl layout policy. The stable top-level root is already
-/// physically measured on classic Win32. When Content changes, classic Win32 can leave the new page and its
-/// ContentPresenter measure-invalid at 0x0 even though pageHost already has valid bounds. Reschedule Avalonia's
-/// normal layout from the nearest already-measured workflow ancestors; never call Measure/Arrange manually and
-/// never reparent Home/Workflow at runtime.
+/// physically measured on classic Win32. Avalonia 11.3.18 queues invalidated layout through MediaContext's
+/// next-render callback; on the affected Win32 path that callback can be delayed while the new Content page
+/// remains attached but measure-invalid at 0x0. We first use normal invalidation, then execute Avalonia's own
+/// queued LayoutManager pass only when the page is still zero-sized after Loaded. We never manually Measure/
+/// Arrange controls and never reparent Home/Workflow at runtime.
 /// </summary>
 internal static class StablePageContentHostUi
 {
@@ -44,13 +45,20 @@ internal static class StablePageContentHostUi
 
             InvalidateWorkflowChain(window, pageHost);
 
-            // ContentPresenter realization itself can happen after the Content property notification. Repeat the
-            // same normal invalidation once at Loaded so the newly realized presenter/page participates in the
-            // next layout pass. This is deliberately not a manual Measure/Arrange workaround.
             Dispatcher.UIThread.Post(() =>
             {
                 InvalidateWorkflowChain(window, pageHost);
-                Trace(pageHost, "loaded");
+                Trace(pageHost, "loaded-before-pass");
+
+                var executed = ExecuteQueuedAvaloniaLayoutPassIfNeeded(window, pageHost);
+                SafeStartupTrace.Write(
+                    "stable-page-layout-manager-pass" +
+                    " | executed=" + executed +
+                    " | pageBounds=" + ((pageHost.Content as Control)?.Bounds.ToString() ?? "<none>") +
+                    " | hostMeasureValid=" + pageHost.IsMeasureValid +
+                    " | hostArrangeValid=" + pageHost.IsArrangeValid);
+
+                Trace(pageHost, "loaded-after-pass");
                 Dispatcher.UIThread.Post(() => Trace(pageHost, "render"), DispatcherPriority.Render);
             }, DispatcherPriority.Loaded);
         };
@@ -61,7 +69,45 @@ internal static class StablePageContentHostUi
         SafeStartupTrace.Write(
             "stable-page-content-host-attached" +
             " | horizontal=Stretch | vertical=Stretch | manual-arrange=false" +
-            " | content-invalidation=measured-workflow-chain");
+            " | content-invalidation=measured-workflow-chain" +
+            " | zero-page-fallback=avalonia-layout-manager-pass");
+    }
+
+    private static bool ExecuteQueuedAvaloniaLayoutPassIfNeeded(MainWindow window, ContentControl pageHost)
+    {
+        var page = pageHost.Content as Control;
+        if (page is null || !page.IsAttachedToVisualTree) return false;
+        if (page.Bounds.Width > 0 && page.Bounds.Height > 0 && page.IsMeasureValid && page.IsArrangeValid) return false;
+
+        try
+        {
+            // TopLevel.LayoutManager is internal in Avalonia 11.3.18, while its concrete manager exposes the
+            // standard ExecuteLayoutPass method. The app already pins this Avalonia version; keep the reflection
+            // isolated here and fall back safely if the framework surface changes in a future upgrade.
+            var layoutManagerProperty = typeof(TopLevel).GetProperty(
+                "LayoutManager",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            var layoutManager = layoutManagerProperty?.GetValue(window);
+            var execute = layoutManager?.GetType().GetMethod(
+                "ExecuteLayoutPass",
+                BindingFlags.Instance | BindingFlags.Public);
+
+            if (layoutManager is null || execute is null)
+            {
+                SafeStartupTrace.Write("stable-page-layout-manager-pass | reflection=unavailable");
+                return false;
+            }
+
+            execute.Invoke(layoutManager, null);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            SafeStartupTrace.Write(
+                "stable-page-layout-manager-pass | error=" + ex.GetBaseException().GetType().Name +
+                ": " + ex.GetBaseException().Message);
+            return false;
+        }
     }
 
     private static void InvalidateWorkflowChain(MainWindow window, ContentControl pageHost)
