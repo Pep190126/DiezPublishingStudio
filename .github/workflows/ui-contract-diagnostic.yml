@@ -32,25 +32,32 @@ jobs:
             if (Test-Path $resultFile) {
               Write-Host "--- partial ui-flow-contract.txt ---"
               Get-Content $resultFile
+              Copy-Item $resultFile "artifacts\publish\ui-headless-flow-contract.txt" -Force
             }
             Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
             throw "Deterministic UI flow timed out; inspect the last START breadcrumb above."
           }
           $process.WaitForExit()
           Write-Host "Headless real-UI-tree exit code: $($process.ExitCode)"
+          if (Test-Path $resultFile) {
+            Copy-Item $resultFile "artifacts\publish\ui-headless-flow-contract.txt" -Force
+          }
           if ($process.ExitCode -ne 0) {
             if (Test-Path $resultFile) { Get-Content $resultFile }
             throw "Deterministic UI flow failed with exit code $($process.ExitCode)"
           }
 
-      # GitHub-hosted Windows runners are non-interactive and may reject Dispatcher.MainLoop even when
-      # the installed app is healthy. Keep this probe for startup logs, but do not misclassify the runner's
-      # PlatformNotSupportedException as an application regression.
+      # This diagnostic must run even if the headless backend itself fails (for example because its
+      # synthetic font service is unavailable). It exercises the classic desktop lifetime, which is
+      # closer to the installed Windows application. Keep its result separate from the headless file.
       - name: Probe classic desktop lifetime for diagnostics
+        if: always()
         continue-on-error: true
         shell: powershell
         run: |
           $exe = (Resolve-Path "artifacts\publish\DiezPublishingStudio.exe").Path
+          $resultFile = "artifacts\publish\ui-flow-contract.txt"
+          if (Test-Path $resultFile) { Remove-Item $resultFile -Force }
           $process = Start-Process -FilePath $exe -ArgumentList "--ui-flow-contract" -PassThru
           $completed = $process.WaitForExit(60000)
           if (-not $completed) {
@@ -60,8 +67,11 @@ jobs:
             $process.WaitForExit()
             Write-Host "Classic desktop diagnostic exit code: $($process.ExitCode)"
           }
-          $resultFile = "artifacts\publish\ui-flow-contract.txt"
-          if (Test-Path $resultFile) { Get-Content $resultFile }
+          if (Test-Path $resultFile) {
+            Write-Host "--- classic ui-flow-contract.txt ---"
+            Get-Content $resultFile
+            Copy-Item $resultFile "artifacts\publish\ui-classic-flow-contract.txt" -Force
+          }
           $fatal = Join-Path $env:LOCALAPPDATA "Diez Publishing Studio\logs\fatal-errors.log"
           $startup = Join-Path $env:LOCALAPPDATA "Diez Publishing Studio\logs\startup-errors.log"
           if (Test-Path $fatal) { Write-Host "--- fatal-errors.log ---"; Get-Content $fatal }
@@ -75,6 +85,8 @@ jobs:
           name: Diez-UI-Flow-Diagnostic
           path: |
             artifacts/publish/ui-flow-contract.txt
+            artifacts/publish/ui-headless-flow-contract.txt
+            artifacts/publish/ui-classic-flow-contract.txt
             artifacts/publish/ui-headless-startup-error.txt
           if-no-files-found: ignore
           retention-days: 7
