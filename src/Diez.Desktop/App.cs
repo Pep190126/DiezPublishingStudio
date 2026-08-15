@@ -185,7 +185,13 @@ public sealed class App : Application
         try
         {
             if (File.Exists(resultFile)) File.Delete(resultFile);
-            await Task.Delay(150);
+
+            // Unlike the raster probe, the historical classic-flow probe could begin before MainWindow
+            // had ever been shown. The old root-swap recovery accidentally masked that by manually laying
+            // out detached controls. A physical stable-root contract must start from an actually presented
+            // window, exactly as the installed application does.
+            if (!mainWindow.IsVisible) mainWindow.Show();
+            await WaitForClassicProbeLayoutAsync(mainWindow);
 
             if (!ExitConfirmationUi.IsAttached(mainWindow))
                 throw new InvalidOperationException("La conferma uscita non è collegata al MainWindow.");
@@ -207,5 +213,32 @@ public sealed class App : Application
             try { File.WriteAllText(resultFile, ex.ToString()); } catch { }
             Environment.Exit(2);
         }
+    }
+
+    private static async Task WaitForClassicProbeLayoutAsync(MainWindow mainWindow)
+    {
+        for (var i = 0; i < 40; i++)
+        {
+            await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Render);
+            var root = StableWorkflowRootUi.StableRoot(mainWindow);
+            var home = StableWorkflowRootUi.HomeRoot(mainWindow);
+            var workflow = StableWorkflowRootUi.WorkflowRoot(mainWindow);
+            if (root is not null && home is not null && workflow is not null &&
+                root.Bounds.Width > 0 && root.Bounds.Height > 0 &&
+                home.Bounds.Width > 0 && home.Bounds.Height > 0 &&
+                workflow.Bounds.Width > 0 && workflow.Bounds.Height > 0)
+            {
+                SafeStartupTrace.Write(
+                    "classic-flow-window-ready | stableRoot=true" +
+                    " | rootBounds=" + root.Bounds +
+                    " | homeBounds=" + home.Bounds +
+                    " | workflowBounds=" + workflow.Bounds);
+                return;
+            }
+            await Task.Delay(25);
+        }
+
+        throw new InvalidOperationException(
+            "Classic flow probe non ha ottenuto una MainWindow fisicamente misurata prima del contract.");
     }
 }
