@@ -6,9 +6,9 @@ namespace DiezPublishingStudio;
 
 /// <summary>
 /// Permanent single-window visual root. Home and Workflow are parented once during startup and are never
-/// reparented during navigation. Workflow stays permanently registered for pointer input; Home stays mounted
-/// and measurable but is removed from hit testing only while Workflow is active. Workflow uses a separate
-/// transparent backstop behind its content so empty-area clicks cannot fall through to Home.
+/// reparented during navigation. Workflow stays permanently visible, opaque and registered for pointer input;
+/// Home stays mounted, opaque and measurable but is removed from hit testing only while Workflow is active.
+/// Surface ownership changes only through Z-order and the Home hit gate, never through root opacity.
 /// </summary>
 internal static class StableWorkflowRootUi
 {
@@ -42,12 +42,11 @@ internal static class StableWorkflowRootUi
         overlay.Margin = new Avalonia.Thickness(0);
         overlay.ClipToBounds = true;
 
-        // Workflow must be registered for input from its first parent onward; that was the critical branch that
-        // previously failed when enabled late. Home is different: it is born interactive and already passes the
-        // physical Win32 click probe, so while Workflow owns the surface Home can safely be gated out of hit
-        // testing without ever unregistering Workflow. A transparent full-area backstop remains behind Workflow
-        // content so empty-area pointer input cannot fall through when Home is gated.
-        homeRoot.Background ??= Avalonia.Media.Brushes.Transparent;
+        // Never use root opacity as a navigation switch. On classic Win32 the Avalonia property could become 1
+        // while the long-lived CompositionVisual remained at opacity 0, leaving both pixels and pointer hit-test
+        // stale. Home instead gets an opaque surface matching the window/root background so it can cover the
+        // always-opaque Workflow when Home owns the higher Z-order.
+        homeRoot.Background ??= window.Background ?? border.Background ?? Avalonia.Media.Brushes.White;
         overlay.Background = null;
         var workflowBackstop = new Border
         {
@@ -61,10 +60,11 @@ internal static class StableWorkflowRootUi
         overlay.Children.Insert(0, workflowBackstop);
 
         homeRoot.IsVisible = true;
+        homeRoot.Opacity = 1;
         homeRoot.IsEnabled = true;
         homeRoot.IsHitTestVisible = true;
         overlay.IsVisible = true;
-        overlay.Opacity = 0;
+        overlay.Opacity = 1;
         overlay.IsEnabled = true;
         overlay.IsHitTestVisible = true;
         overlay.ZIndex = 0;
@@ -100,8 +100,9 @@ internal static class StableWorkflowRootUi
             " | workflowVisibleBeforeFirstParent=true" +
             " | workflowVisibilityOwnedByStableRoot=true" +
             " | workflowPermanentlyHitTestable=true" +
+            " | surfacesPermanentlyOpaque=true" +
             " | inactiveHomeHitGate=true" +
-            " | inputOwnership=workflow-permanent-home-gated" +
+            " | inputOwnership=z-order-home-gate-no-opacity" +
             " | workflowRootHitSurface=null" +
             " | workflowBackstop=transparent-behind-content" +
             " | runtime-reparenting=false");
@@ -113,7 +114,7 @@ internal static class StableWorkflowRootUi
         RestoreHomeChildren(state.HomeRoot);
 
         state.HomeRoot.IsVisible = true;
-        state.HomeRoot.Opacity = 0;
+        state.HomeRoot.Opacity = 1;
         state.HomeRoot.IsEnabled = true;
         state.HomeRoot.IsHitTestVisible = false;
         state.HomeRoot.ZIndex = 0;
@@ -136,10 +137,13 @@ internal static class StableWorkflowRootUi
             " | workflowBounds=" + state.Overlay.Bounds +
             " | workflowMargin=" + state.Overlay.Margin +
             " | workflowPermanentlyHitTestable=true" +
+            " | surfacesPermanentlyOpaque=true" +
             " | inactiveHomeHitGate=true" +
-            " | inputOwnership=workflow-permanent-home-gated" +
+            " | inputOwnership=z-order-home-gate-no-opacity" +
             " | homeHit=" + state.HomeRoot.IsHitTestVisible +
             " | workflowHit=" + state.Overlay.IsHitTestVisible +
+            " | homeOpacity=" + state.HomeRoot.Opacity +
+            " | workflowOpacity=" + state.Overlay.Opacity +
             " | workflowRootHitSurface=null" +
             " | workflowBackstopBounds=" + state.WorkflowBackstop.Bounds +
             " | runtime-reparenting=false");
@@ -157,10 +161,13 @@ internal static class StableWorkflowRootUi
             " | workflowBounds=" + state.Overlay.Bounds +
             " | workflowMargin=" + state.Overlay.Margin +
             " | workflowPermanentlyHitTestable=true" +
+            " | surfacesPermanentlyOpaque=true" +
             " | inactiveHomeHitGate=true" +
-            " | inputOwnership=workflow-permanent-home-gated" +
+            " | inputOwnership=z-order-home-gate-no-opacity" +
             " | homeHit=" + state.HomeRoot.IsHitTestVisible +
             " | workflowHit=" + state.Overlay.IsHitTestVisible +
+            " | homeOpacity=" + state.HomeRoot.Opacity +
+            " | workflowOpacity=" + state.Overlay.Opacity +
             " | workflowRootHitSurface=null" +
             " | workflowBackstopBounds=" + state.WorkflowBackstop.Bounds +
             " | runtime-reparenting=false");
@@ -175,10 +182,10 @@ internal static class StableWorkflowRootUi
                ReferenceEquals(state.HomeRoot.Parent, state.StableRoot) &&
                ReferenceEquals(state.Overlay.Parent, state.StableRoot) &&
                ReferenceEquals(state.WorkflowBackstop.Parent, state.Overlay) &&
-               state.Overlay.IsVisible && state.Overlay.IsHitTestVisible && state.Overlay.IsEnabled &&
+               state.Overlay.IsVisible && state.Overlay.IsHitTestVisible && state.Overlay.IsEnabled && state.Overlay.Opacity == 1 &&
                state.WorkflowBackstop.IsVisible && state.WorkflowBackstop.IsHitTestVisible && state.WorkflowBackstop.IsEnabled &&
-               state.HomeRoot.IsVisible && !state.HomeRoot.IsHitTestVisible && state.HomeRoot.IsEnabled &&
-               state.Overlay.ZIndex > state.HomeRoot.ZIndex && state.Overlay.Opacity > state.HomeRoot.Opacity;
+               state.HomeRoot.IsVisible && !state.HomeRoot.IsHitTestVisible && state.HomeRoot.IsEnabled && state.HomeRoot.Opacity == 1 &&
+               state.Overlay.ZIndex > state.HomeRoot.ZIndex;
     }
 
     public static bool IsInstalled(MainWindow window)
@@ -200,11 +207,10 @@ internal static class StableWorkflowRootUi
         state.HomeRoot.IsHitTestVisible = true;
         state.HomeRoot.ZIndex = 1;
 
-        // Workflow remains fully registered for input below the Home surface. Home is a full transparent hit
-        // surface while active, so pointer input cannot reach the lower Workflow subtree. Activating Workflow
-        // never requires re-registering it with the platform; only Home's already-proven hit gate changes.
+        // Workflow remains visible, opaque, enabled and hit-test registered below Home for its entire lifetime.
+        // Navigation never asks the compositor to synchronize a 0 -> 1 root opacity transition again.
         state.Overlay.IsVisible = true;
-        state.Overlay.Opacity = 0;
+        state.Overlay.Opacity = 1;
         state.Overlay.IsEnabled = true;
         state.Overlay.IsHitTestVisible = true;
         state.Overlay.ZIndex = 0;
@@ -217,8 +223,8 @@ internal static class StableWorkflowRootUi
     private static void RestoreHomeChildren(Grid homeRoot)
     {
         // SingleWindowOverlayFlowHost historically hides these direct Home children when showing a page.
-        // Under the stable-root model Home itself is hidden by opacity/Z-order, so its children remain visible
-        // and measurable to avoid a collapsed-subtree problem on return.
+        // Under the stable-root model Home itself is selected by Z-order, so its children remain visible and
+        // measurable to avoid a collapsed-subtree problem on return.
         foreach (var child in homeRoot.Children.OfType<Control>())
             child.IsVisible = true;
     }
