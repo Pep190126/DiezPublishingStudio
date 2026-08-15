@@ -6,16 +6,17 @@ using Avalonia.Threading;
 namespace DiezPublishingStudio;
 
 /// <summary>
-/// Repairs one classic-desktop layout edge discovered by the physical flow probe. NativeConsistencyEditor
-/// correctly toggles DiezConsistencyCriteriaPanel.IsVisible, but on classic Win32 the ScrollViewer can keep
-/// the extent measured while the panel was collapsed. After NativeConsistent changes, this module forces a
-/// fresh Avalonia measure/arrange of the current Quantity ScrollViewer only. It never reparents the workflow
-/// and never calls Win32 repaint APIs.
+/// Avoids a classic Win32/Avalonia layout edge in the native Consistent section. Collapsing the whole
+/// criteria StackPanel and later setting it visible can leave that subtree at 0x0 inside the Quantity
+/// ScrollViewer. Keep the panel itself attached and visible; when Consistent is OFF, hide only its direct
+/// children, remove its margin and disable input. ON restores exactly the child visibility that existed
+/// before our collapse. No manual Measure/Arrange, no workflow reparenting and no Win32 repaint calls.
 /// </summary>
 internal static class SingleWindowConsistencyLayoutUi
 {
     private static readonly HashSet<MainWindow> Attached = [];
     private static readonly HashSet<CheckBox> Wired = [];
+    private static readonly Dictionary<Panel, PanelState> States = [];
 
     public static void Attach(MainWindow window)
     {
@@ -35,6 +36,7 @@ internal static class SingleWindowConsistencyLayoutUi
         {
             Attached.Remove(window);
             Wired.Clear();
+            States.Clear();
         };
 
         WireCurrentPage(pageHost);
@@ -46,63 +48,89 @@ internal static class SingleWindowConsistencyLayoutUi
 
         var consistent = Descendants(page).OfType<CheckBox>().FirstOrDefault(c =>
             string.Equals(c.Name, "NativeConsistent", StringComparison.Ordinal));
-        var panel = Descendants(page).FirstOrDefault(c =>
+        var panel = Descendants(page).OfType<Panel>().FirstOrDefault(c =>
             string.Equals(c.Name, "DiezConsistencyCriteriaPanel", StringComparison.Ordinal));
         var notes = Descendants(page).OfType<TextBox>().FirstOrDefault(c =>
             string.Equals(c.Name, "ConsistencyNotes", StringComparison.Ordinal));
 
         if (consistent is null || panel is null || notes is null) return;
 
+        _ = StateFor(panel);
+
         if (Wired.Add(consistent))
         {
-            // NativeConsistencyEditor registered its handler when the page was constructed, before this
-            // module sees the page. Its IsVisible change therefore happens first; we then remeasure the
-            // already-mounted scroll surface using that new visibility state.
+            // NativeConsistencyEditor registered first and may set Panel.IsVisible. Normalize immediately
+            // afterwards so the panel itself never remains collapsed in the mounted Quantity page.
             consistent.IsCheckedChanged += (_, _) =>
-                ScheduleLayout(pageHost, page, panel, notes, consistent.IsChecked == true);
+                ApplyState(pageHost, page, panel, notes, consistent.IsChecked == true, "toggle");
         }
 
-        if (consistent.IsChecked == true)
-            ScheduleLayout(pageHost, page, panel, notes, enabled: true);
+        ApplyState(pageHost, page, panel, notes, consistent.IsChecked == true, "wire");
     }
 
-    private static void ScheduleLayout(
+    private static void ApplyState(
         ContentControl pageHost,
         Control page,
-        Control panel,
+        Panel panel,
         TextBox notes,
-        bool enabled)
+        bool enabled,
+        string source)
     {
-        InvalidateLayoutChain(panel);
-        Invalidate(page);
-        Invalidate(pageHost);
-        Trace("state", enabled, pageHost, page, panel, notes);
+        var state = StateFor(panel);
+        panel.IsVisible = true;
+        panel.IsEnabled = enabled;
+        panel.IsHitTestVisible = enabled;
 
+        if (enabled)
+        {
+            panel.Margin = state.OriginalMargin;
+            foreach (var child in panel.Children.OfType<Control>().ToList())
+            {
+                if (!state.HiddenByUs.Remove(child)) continue;
+                if (state.VisibilityBeforeHide.TryGetValue(child, out var wasVisible))
+                    child.IsVisible = wasVisible;
+            }
+        }
+        else
+        {
+            panel.Margin = new Thickness(0);
+            HideCurrentChildren(panel, state);
+        }
+
+        InvalidateLayoutChain(panel);
+        Trace("state-" + source, enabled, pageHost, page, panel, notes, state);
+
+        // Other Quantity decorators run from the same ContentProperty change. A second normal dispatcher
+        // turn catches any direct child they add while Consistent is still OFF, without forcing layout.
         Dispatcher.UIThread.Post(() =>
         {
-            ForceCurrentPageLayout(pageHost, page);
-            Trace("forced-layout", enabled, pageHost, page, panel, notes);
+            if (!enabled) HideCurrentChildren(panel, state);
+            InvalidateLayoutChain(panel);
+            Trace("loaded", enabled, pageHost, page, panel, notes, state);
 
             Dispatcher.UIThread.Post(() =>
             {
-                Trace("render", enabled, pageHost, page, panel, notes);
+                Trace("render", enabled, pageHost, page, panel, notes, state);
             }, DispatcherPriority.Render);
         }, DispatcherPriority.Loaded);
     }
 
-    private static void ForceCurrentPageLayout(ContentControl pageHost, Control page)
+    private static void HideCurrentChildren(Panel panel, PanelState state)
     {
-        var width = pageHost.Bounds.Width;
-        var height = pageHost.Bounds.Height;
-        if (width <= 0 || height <= 0) return;
+        foreach (var child in panel.Children.OfType<Control>().ToList())
+        {
+            if (state.HiddenByUs.Add(child))
+                state.VisibilityBeforeHide[child] = child.IsVisible;
+            child.IsVisible = false;
+        }
+    }
 
-        var viewport = new Size(width, height);
-        page.InvalidateMeasure();
-        page.InvalidateArrange();
-        page.Measure(viewport);
-        page.Arrange(new Rect(0, 0, width, height));
-        page.InvalidateVisual();
-        pageHost.InvalidateVisual();
+    private static PanelState StateFor(Panel panel)
+    {
+        if (States.TryGetValue(panel, out var state)) return state;
+        state = new PanelState(panel.Margin);
+        States[panel] = state;
+        return state;
     }
 
     private static void InvalidateLayoutChain(Control start)
@@ -111,16 +139,11 @@ internal static class SingleWindowConsistencyLayoutUi
         var seen = new HashSet<Control>();
         while (current is not null && seen.Add(current))
         {
-            Invalidate(current);
+            current.InvalidateMeasure();
+            current.InvalidateArrange();
+            current.InvalidateVisual();
             current = current.Parent as Control;
         }
-    }
-
-    private static void Invalidate(Control control)
-    {
-        control.InvalidateMeasure();
-        control.InvalidateArrange();
-        control.InvalidateVisual();
     }
 
     private static void Trace(
@@ -128,8 +151,9 @@ internal static class SingleWindowConsistencyLayoutUi
         bool enabled,
         ContentControl pageHost,
         Control page,
-        Control panel,
-        TextBox notes)
+        Panel panel,
+        TextBox notes,
+        PanelState state)
     {
         var panelParent = panel.Parent as Control;
         var notesParent = notes.Parent as Control;
@@ -137,9 +161,10 @@ internal static class SingleWindowConsistencyLayoutUi
             "consistency-layout | phase=" + phase +
             " | enabled=" + enabled +
             " | panelVisible=" + panel.IsVisible +
+            " | panelEnabled=" + panel.IsEnabled +
+            " | hiddenChildren=" + state.HiddenByUs.Count +
             " | pageHostBounds=" + pageHost.Bounds +
             " | pageBounds=" + page.Bounds +
-            " | panelParent=" + (panelParent?.GetType().Name ?? "<null>") +
             " | panelParentBounds=" + (panelParent?.Bounds.ToString() ?? "<null>") +
             " | panelBounds=" + panel.Bounds +
             " | notesParentBounds=" + (notesParent?.Bounds.ToString() ?? "<null>") +
@@ -172,5 +197,13 @@ internal static class SingleWindowConsistencyLayoutUi
                     break;
             }
         }
+    }
+
+    private sealed class PanelState
+    {
+        public PanelState(Thickness originalMargin) => OriginalMargin = originalMargin;
+        public Thickness OriginalMargin { get; }
+        public Dictionary<Control, bool> VisibilityBeforeHide { get; } = [];
+        public HashSet<Control> HiddenByUs { get; } = [];
     }
 }
