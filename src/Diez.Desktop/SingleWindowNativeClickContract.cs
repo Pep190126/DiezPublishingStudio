@@ -7,7 +7,7 @@ namespace DiezPublishingStudio;
 
 /// <summary>
 /// Exercises the actual production click route instead of calling destination pages directly and verifies
-/// that Workflow owns input while both Home and Workflow remain permanently parented under one root.
+/// that Workflow owns input while Home and Workflow remain permanently parented under one root.
 /// </summary>
 internal static class SingleWindowNativeClickContract
 {
@@ -123,11 +123,11 @@ internal static class SingleWindowNativeClickContract
         if (window.Content is not Border border || !ReferenceEquals(border.Child, stableRoot))
             throw new InvalidOperationException("MainWindow non conserva la radice visuale stabile durante " + stage + ".");
 
-        // Permanent-input-tree invariant: neither surface is ever removed from hit testing. Workflow owns the
-        // active pointer surface only because it is opaque and above Home; Home remains registered underneath
-        // with opacity zero. This keeps both subtrees in the platform hit map from first parent onward.
+        // Asymmetric input invariant: Workflow is never removed from hit testing after first parent, while the
+        // already-proven Home surface is gated only during active Workflow ownership. This prevents opacity-zero
+        // Home from intercepting native pointer input without requiring Workflow to be registered late again.
         if (!overlay.IsVisible || !overlay.IsEnabled || !overlay.IsHitTestVisible ||
-            !homeRoot.IsVisible || !homeRoot.IsEnabled || !homeRoot.IsHitTestVisible ||
+            !homeRoot.IsVisible || !homeRoot.IsEnabled || homeRoot.IsHitTestVisible ||
             overlay.ZIndex <= homeRoot.ZIndex || overlay.Opacity <= homeRoot.Opacity)
             throw new InvalidOperationException(
                 $"Ownership stabile errata durante {stage}: workflowVisible={overlay.IsVisible}, workflowEnabled={overlay.IsEnabled}, workflowHit={overlay.IsHitTestVisible}, workflowZ={overlay.ZIndex}, workflowOpacity={overlay.Opacity}, homeVisible={homeRoot.IsVisible}, homeEnabled={homeRoot.IsEnabled}, homeHit={homeRoot.IsHitTestVisible}, homeZ={homeRoot.ZIndex}, homeOpacity={homeRoot.Opacity}.");
