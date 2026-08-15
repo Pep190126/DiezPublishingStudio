@@ -1,7 +1,6 @@
 using System.Reflection;
 using Avalonia.Controls;
 using Avalonia.Layout;
-using Avalonia.Media;
 
 namespace DiezPublishingStudio;
 
@@ -36,7 +35,9 @@ internal static class StableWorkflowRootUi
         homeRoot.VerticalAlignment = VerticalAlignment.Stretch;
         overlay.HorizontalAlignment = HorizontalAlignment.Stretch;
         overlay.VerticalAlignment = VerticalAlignment.Stretch;
-        overlay.Background = Brushes.White;
+        // The workflow root owns layout/input state for its subtree but must not become the terminal hit surface.
+        // A painted Grid background caused InputHitTest to stop here instead of descending to editable controls.
+        overlay.Background = null;
         overlay.ClipToBounds = true;
 
         var stableRoot = new Grid
@@ -59,6 +60,7 @@ internal static class StableWorkflowRootUi
             "stable-root-installed | borderChild=" + stableRoot.Name +
             " | homeParent=" + (homeRoot.Parent?.GetType().Name ?? "<null>") +
             " | workflowParent=" + (overlay.Parent?.GetType().Name ?? "<null>") +
+            " | workflowHitSurface=transparent" +
             " | runtime-reparenting=false");
     }
 
@@ -85,6 +87,7 @@ internal static class StableWorkflowRootUi
             " | rootBounds=" + state.StableRoot.Bounds +
             " | homeBounds=" + state.HomeRoot.Bounds +
             " | workflowBounds=" + state.Overlay.Bounds +
+            " | workflowHitSurface=transparent" +
             " | runtime-reparenting=false");
     }
 
@@ -98,6 +101,7 @@ internal static class StableWorkflowRootUi
             " | rootBounds=" + state.StableRoot.Bounds +
             " | homeBounds=" + state.HomeRoot.Bounds +
             " | workflowBounds=" + state.Overlay.Bounds +
+            " | workflowHitSurface=transparent" +
             " | runtime-reparenting=false");
     }
 
