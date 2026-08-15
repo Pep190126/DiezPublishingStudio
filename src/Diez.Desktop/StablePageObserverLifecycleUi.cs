@@ -72,6 +72,7 @@ internal static class StablePageObserverLifecycleUi
             pageHost));
         Step("safe-image-export", () => SingleWindowSafeImageContextExportUi.EnsureCurrentPage(window));
         Step("vision-validation", () => SingleWindowVisionValidationUi.EnsureCurrentPage(window));
+        Step("project-resume-label", () => SingleWindowProjectResumeUi.RefreshEntry(window));
 
         var layoutExecuted = AvaloniaLayoutPumpUi.Execute(window, "stable-page-observers-" + phase);
         SafeStartupTrace.Write(
