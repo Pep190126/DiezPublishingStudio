@@ -118,9 +118,8 @@ internal static class SingleWindowBookTitleUsabilityUi
             " | editable=" + (!title.IsReadOnly && title.IsEnabled && title.IsHitTestVisible && title.Focusable));
 
         // Diagnostic only: physical Windows hit testing sees the Workflow backstop while the title and all of
-        // its Avalonia bounds are valid. Inspect the compositor linkage without altering layout/input. The first
-        // child->parent pair where CompositionVisual exists but is not present in the parent's Children collection
-        // is the exact point where the rendered visual tree stops participating in compositor hit testing.
+        // its Avalonia bounds are valid. Inspect compositor linkage and the exact properties Avalonia synchronizes
+        // from Visual.Bounds/visibility/opacity/clip/transform without altering layout or input.
         Dispatcher.UIThread.Post(() => TraceCompositionChain(title), DispatcherPriority.Render);
     }
 
@@ -179,7 +178,14 @@ internal static class SingleWindowBookTitleUsabilityUi
                     Describe(visual) +
                     ":comp=" + (composition is null ? "null" : composition.GetType().Name) +
                     ":linked=" + (linkedToParent.HasValue ? linkedToParent.Value.ToString() : "root") +
-                    ":parentChildren=" + parentChildrenState);
+                    ":parentChildren=" + parentChildrenState +
+                    ":compOffset=" + ReadCompositionProperty(composition, "Offset") +
+                    ":compSize=" + ReadCompositionProperty(composition, "Size") +
+                    ":compVisible=" + ReadCompositionProperty(composition, "Visible") +
+                    ":compOpacity=" + ReadCompositionProperty(composition, "Opacity") +
+                    ":compClipToBounds=" + ReadCompositionProperty(composition, "ClipToBounds") +
+                    ":compClip=" + ReadCompositionProperty(composition, "Clip") +
+                    ":compTransform=" + ReadCompositionProperty(composition, "TransformMatrix"));
             }
 
             SafeStartupTrace.Write("book-title-compositor-chain | " + string.Join(" > ", parts));
@@ -187,6 +193,22 @@ internal static class SingleWindowBookTitleUsabilityUi
         catch (Exception ex)
         {
             SafeStartupTrace.Write("book-title-compositor-chain | error=" + ex.GetBaseException().Message);
+        }
+    }
+
+    private static string ReadCompositionProperty(object? composition, string name)
+    {
+        if (composition is null) return "<comp-null>";
+        try
+        {
+            var property = FindProperty(composition.GetType(), name);
+            if (property is null) return "<missing>";
+            var value = property.GetValue(composition);
+            return value is null ? "<null>" : value.ToString() ?? "<null-string>";
+        }
+        catch (Exception ex)
+        {
+            return "<error:" + ex.GetBaseException().Message.Replace('|', '/') + ">";
         }
     }
 
