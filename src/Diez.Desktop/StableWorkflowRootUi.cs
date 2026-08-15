@@ -1,6 +1,8 @@
+using System.Collections;
 using System.Reflection;
 using Avalonia.Controls;
 using Avalonia.Layout;
+using Avalonia.Threading;
 
 namespace DiezPublishingStudio;
 
@@ -100,6 +102,7 @@ internal static class StableWorkflowRootUi
             " | workflowRootHitSurface=null" +
             " | workflowBackstop=none-home-gated" +
             " | runtime-reparenting=false");
+        TraceCompositionOrder(state, "home-installed");
     }
 
     public static void ActivateWorkflow(MainWindow window)
@@ -138,6 +141,9 @@ internal static class StableWorkflowRootUi
             " | workflowRootHitSurface=null" +
             " | workflowBackstop=none-home-gated" +
             " | runtime-reparenting=false");
+        TraceCompositionOrder(state, "workflow-immediate");
+        Dispatcher.UIThread.Post(() => TraceCompositionOrder(state, "workflow-render"), DispatcherPriority.Render);
+        Dispatcher.UIThread.Post(() => TraceCompositionOrder(state, "workflow-background"), DispatcherPriority.Background);
     }
 
     public static void ActivateHome(MainWindow window)
@@ -162,6 +168,8 @@ internal static class StableWorkflowRootUi
             " | workflowRootHitSurface=null" +
             " | workflowBackstop=none-home-gated" +
             " | runtime-reparenting=false");
+        TraceCompositionOrder(state, "home-immediate");
+        Dispatcher.UIThread.Post(() => TraceCompositionOrder(state, "home-render"), DispatcherPriority.Render);
     }
 
     public static bool IsWorkflowActive(MainWindow window)
@@ -220,6 +228,64 @@ internal static class StableWorkflowRootUi
         control.InvalidateMeasure();
         control.InvalidateArrange();
         control.InvalidateVisual();
+    }
+
+    private static void TraceCompositionOrder(RootState state, string phase)
+    {
+        try
+        {
+            var compositionProperty = typeof(Avalonia.Visual).GetProperty(
+                "CompositionVisual",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            var stableComposition = compositionProperty?.GetValue(state.StableRoot);
+            var homeComposition = compositionProperty?.GetValue(state.HomeRoot);
+            var workflowComposition = compositionProperty?.GetValue(state.Overlay);
+            if (stableComposition is null)
+            {
+                SafeStartupTrace.Write("stable-root-compositor-order | phase=" + phase + " | stableComp=null");
+                return;
+            }
+
+            var childrenProperty = FindProperty(stableComposition.GetType(), "Children");
+            var children = childrenProperty?.GetValue(stableComposition) as IEnumerable;
+            if (children is null)
+            {
+                SafeStartupTrace.Write("stable-root-compositor-order | phase=" + phase + " | children=unavailable");
+                return;
+            }
+
+            var list = children.Cast<object>().ToList();
+            var homeIndex = list.FindIndex(c => ReferenceEquals(c, homeComposition));
+            var workflowIndex = list.FindIndex(c => ReferenceEquals(c, workflowComposition));
+            SafeStartupTrace.Write(
+                "stable-root-compositor-order | phase=" + phase +
+                " | count=" + list.Count +
+                " | homeIndex=" + homeIndex +
+                " | workflowIndex=" + workflowIndex +
+                " | compositorTop=" + (homeIndex > workflowIndex ? "home" : workflowIndex > homeIndex ? "workflow" : "unknown") +
+                " | homeZ=" + state.HomeRoot.ZIndex +
+                " | workflowZ=" + state.Overlay.ZIndex +
+                " | homeHit=" + state.HomeRoot.IsHitTestVisible +
+                " | workflowHit=" + state.Overlay.IsHitTestVisible);
+        }
+        catch (Exception ex)
+        {
+            SafeStartupTrace.Write(
+                "stable-root-compositor-order | phase=" + phase +
+                " | error=" + ex.GetBaseException().Message.Replace('|', '/'));
+        }
+    }
+
+    private static PropertyInfo? FindProperty(Type type, string name)
+    {
+        for (var current = type; current is not null; current = current.BaseType)
+        {
+            var property = current.GetProperty(
+                name,
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
+            if (property is not null) return property;
+        }
+        return null;
     }
 
     private static T? Field<T>(object host, string name) where T : class =>
