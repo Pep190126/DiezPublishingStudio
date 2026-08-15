@@ -17,42 +17,10 @@ jobs:
       - run: dotnet build src/Diez.Desktop/Diez.Desktop.csproj -c Release --no-restore
       - run: dotnet publish src/Diez.Desktop/Diez.Desktop.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -o artifacts/publish
 
-      # Hard deterministic gate: construct/show the real MainWindow, attach the real Diez modules and
-      # execute the complete UI contract using Avalonia's supported headless session. Never wait forever:
-      # the harness writes START/OK breadcrumbs per sub-contract so a timeout still identifies the hang.
-      - name: Run deterministic Windows UI flow contract
-        shell: powershell
-        run: |
-          $exe = (Resolve-Path "artifacts\publish\DiezPublishingStudio.exe").Path
-          $resultFile = "artifacts\publish\ui-flow-contract.txt"
-          $process = Start-Process -FilePath $exe -ArgumentList "--ui-headless-ci --ui-flow-contract" -PassThru
-          $completed = $process.WaitForExit(180000)
-          if (-not $completed) {
-            Write-Host "UI flow contract timed out after 180 seconds."
-            if (Test-Path $resultFile) {
-              Write-Host "--- partial ui-flow-contract.txt ---"
-              Get-Content $resultFile
-              Copy-Item $resultFile "artifacts\publish\ui-headless-flow-contract.txt" -Force
-            }
-            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
-            throw "Deterministic UI flow timed out; inspect the last START breadcrumb above."
-          }
-          $process.WaitForExit()
-          Write-Host "Headless real-UI-tree exit code: $($process.ExitCode)"
-          if (Test-Path $resultFile) {
-            Copy-Item $resultFile "artifacts\publish\ui-headless-flow-contract.txt" -Force
-          }
-          if ($process.ExitCode -ne 0) {
-            if (Test-Path $resultFile) { Get-Content $resultFile }
-            throw "Deterministic UI flow failed with exit code $($process.ExitCode)"
-          }
-
-      # This diagnostic must run even if the headless backend itself fails (for example because its
-      # synthetic font service is unavailable). It exercises the classic desktop lifetime, which is
-      # closer to the installed Windows application. Keep its result separate from the headless file.
-      - name: Probe classic desktop lifetime for diagnostics
-        if: always()
-        continue-on-error: true
+      # Primary physical-layout gate for this Windows desktop app. It uses the same classic lifetime and
+      # production module order as the installed application and therefore runs before the synthetic
+      # headless backend, whose font service can fail independently of Win32 layout.
+      - name: Run classic Windows UI flow contract
         shell: powershell
         run: |
           $exe = (Resolve-Path "artifacts\publish\DiezPublishingStudio.exe").Path
@@ -61,29 +29,54 @@ jobs:
           $process = Start-Process -FilePath $exe -ArgumentList "--ui-flow-contract" -PassThru
           $completed = $process.WaitForExit(60000)
           if (-not $completed) {
-            Write-Host "Classic desktop diagnostic timed out after 60 seconds."
+            Write-Host "Classic desktop flow timed out after 60 seconds."
             Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
-          } else {
-            $process.WaitForExit()
-            Write-Host "Classic desktop diagnostic exit code: $($process.ExitCode)"
+            if (Test-Path $resultFile) { Get-Content $resultFile }
+            throw "Classic Windows UI flow timed out."
           }
+          $process.WaitForExit()
+          Write-Host "Classic desktop flow exit code: $($process.ExitCode)"
           if (Test-Path $resultFile) {
             Write-Host "--- classic ui-flow-contract.txt ---"
             Get-Content $resultFile
             Copy-Item $resultFile "artifacts\publish\ui-classic-flow-contract.txt" -Force
           }
           $logDir = Join-Path $env:LOCALAPPDATA "Diez Publishing Studio\logs"
-          $fatal = Join-Path $logDir "fatal-errors.log"
-          $startup = Join-Path $logDir "startup-errors.log"
           $safeTrace = Join-Path $logDir "safe-startup-trace.log"
-          if (Test-Path $fatal) { Write-Host "--- fatal-errors.log ---"; Get-Content $fatal }
-          if (Test-Path $startup) { Write-Host "--- startup-errors.log ---"; Get-Content $startup }
           if (Test-Path $safeTrace) {
             Write-Host "--- safe-startup-trace.log ---"
             Get-Content $safeTrace
             Copy-Item $safeTrace "artifacts\publish\ui-classic-safe-startup-trace.log" -Force
           }
-          if ($completed -and $process.ExitCode -ne 0) { exit $process.ExitCode }
+          if ($process.ExitCode -ne 0) {
+            throw "Classic Windows UI flow failed with exit code $($process.ExitCode)"
+          }
+
+      # Secondary structural diagnostic. Keep it separate and non-authoritative for classic Win32 pixels:
+      # Avalonia Headless can intermittently fail its synthetic SystemFonts service. A short timeout keeps
+      # that infrastructure issue from hiding or delaying the primary classic result.
+      - name: Run headless UI tree diagnostic
+        if: always()
+        continue-on-error: true
+        shell: powershell
+        run: |
+          $exe = (Resolve-Path "artifacts\publish\DiezPublishingStudio.exe").Path
+          $resultFile = "artifacts\publish\ui-flow-contract.txt"
+          if (Test-Path $resultFile) { Remove-Item $resultFile -Force }
+          $process = Start-Process -FilePath $exe -ArgumentList "--ui-headless-ci --ui-flow-contract" -PassThru
+          $completed = $process.WaitForExit(30000)
+          if (-not $completed) {
+            Write-Host "Headless UI diagnostic timed out after 30 seconds."
+            if (Test-Path $resultFile) { Get-Content $resultFile }
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+          } else {
+            $process.WaitForExit()
+            Write-Host "Headless UI-tree exit code: $($process.ExitCode)"
+            if ($process.ExitCode -ne 0 -and (Test-Path $resultFile)) { Get-Content $resultFile }
+          }
+          if (Test-Path $resultFile) {
+            Copy-Item $resultFile "artifacts\publish\ui-headless-flow-contract.txt" -Force
+          }
 
       - name: Upload UI flow diagnostic when produced
         if: always()
