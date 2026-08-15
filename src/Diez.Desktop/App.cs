@@ -186,11 +186,29 @@ public sealed class App : Application
         {
             if (File.Exists(resultFile)) File.Delete(resultFile);
 
-            // Unlike the raster probe, the historical classic-flow probe could begin before MainWindow
-            // had ever been shown. The old root-swap recovery accidentally masked that by manually laying
-            // out detached controls. A physical stable-root contract must start from an actually presented
-            // window, exactly as the installed application does.
-            if (!mainWindow.IsVisible) mainWindow.Show();
+            // The classic Win32 probe must not infer presentation from IsVisible alone. Wait for the actual
+            // TopLevel.Opened event first; only then is it meaningful to require physical stable-root bounds.
+            if (!mainWindow.IsVisible)
+            {
+                var opened = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                void OnOpened(object? sender, EventArgs args) => opened.TrySetResult(true);
+                mainWindow.Opened += OnOpened;
+                try
+                {
+                    mainWindow.Show();
+                    var completed = await Task.WhenAny(opened.Task, Task.Delay(3000));
+                    if (!ReferenceEquals(completed, opened.Task))
+                        throw new TimeoutException("Classic flow probe non ha ricevuto MainWindow.Opened entro 3 secondi.");
+                    await opened.Task;
+                    SafeStartupTrace.Write("classic-flow-window-opened | visible=" + mainWindow.IsVisible + " | clientSize=" + mainWindow.ClientSize);
+                }
+                finally
+                {
+                    mainWindow.Opened -= OnOpened;
+                }
+            }
+
+            await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Render);
             await WaitForClassicProbeLayoutAsync(mainWindow);
 
             if (!ExitConfirmationUi.IsAttached(mainWindow))
