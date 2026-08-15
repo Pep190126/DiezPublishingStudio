@@ -72,10 +72,17 @@ jobs:
             Get-Content $resultFile
             Copy-Item $resultFile "artifacts\publish\ui-classic-flow-contract.txt" -Force
           }
-          $fatal = Join-Path $env:LOCALAPPDATA "Diez Publishing Studio\logs\fatal-errors.log"
-          $startup = Join-Path $env:LOCALAPPDATA "Diez Publishing Studio\logs\startup-errors.log"
+          $logDir = Join-Path $env:LOCALAPPDATA "Diez Publishing Studio\logs"
+          $fatal = Join-Path $logDir "fatal-errors.log"
+          $startup = Join-Path $logDir "startup-errors.log"
+          $safeTrace = Join-Path $logDir "safe-startup-trace.log"
           if (Test-Path $fatal) { Write-Host "--- fatal-errors.log ---"; Get-Content $fatal }
           if (Test-Path $startup) { Write-Host "--- startup-errors.log ---"; Get-Content $startup }
+          if (Test-Path $safeTrace) {
+            Write-Host "--- safe-startup-trace.log ---"
+            Get-Content $safeTrace
+            Copy-Item $safeTrace "artifacts\publish\ui-classic-safe-startup-trace.log" -Force
+          }
           if ($completed -and $process.ExitCode -ne 0) { exit $process.ExitCode }
 
       - name: Upload UI flow diagnostic when produced
@@ -87,6 +94,7 @@ jobs:
             artifacts/publish/ui-flow-contract.txt
             artifacts/publish/ui-headless-flow-contract.txt
             artifacts/publish/ui-classic-flow-contract.txt
+            artifacts/publish/ui-classic-safe-startup-trace.log
             artifacts/publish/ui-headless-startup-error.txt
           if-no-files-found: ignore
           retention-days: 7
