@@ -133,7 +133,7 @@ internal static class UserReportedUsabilityContractProbe
             // Route an actual PointerWheelChanged event through the ScrollViewer. The old contract assigned Offset
             // directly and therefore passed even when a physical mouse wheel did nothing over child editors.
             scroll.Offset = new Vector(scroll.Offset.X, 0);
-            using (var pointer = new Pointer(0xD1E2, PointerType.Mouse, true))
+            using (var pointer = new Avalonia.Input.Pointer(0xD1E2, PointerType.Mouse, true))
             {
                 var wheel = new PointerWheelEventArgs(
                     scroll,
