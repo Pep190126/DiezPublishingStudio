@@ -65,7 +65,10 @@ internal static class SingleWindowStableEntryBridgeUi
             if (e.Property != ContentControl.ContentProperty) return;
             if (pageHost.Content is not null)
             {
-                StableWorkflowRootUi.ActivateWorkflow(window);
+                // Content changes are allowed to settle while the permanent Workflow surface is still inactive.
+                // Assigning input ownership here used to activate the Workflow on an intermediate page/layout epoch
+                // (body Y=64) before ShowStart finished on the final Tipo libro geometry (body Y=38). The visual tree
+                // later measured correctly, but native pointer hit testing stayed on that first active epoch.
                 ConfigureWorkflowSurface(host, overlay);
                 TraceCurrentPage(window, host, pageHost);
                 Dispatcher.UIThread.Post(() => TraceMountedLayout(window, pageHost), DispatcherPriority.Render);
@@ -81,7 +84,32 @@ internal static class SingleWindowStableEntryBridgeUi
 
         window.Closed += (_, _) => Attached.Remove(window);
         SafeStartupTrace.Write(
-            "native-entry-stable-bridge-attached | legacy-disabled=true | input-owner=stable-root | runtime-root-swap=false | page-span=stable-one-column | body-hit-surface=transparent");
+            "native-entry-stable-bridge-attached | legacy-disabled=true | input-owner=stable-root | runtime-root-swap=false | page-span=stable-one-column | body-hit-surface=transparent | activation=after-final-page-layout");
+    }
+
+    internal static void ShowStartPrepared(MainWindow window)
+    {
+        if (!StableWorkflowRootUi.IsInstalled(window))
+            throw new InvalidOperationException("Radice visuale stabile non installata prima della preparazione Workflow.");
+
+        var host = SingleWindowEntryPointUi.GetHost(window);
+        var pageHost = Field<ContentControl>(host, "_pageHost")
+            ?? throw new InvalidOperationException("PageHost single-window non disponibile durante la preparazione Workflow.");
+        var overlay = StableWorkflowRootUi.WorkflowRoot(window)
+            ?? throw new InvalidOperationException("Workflow root stabile non disponibile durante la preparazione Workflow.");
+
+        // Keep the surface permanently parented/measurable but inactive while ShowStart performs all of its
+        // landing -> Tipo libro content replacements. Only the final page owns the first active input epoch.
+        SingleWindowNativeV11Ui.ShowStart(window);
+        ConfigureWorkflowSurface(host, overlay);
+        AvaloniaLayoutPumpUi.Execute(window, "native-entry-prepared-before-activate");
+        TraceActivationGeometry(window, host, pageHost, overlay, "prepared-before-activate");
+
+        StableWorkflowRootUi.ActivateWorkflow(window);
+        AvaloniaLayoutPumpUi.Execute(window, "native-entry-activated-after-final-layout");
+        TraceActivationGeometry(window, host, pageHost, overlay, "activated-after-final-layout");
+        TraceCurrentPage(window, host, pageHost);
+        Dispatcher.UIThread.Post(() => TraceMountedLayout(window, pageHost), DispatcherPriority.Render);
     }
 
     private static void OpenNative(MainWindow window)
@@ -92,9 +120,8 @@ internal static class SingleWindowStableEntryBridgeUi
             " | active=" + window.IsActive);
         try
         {
-            StableWorkflowRootUi.ActivateWorkflow(window);
-            SingleWindowNativeV11Ui.ShowStart(window);
-            SafeStartupTrace.Write("ui-navigation | target=native-v11-start | success=true | stableRoot=true | rootSwap=false");
+            ShowStartPrepared(window);
+            SafeStartupTrace.Write("ui-navigation | target=native-v11-start | success=true | stableRoot=true | rootSwap=false | activation=after-final-page-layout");
         }
         catch (Exception ex)
         {
@@ -146,6 +173,20 @@ internal static class SingleWindowStableEntryBridgeUi
             " | pageColumnSpan=" + Grid.GetColumnSpan(pageSurface) +
             " | previewVisible=" + previewSurface.IsVisible +
             " | inputGeometry=stable | bodyHitSurface=transparent");
+    }
+
+    private static void TraceActivationGeometry(MainWindow window, object host, ContentControl pageHost, Grid overlay, string phase)
+    {
+        var body = overlay.Children.OfType<Grid>().FirstOrDefault(grid => Grid.GetRow(grid) == 1);
+        var title = Field<TextBlock>(host, "_title")?.Text ?? "<untitled>";
+        SafeStartupTrace.Write(
+            "native-entry-activation-geometry | phase=" + phase +
+            " | title=" + title +
+            " | workflowActive=" + StableWorkflowRootUi.IsWorkflowActive(window) +
+            " | workflowBounds=" + overlay.Bounds +
+            " | bodyBounds=" + (body?.Bounds.ToString() ?? "<none>") +
+            " | pageHostBounds=" + pageHost.Bounds +
+            " | pageBounds=" + ((pageHost.Content as Control)?.Bounds.ToString() ?? "<none>"));
     }
 
     private static void TraceCurrentPage(MainWindow window, object host, ContentControl pageHost)
