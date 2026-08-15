@@ -658,7 +658,7 @@ internal sealed class SingleWindowOverlayFlowHost
         {
             if (ReferenceEquals(_activePage, page))
             {
-                RaisePropertyChanged(ContentProperty, _stack, _stack);
+                RaisePropertyChanged<object?>(ContentProperty, _stack, _stack, Avalonia.Data.BindingPriority.LocalValue);
                 return;
             }
 
@@ -673,7 +673,6 @@ internal sealed class SingleWindowOverlayFlowHost
                 page.IsHitTestVisible = true;
                 page.HorizontalAlignment = HorizontalAlignment.Stretch;
                 page.VerticalAlignment = VerticalAlignment.Stretch;
-                Panel.SetZIndex(page, 1);
                 _stack.Children.Add(page);
             }
 
@@ -689,7 +688,7 @@ internal sealed class SingleWindowOverlayFlowHost
 
             // Keep the ContentPresenter child stable for the lifetime of the window while preserving the existing
             // ContentProperty notification contract used by layout/title/quantity observers.
-            RaisePropertyChanged(ContentProperty, _stack, _stack);
+            RaisePropertyChanged<object?>(ContentProperty, _stack, _stack, Avalonia.Data.BindingPriority.LocalValue);
             SafeStartupTrace.Write(
                 "workflow-page-stack | contentPresenterChild=stable" +
                 " | active=" + (page?.GetType().Name ?? "<none>") +
