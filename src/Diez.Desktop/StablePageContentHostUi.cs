@@ -76,7 +76,7 @@ internal static class StablePageContentHostUi
     private static bool ExecuteQueuedAvaloniaLayoutPassIfNeeded(MainWindow window, ContentControl pageHost)
     {
         var page = pageHost.Content as Control;
-        if (page is null || !page.IsAttachedToVisualTree) return false;
+        if (page is null || !page.IsAttachedToVisualTree()) return false;
         if (page.Bounds.Width > 0 && page.Bounds.Height > 0 && page.IsMeasureValid && page.IsArrangeValid) return false;
 
         try
