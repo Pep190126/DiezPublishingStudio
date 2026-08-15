@@ -5,10 +5,11 @@ using Avalonia.Threading;
 namespace DiezPublishingStudio;
 
 /// <summary>
-/// Repairs one classic-desktop layout edge discovered by the physical flow probe: the Consistent panel
-/// is created collapsed and, on some Win32 layout turns, making it visible does not immediately remeasure
-/// its nested native editors. This module only invalidates the already-mounted Quantity visual tree after
-/// NativeConsistent changes; it does not reparent controls or force native window repainting.
+/// Keeps the native Consistent section physically attached to the Quantity layout. On classic Win32
+/// Avalonia, toggling the whole panel from IsVisible=false to true underneath the page ScrollViewer can
+/// leave that panel at 0x0 even though the containing page is fully measured. OFF therefore collapses
+/// the already-attached panel to zero height instead of removing it from layout participation; ON restores
+/// automatic height and schedules normal Avalonia layout invalidation. No reparenting or Win32 repainting.
 /// </summary>
 internal static class SingleWindowConsistencyLayoutUi
 {
@@ -51,45 +52,49 @@ internal static class SingleWindowConsistencyLayoutUi
 
         if (consistent is null || panel is null || notes is null) return;
 
-        if (Wired.Add(consistent))
-        {
-            consistent.IsCheckedChanged += (_, _) =>
-            {
-                ScheduleLayout(pageHost, page, panel, notes, consistent.IsChecked == true);
-            };
-        }
+        void Apply() => ApplyState(pageHost, page, panel, notes, consistent.IsChecked == true);
 
-        if (consistent.IsChecked == true)
-            ScheduleLayout(pageHost, page, panel, notes, enabled: true);
+        if (Wired.Add(consistent))
+            consistent.IsCheckedChanged += (_, _) => Apply();
+
+        // NativeConsistencyEditor may have constructed the panel with IsVisible=false before it was
+        // attached to the page. Normalize that state immediately once the real page is mounted.
+        Apply();
     }
 
-    private static void ScheduleLayout(
+    private static void ApplyState(
         ContentControl pageHost,
         Control page,
         Control panel,
         TextBox notes,
         bool enabled)
     {
-        InvalidateLayoutChain(notes);
+        panel.IsVisible = true;
+        panel.IsEnabled = enabled;
+        panel.IsHitTestVisible = enabled;
+        panel.Opacity = enabled ? 1d : 0d;
+        panel.MinHeight = 0d;
+        panel.Height = enabled ? double.NaN : 0d;
+        panel.ClipToBounds = !enabled;
+
         InvalidateLayoutChain(panel);
         Invalidate(page);
         Invalidate(pageHost);
+        Trace("state", enabled, pageHost, page, panel, notes);
 
         Dispatcher.UIThread.Post(() =>
         {
-            InvalidateLayoutChain(notes);
             InvalidateLayoutChain(panel);
             Invalidate(page);
             Invalidate(pageHost);
-            Trace("loaded", enabled, pageHost, panel, notes);
+            Trace("loaded", enabled, pageHost, page, panel, notes);
 
             Dispatcher.UIThread.Post(() =>
             {
-                InvalidateLayoutChain(notes);
                 InvalidateLayoutChain(panel);
                 Invalidate(page);
                 Invalidate(pageHost);
-                Trace("render", enabled, pageHost, panel, notes);
+                Trace("render", enabled, pageHost, page, panel, notes);
             }, DispatcherPriority.Render);
         }, DispatcherPriority.Loaded);
     }
@@ -112,14 +117,28 @@ internal static class SingleWindowConsistencyLayoutUi
         control.InvalidateVisual();
     }
 
-    private static void Trace(string phase, bool enabled, ContentControl pageHost, Control panel, TextBox notes)
+    private static void Trace(
+        string phase,
+        bool enabled,
+        ContentControl pageHost,
+        Control page,
+        Control panel,
+        TextBox notes)
     {
+        var panelParent = panel.Parent as Control;
+        var notesParent = notes.Parent as Control;
         SafeStartupTrace.Write(
             "consistency-layout | phase=" + phase +
             " | enabled=" + enabled +
             " | panelVisible=" + panel.IsVisible +
+            " | panelEnabled=" + panel.IsEnabled +
+            " | panelHeight=" + (double.IsNaN(panel.Height) ? "Auto" : panel.Height.ToString("0.##")) +
             " | pageHostBounds=" + pageHost.Bounds +
+            " | pageBounds=" + page.Bounds +
+            " | panelParent=" + (panelParent?.GetType().Name ?? "<null>") +
+            " | panelParentBounds=" + (panelParent?.Bounds.ToString() ?? "<null>") +
             " | panelBounds=" + panel.Bounds +
+            " | notesParentBounds=" + (notesParent?.Bounds.ToString() ?? "<null>") +
             " | notesBounds=" + notes.Bounds);
     }
 
