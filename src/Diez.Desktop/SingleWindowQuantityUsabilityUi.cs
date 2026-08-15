@@ -2,6 +2,8 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
@@ -84,10 +86,22 @@ internal static class SingleWindowQuantityUsabilityUi
                          Descendants(scroll).Any(c => string.Equals(c.Name, "DiezNativeV11QuantityPage", StringComparison.Ordinal));
         if (!isQuantity) return null;
 
+        // These are input-ownership invariants for the active page, not cosmetic defaults. Keeping them explicit
+        // prevents an inherited disabled/hit-test state from making the physically rendered 1/4 page inert.
+        page.IsEnabled = true;
+        page.IsHitTestVisible = true;
+        if (quantityRoot is not null)
+        {
+            quantityRoot.IsEnabled = true;
+            quantityRoot.IsHitTestVisible = true;
+        }
+
         ConfigureScroll(scroll);
         SafeStartupTrace.Write(
             "quantity-scroll | phase=" + phase +
             " | vertical=" + scroll.VerticalScrollBarVisibility +
+            " | enabled=" + scroll.IsEnabled +
+            " | hitTest=" + scroll.IsHitTestVisible +
             " | bounds=" + scroll.Bounds +
             " | extent=" + scroll.Extent +
             " | viewport=" + scroll.Viewport);
@@ -184,14 +198,18 @@ internal static class SingleWindowQuantityUsabilityUi
         // renaming a StyledElement at that point. The Quantity page is identified by its named content root.
         scroll.VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Visible;
         scroll.HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled;
+        scroll.IsEnabled = true;
         scroll.IsHitTestVisible = true;
         scroll.Focusable = true;
 
         if (!WiredScrollers.Add(scroll)) return;
 
-        scroll.PointerWheelChanged += (_, e) =>
+        // Listen even when a child control or Avalonia's built-in ScrollViewer logic already marked the wheel
+        // event handled. This is the installed-app failure mode: the form has a valid extent, but wheel input over
+        // editors/combos never reaches the old fallback because it returned immediately on e.Handled.
+        scroll.AddHandler(InputElement.PointerWheelChangedEvent, (_, e) =>
         {
-            if (e.Handled) return;
+            var handledBefore = e.Handled;
             var maxY = Math.Max(0, scroll.Extent.Height - scroll.Viewport.Height);
             if (maxY <= 0) return;
 
@@ -201,23 +219,26 @@ internal static class SingleWindowQuantityUsabilityUi
             scroll.Offset = new Vector(scroll.Offset.X, nextY);
             e.Handled = true;
             SafeStartupTrace.Write(
-                "quantity-scroll | offsetY=" + nextY.ToString("0.##") +
+                "quantity-scroll | wheel=true" +
+                " | handledBefore=" + handledBefore +
+                " | offsetY=" + nextY.ToString("0.##") +
                 " | extent=" + scroll.Extent +
                 " | viewport=" + scroll.Viewport);
-        };
+        }, RoutingStrategies.Tunnel | RoutingStrategies.Bubble, handledEventsToo: true);
 
         SafeStartupTrace.Write(
             "quantity-scroll | configured=true | vertical=Visible | extent=" + scroll.Extent +
             " | viewport=" + scroll.Viewport);
     }
 
-    private static void ForceWin32Frame(MainWindow window, string reason)
+    internal static void ForceWin32Frame(MainWindow window, string reason)
     {
         // Keep Avalonia's own invalidation first. RedrawWindow is only a classic-Win32 presentation fallback
         // for the observed case where layout is current but the compositor still displays the previous page.
         window.InvalidateVisual();
         StableWorkflowRootUi.StableRoot(window)?.InvalidateVisual();
         StableWorkflowRootUi.WorkflowRoot(window)?.InvalidateVisual();
+        StableWorkflowRootUi.HomeRoot(window)?.InvalidateVisual();
 
         if (!OperatingSystem.IsWindows()) return;
         var handle = window.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
