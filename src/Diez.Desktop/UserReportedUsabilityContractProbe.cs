@@ -49,8 +49,6 @@ internal static class UserReportedUsabilityContractProbe
             await ProjectFileStore.SaveAsync(tempProject, project);
             SetSession(window, project, tempProject);
 
-            // Reproduce the post-import Home state rather than invoking RefreshViews directly: the usability
-            // module listens to the same status transition produced by the owned Windows import dialog.
             StableWorkflowRootUi.ActivateHome(window);
             materialsList.ItemsSource = null;
             materialsList.SelectedIndex = -1;
@@ -73,18 +71,18 @@ internal static class UserReportedUsabilityContractProbe
             var typePage = pageHost.Content as Control
                 ?? throw new InvalidOperationException("Pagina Tipo libro assente nel contract usability.");
             var title = Require<TextBox>(typePage, "DiezBookTitle");
-            var frame = Require<Border>(typePage, "DiezBookTitleFrame");
+            var titleField = Require<StackPanel>(typePage, "DiezBookTitleField");
             if (!string.Equals(title.Text, project.Name, StringComparison.Ordinal))
                 throw new InvalidOperationException("Il Titolo del libro non parte dal nome del progetto.");
             if (title.IsReadOnly || !title.IsEnabled || !title.IsHitTestVisible || !title.Focusable)
                 throw new InvalidOperationException("Il Titolo del libro iniziale non resta editabile.");
-            if (title.TextAlignment != TextAlignment.Left || frame.HorizontalAlignment != HorizontalAlignment.Left)
+            if (title.TextAlignment != TextAlignment.Left ||
+                title.HorizontalAlignment != HorizontalAlignment.Left ||
+                titleField.HorizontalAlignment != HorizontalAlignment.Left)
                 throw new InvalidOperationException("Il Titolo del libro non è allineato a sinistra con la label.");
             RequireBounds(title, 180, 26, "Titolo del libro");
             RequirePhysicalHit(window, title, "Titolo del libro");
 
-            // Exercise TextBox input routing after proving that its physical coordinates actually hit the
-            // TextBox visual subtree. The previous contract skipped that geometric ownership check.
             var originalTitle = title.Text ?? string.Empty;
             if (!title.Focus() || !title.IsFocused)
                 throw new InvalidOperationException("Il Titolo del libro non accetta il focus reale.");
@@ -114,7 +112,6 @@ internal static class UserReportedUsabilityContractProbe
                 throw new InvalidOperationException("Home progetto torna a una Home non interattiva/visibile.");
             RequireBounds(materialsList, 120, 40, "box Materiali dopo Home progetto");
 
-            // Re-enter exactly like the user and reach Coloring 1/4 again.
             entry = FindHomeEntry(window);
             entry.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await WaitAsync(window, "reopen-book-flow");
@@ -138,8 +135,6 @@ internal static class UserReportedUsabilityContractProbe
                 ?? throw new InvalidOperationException("Coloring 1/4 dichiara scrollbar verticale visibile ma non espone una ScrollBar verticale fisicamente misurata.");
             RequirePhysicalHit(window, verticalBar, "ScrollBar verticale Coloring 1/4");
 
-            // Route an actual PointerWheelChanged event through the ScrollViewer after verifying the physical
-            // hit target. Direct RaiseEvent alone is not accepted as proof that a real mouse can reach the page.
             scroll.Offset = new Vector(scroll.Offset.X, 0);
             using (var pointer = new Avalonia.Input.Pointer(0xD1E2, PointerType.Mouse, true))
             {
@@ -158,7 +153,6 @@ internal static class UserReportedUsabilityContractProbe
             if (scroll.Offset.Y < 1)
                 throw new InvalidOperationException("Coloring 1/4 espone contenuto oltre il viewport ma una vera rotella routed non sposta lo scroll.");
 
-            // The usability module asynchronously decodes the latest imported image into the permanent preview host.
             await WaitAsync(window, "quantity-image-preview", 500);
             var preview = previewHost.Content as Control
                 ?? throw new InvalidOperationException("Preview Coloring 1/4 assente.");
