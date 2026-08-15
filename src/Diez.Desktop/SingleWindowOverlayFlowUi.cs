@@ -571,6 +571,7 @@ internal sealed class SingleWindowOverlayFlowHost
         SetPreview(page.Preview);
         _status.Text = page.Status;
         _back.IsEnabled = _history.Count > 1;
+        RefreshStablePageObservers();
     }
 
     private void Back()
@@ -587,11 +588,40 @@ internal sealed class SingleWindowOverlayFlowHost
         _previewHost.Content = null;
         _overlay.IsVisible = false;
         foreach (var control in _homeControls) control.IsVisible = true;
+        AvaloniaLayoutPumpUi.Execute(_window, "stable-page-stack-home");
         SetMainStatus("Tornato alla schermata principale del progetto.");
     }
 
     private void SetPreview(Control control) => _previewHost.Content = control;
     private void Report(string text) { _status.Text = text; SetMainStatus(text); }
+
+    private void RefreshStablePageObservers()
+    {
+        const BindingFlags flags = BindingFlags.Static | BindingFlags.NonPublic;
+        try
+        {
+            typeof(SingleWindowBookTitleUsabilityUi)
+                .GetMethod("Apply", flags)?
+                .Invoke(null, new object?[] { _window, _pageHost });
+
+            typeof(SingleWindowQuantityUsabilityUi)
+                .GetMethod("ConfigureCurrentPage", flags)?
+                .Invoke(null, new object?[] { _window, _pageHost, "stable-page-stack" });
+
+            if (typeof(SingleWindowQuantityUsabilityUi)
+                    .GetMethod("LoadPreviewAsync", flags)?
+                    .Invoke(null, new object?[] { _window, _pageHost, _previewHost }) is Task previewTask)
+                _ = previewTask;
+        }
+        catch (Exception ex)
+        {
+            SafeStartupTrace.Write(
+                "workflow-page-stack-refresh | error=" +
+                ex.GetBaseException().Message.Replace('|', '/'));
+        }
+
+        AvaloniaLayoutPumpUi.Execute(_window, "stable-page-stack-change");
+    }
 
     private bool TrySession(out PreviewProject project, out string path)
     {
@@ -656,11 +686,7 @@ internal sealed class SingleWindowOverlayFlowHost
 
         public void Show(Control? page)
         {
-            if (ReferenceEquals(_activePage, page))
-            {
-                RaisePropertyChanged<object?>(ContentProperty, _stack, _stack, Avalonia.Data.BindingPriority.LocalValue);
-                return;
-            }
+            if (ReferenceEquals(_activePage, page)) return;
 
             if (_activePage is not null && _stack.Children.Contains(_activePage))
                 _stack.Children.Remove(_activePage);
@@ -686,9 +712,6 @@ internal sealed class SingleWindowOverlayFlowHost
                 page.InvalidateVisual();
             }
 
-            // Keep the ContentPresenter child stable for the lifetime of the window while preserving the existing
-            // ContentProperty notification contract used by layout/title/quantity observers.
-            RaisePropertyChanged<object?>(ContentProperty, _stack, _stack, Avalonia.Data.BindingPriority.LocalValue);
             SafeStartupTrace.Write(
                 "workflow-page-stack | contentPresenterChild=stable" +
                 " | active=" + (page?.GetType().Name ?? "<none>") +
