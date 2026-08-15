@@ -35,6 +35,11 @@ internal static class StableWorkflowRootUi
         homeRoot.VerticalAlignment = VerticalAlignment.Stretch;
         overlay.HorizontalAlignment = HorizontalAlignment.Stretch;
         overlay.VerticalAlignment = VerticalAlignment.Stretch;
+        // The legacy overlay was originally mounted directly in the old desktop Grid with its own 14x10
+        // outer margin. Once it becomes a child of the permanent stable root that margin would be applied a
+        // second time, giving rendering and platform pointer input different nested coordinate origins.
+        // Home and Workflow must share the same local origin inside DiezStableMainRoot.
+        overlay.Margin = new Avalonia.Thickness(0);
         // The workflow root owns layout/input state for its subtree but must not become the terminal hit surface.
         // A painted Grid background caused InputHitTest to stop here instead of descending to editable controls.
         overlay.Background = null;
@@ -60,6 +65,7 @@ internal static class StableWorkflowRootUi
             "stable-root-installed | borderChild=" + stableRoot.Name +
             " | homeParent=" + (homeRoot.Parent?.GetType().Name ?? "<null>") +
             " | workflowParent=" + (overlay.Parent?.GetType().Name ?? "<null>") +
+            " | workflowMargin=" + overlay.Margin +
             " | workflowHitSurface=transparent" +
             " | runtime-reparenting=false");
     }
@@ -87,6 +93,7 @@ internal static class StableWorkflowRootUi
             " | rootBounds=" + state.StableRoot.Bounds +
             " | homeBounds=" + state.HomeRoot.Bounds +
             " | workflowBounds=" + state.Overlay.Bounds +
+            " | workflowMargin=" + state.Overlay.Margin +
             " | workflowHitSurface=transparent" +
             " | runtime-reparenting=false");
     }
@@ -101,6 +108,7 @@ internal static class StableWorkflowRootUi
             " | rootBounds=" + state.StableRoot.Bounds +
             " | homeBounds=" + state.HomeRoot.Bounds +
             " | workflowBounds=" + state.Overlay.Bounds +
+            " | workflowMargin=" + state.Overlay.Margin +
             " | workflowHitSurface=transparent" +
             " | runtime-reparenting=false");
     }
