@@ -217,8 +217,7 @@ internal static class UserReportedUsabilityContractProbe
             ?? throw new InvalidOperationException($"Il controllo '{label}' non può tradurre le proprie coordinate verso MainWindow.");
         var hit = window.InputHitTest(windowPoint);
         var hitVisual = hit as Visual;
-        var reachesTarget = hitVisual is not null &&
-            (ReferenceEquals(hitVisual, target) || hitVisual.GetVisualAncestors().Any(ancestor => ReferenceEquals(ancestor, target)));
+        var reachesTarget = HitReachesTarget(hitVisual, target);
 
         SafeStartupTrace.Write(
             "physical-input-hit | target=" + label +
@@ -231,6 +230,9 @@ internal static class UserReportedUsabilityContractProbe
             "physical-input-hit-path | target=" + label +
             " | hitPath=" + VisualPath(hitVisual) +
             " | targetPath=" + VisualPath(target));
+
+        if (!reachesTarget)
+            TracePhysicalHitScan(window, target, label, windowPoint);
 
         if (!OperatingSystem.IsWindows())
         {
@@ -289,6 +291,53 @@ internal static class UserReportedUsabilityContractProbe
                 " | targetFocused=" + target.IsFocused);
         }
     }
+
+    private static void TracePhysicalHitScan(MainWindow window, Control target, string label, Point expectedPoint)
+    {
+        const double radiusX = 320;
+        const double radiusY = 220;
+        const double step = 10;
+        var minX = Math.Max(0, expectedPoint.X - radiusX);
+        var maxX = Math.Min(window.ClientSize.Width, expectedPoint.X + radiusX);
+        var minY = Math.Max(0, expectedPoint.Y - radiusY);
+        var maxY = Math.Min(window.ClientSize.Height, expectedPoint.Y + radiusY);
+        var probes = 0;
+
+        for (var y = minY; y <= maxY; y += step)
+        {
+            for (var x = minX; x <= maxX; x += step)
+            {
+                probes++;
+                var probePoint = new Point(x, y);
+                var probeHit = window.InputHitTest(probePoint);
+                var probeVisual = probeHit as Visual;
+                if (!HitReachesTarget(probeVisual, target)) continue;
+
+                SafeStartupTrace.Write(
+                    "physical-input-hit-scan | target=" + label +
+                    " | found=true" +
+                    " | expectedPoint=" + expectedPoint +
+                    " | foundPoint=" + probePoint +
+                    " | delta=" + new Vector(probePoint.X - expectedPoint.X, probePoint.Y - expectedPoint.Y) +
+                    " | probes=" + probes +
+                    " | hitType=" + (probeHit?.GetType().FullName ?? "<null>") +
+                    " | hitName=" + ((probeHit as Control)?.Name ?? "<unnamed>"));
+                return;
+            }
+        }
+
+        SafeStartupTrace.Write(
+            "physical-input-hit-scan | target=" + label +
+            " | found=false" +
+            " | expectedPoint=" + expectedPoint +
+            " | area=" + new Rect(minX, minY, Math.Max(0, maxX - minX), Math.Max(0, maxY - minY)) +
+            " | step=" + step +
+            " | probes=" + probes);
+    }
+
+    private static bool HitReachesTarget(Visual? hitVisual, Control target) =>
+        hitVisual is not null &&
+        (ReferenceEquals(hitVisual, target) || hitVisual.GetVisualAncestors().Any(ancestor => ReferenceEquals(ancestor, target)));
 
     private static string VisualPath(Visual? visual)
     {
