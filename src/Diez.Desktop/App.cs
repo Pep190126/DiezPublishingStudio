@@ -101,7 +101,6 @@ public sealed class App : Application
             ("Host single-window", () => SingleWindowOverlayFlowUi.Attach(window)),
             ("Workflow detached prima del layout", () => DetachedWorkflowRootUi.Attach(window)),
             ("Percorso nativo SW-FLOW-12", () => SingleWindowNativeV11Ui.Attach(window)),
-            ("Layout Consistent nativo", () => SingleWindowConsistencyLayoutUi.Attach(window)),
             ("Ingresso percorso nativo", () => SingleWindowNativeEntryBridgeUi.Attach(window)),
             ("Conferma uscita", () => ExitConfirmationUi.Attach(window)),
             ("Identità Tipo libro visuale", () => SingleWindowVisualBookIdentityUi.Attach(window)),
