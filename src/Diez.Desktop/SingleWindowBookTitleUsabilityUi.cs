@@ -54,13 +54,23 @@ internal static class SingleWindowBookTitleUsabilityUi
             title.Text = project.EditionMetadata.Title;
         }
 
-        const double width = 620;
+        // Never let the visible editor extend beyond the mounted pageHost input region. The previous fixed
+        // 620 px width overflowed the real 564 px pageHost on Windows, so the geometric centre used by a
+        // physical mouse click could lie outside the page subtree even though the TextBox was visibly drawn.
+        const double preferredWidth = 620;
+        const double horizontalSafety = 16;
+        var mountedWidth = pageHost.Bounds.Width;
+        var width = mountedWidth > horizontalSafety
+            ? Math.Min(preferredWidth, mountedWidth - horizontalSafety)
+            : Math.Min(preferredWidth, 520);
+
         field.Width = width;
+        field.MaxWidth = preferredWidth;
         field.HorizontalAlignment = HorizontalAlignment.Left;
         field.IsEnabled = true;
         field.IsHitTestVisible = true;
         title.Width = width;
-        title.MaxWidth = width;
+        title.MaxWidth = preferredWidth;
         title.HorizontalAlignment = HorizontalAlignment.Left;
         title.TextAlignment = TextAlignment.Left;
         title.Background = Brushes.White;
@@ -100,6 +110,9 @@ internal static class SingleWindowBookTitleUsabilityUi
             "book-title-usability | title=" + (title.Text ?? string.Empty) +
             " | source=" + (string.Equals(title.Text, project.Name, StringComparison.Ordinal) ? "project-name" : "edition-title") +
             " | alignment=left" +
+            " | mountedWidth=" + mountedWidth.ToString("0.##") +
+            " | editorWidth=" + width.ToString("0.##") +
+            " | withinMountedPage=" + (mountedWidth <= 0 || width <= mountedWidth) +
             " | editable=" + (!title.IsReadOnly && title.IsEnabled && title.IsHitTestVisible && title.Focusable));
     }
 
