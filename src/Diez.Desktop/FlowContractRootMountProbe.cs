@@ -1,4 +1,3 @@
-using System.Reflection;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
@@ -6,19 +5,15 @@ using Avalonia.Threading;
 namespace DiezPublishingStudio;
 
 /// <summary>
-/// CI/diagnostic helper only. Ensures structural flow contracts run with the workflow physically mounted
-/// through the same visible Home entry used by a real user, instead of mutating a detached pageHost.
+/// CI/diagnostic helper only. Ensures structural flow contracts enter Workflow through the same visible
+/// Home button used by a real user. Under the permanent-root architecture this validates active input
+/// ownership, not Border.Child replacement.
 /// </summary>
 internal static class FlowContractRootMountProbe
 {
     public static async Task EnsureMountedAsync(MainWindow window)
     {
-        var host = SingleWindowEntryPointUi.GetHost(window);
-        var overlay = host.GetType().GetField("_overlay", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(host) as Grid
-            ?? throw new InvalidOperationException("Workflow root non disponibile nel contract mount probe.");
-
-        if (window.Content is Border currentBorder && ReferenceEquals(currentBorder.Child, overlay) && ReferenceEquals(overlay.Parent, currentBorder))
-            return;
+        if (StableWorkflowRootUi.IsWorkflowActive(window)) return;
 
         var entry = Descendants(window).OfType<Button>().FirstOrDefault(button =>
             string.Equals(button.Name, SingleWindowNativeEntryBridgeUi.NativeEntryName, StringComparison.Ordinal))
@@ -33,13 +28,18 @@ internal static class FlowContractRootMountProbe
         await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);
         await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Render);
 
-        if (window.Content is not Border border || !ReferenceEquals(border.Child, overlay) || !ReferenceEquals(overlay.Parent, border))
+        if (!StableWorkflowRootUi.IsInstalled(window) || !StableWorkflowRootUi.IsWorkflowActive(window))
             throw new InvalidOperationException(
-                "Il workflow non è stato montato fisicamente tramite DiezNativeBookFlowEntry prima del contract strutturale.");
+                "Il workflow non ha ottenuto l'input nella radice stabile tramite DiezNativeBookFlowEntry.");
 
+        var stable = StableWorkflowRootUi.StableRoot(window);
+        var home = StableWorkflowRootUi.HomeRoot(window);
+        var workflow = StableWorkflowRootUi.WorkflowRoot(window);
         SafeStartupTrace.Write(
-            "flow-contract-root-mount | mounted=true | route=DiezNativeBookFlowEntry" +
-            " | overlayBounds=" + overlay.Bounds);
+            "flow-contract-root-mount | mounted=true | route=DiezNativeBookFlowEntry | stableRoot=true" +
+            " | rootBounds=" + (stable?.Bounds.ToString() ?? "<null>") +
+            " | homeBounds=" + (home?.Bounds.ToString() ?? "<null>") +
+            " | workflowBounds=" + (workflow?.Bounds.ToString() ?? "<null>"));
     }
 
     private static IEnumerable<Control> Descendants(Control root)
