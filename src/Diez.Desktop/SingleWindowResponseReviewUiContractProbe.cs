@@ -91,7 +91,10 @@ internal static class SingleWindowResponseReviewUiContractProbe
             foreach (var unit in units)
                 RequireFailure(project, afterOpenState, unit, failedVersions[unit.WorkUnitId], "subito dopo apertura sincrona della Review");
             await WaitAsync(260);
-            if (pageHost.Content is not Grid root || root.Name != "DiezResponseReviewPage")
+            var root = pageHost.Content is Control mounted
+                ? Descendants(mounted).OfType<Grid>().FirstOrDefault(g => g.Name == "DiezResponseReviewPage")
+                : null;
+            if (root is null)
                 throw new InvalidOperationException("Response Review non usa la pagina sicura dedicata.");
             var scroll = Descendants(root).OfType<ScrollViewer>().FirstOrDefault(s => s.Name == "DiezResponseReviewScroll")
                 ?? throw new InvalidOperationException("Response Review non contiene ScrollViewer principale.");
