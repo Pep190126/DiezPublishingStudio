@@ -39,6 +39,8 @@ internal static class SingleWindowBookTitleUsabilityUi
 
     private static void Apply(MainWindow window, ContentControl pageHost)
     {
+        SingleWindowVisualBookIdentityUi.Apply(window);
+
         var project = Field<PreviewProject>(window, "_project");
         if (project is null || pageHost.Content is not Control page) return;
 
