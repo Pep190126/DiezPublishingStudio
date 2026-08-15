@@ -7,7 +7,7 @@ namespace DiezPublishingStudio;
 
 /// <summary>
 /// Exercises the actual production click route instead of calling destination pages directly and verifies
-/// that the active native workflow is the only visual root inside the MainWindow content Border.
+/// that Workflow owns input while both Home and Workflow remain permanently parented under one root.
 /// </summary>
 internal static class SingleWindowNativeClickContract
 {
@@ -111,17 +111,21 @@ internal static class SingleWindowNativeClickContract
     {
         var overlay = Field<Grid>(host, "_overlay")
             ?? throw new InvalidOperationException("Workflow root non disponibile durante " + stage + ".");
-        if (!overlay.IsVisible || !overlay.IsHitTestVisible)
-            throw new InvalidOperationException(
-                $"Workflow root non operativo durante {stage}: visible={overlay.IsVisible}, hitTest={overlay.IsHitTestVisible}.");
+        var stableRoot = StableWorkflowRootUi.StableRoot(window)
+            ?? throw new InvalidOperationException("Radice visuale stabile non disponibile durante " + stage + ".");
+        var homeRoot = StableWorkflowRootUi.HomeRoot(window)
+            ?? throw new InvalidOperationException("Home root stabile non disponibile durante " + stage + ".");
 
-        if (window.Content is not Border border)
-            throw new InvalidOperationException("Border root MainWindow non disponibile durante " + stage + ".");
-        if (!ReferenceEquals(border.Child, overlay))
+        if (!StableWorkflowRootUi.IsWorkflowActive(window))
+            throw new InvalidOperationException("Workflow non possiede l'input nella radice stabile durante " + stage + ".");
+        if (!ReferenceEquals(overlay.Parent, stableRoot) || !ReferenceEquals(homeRoot.Parent, stableRoot))
+            throw new InvalidOperationException("Home/Workflow non sono entrambi parented alla radice stabile durante " + stage + ".");
+        if (window.Content is not Border border || !ReferenceEquals(border.Child, stableRoot))
+            throw new InvalidOperationException("MainWindow non conserva la radice visuale stabile durante " + stage + ".");
+        if (!overlay.IsVisible || !overlay.IsEnabled || !overlay.IsHitTestVisible ||
+            homeRoot.IsEnabled || homeRoot.IsHitTestVisible)
             throw new InvalidOperationException(
-                $"Il workflow non è la radice visuale durante {stage}: current={border.Child?.GetType().Name ?? "<null>"}.");
-        if (!ReferenceEquals(overlay.Parent, border))
-            throw new InvalidOperationException("Il workflow root non è parented direttamente al Border durante " + stage + ".");
+                $"Ownership stabile errata durante {stage}: workflowVisible={overlay.IsVisible}, workflowEnabled={overlay.IsEnabled}, workflowHit={overlay.IsHitTestVisible}, homeEnabled={homeRoot.IsEnabled}, homeHit={homeRoot.IsHitTestVisible}.");
     }
 
     private static async Task WaitUntilAsync(
