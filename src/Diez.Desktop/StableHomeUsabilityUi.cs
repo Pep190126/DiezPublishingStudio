@@ -44,7 +44,7 @@ internal static class StableHomeUsabilityUi
         RefreshMaterials(window, selectLatest: false);
 
         window.Closed += (_, _) => Attached.Remove(window);
-        SafeStartupTrace.Write("stable-home-usability | attached=true | material-refresh=explicit | home-return=synchronous | win32-refresh=project-mutations");
+        SafeStartupTrace.Write("stable-home-usability | attached=true | material-refresh=explicit | home-return=synchronous | home-refresh=full | win32-refresh=project-mutations");
     }
 
     private static void WireHomeProjectButton(MainWindow window)
@@ -57,14 +57,40 @@ internal static class StableHomeUsabilityUi
         if (button is null || !WiredHomeButtons.Add(button)) return;
 
         // The legacy host handler clears page/history first. This later handler immediately selects Home
-        // in the permanent root, instead of waiting for a posted Content=null callback.
+        // in the permanent root, then rebuilds the real Home lists from the still-active project. The installed
+        // Windows path proved that refreshing only Materials leaves the Home looking as if the project vanished.
         button.Click += (_, _) =>
         {
             StableWorkflowRootUi.ActivateHome(window);
-            RefreshMaterials(window, selectLatest: false);
+            RefreshHome(window);
             SingleWindowQuantityUsabilityUi.ForceWin32Frame(window, "home-project-button");
-            SafeStartupTrace.Write("stable-home-usability | action=home-project | activeHome=true");
+            SafeStartupTrace.Write("stable-home-usability | action=home-project | activeHome=true | fullRefresh=true");
         };
+    }
+
+    private static void RefreshHome(MainWindow window)
+    {
+        try
+        {
+            typeof(MainWindow)
+                .GetMethod("RefreshViews", BindingFlags.Instance | BindingFlags.NonPublic)?
+                .Invoke(window, [null, null, null]);
+        }
+        catch (Exception ex)
+        {
+            SafeStartupTrace.Write("stable-home-usability | action=refresh-views | error=" + ex.GetBaseException().Message);
+        }
+
+        RefreshMaterials(window, selectLatest: false);
+
+        var project = Field<PreviewProject>(window, "_project");
+        var status = Field<TextBlock>(window, "_status");
+        if (project is not null && status is not null)
+            status.Text = $"Aperto: {project.Name} · progetto attivo";
+
+        StableWorkflowRootUi.HomeRoot(window)?.InvalidateMeasure();
+        StableWorkflowRootUi.HomeRoot(window)?.InvalidateArrange();
+        StableWorkflowRootUi.HomeRoot(window)?.InvalidateVisual();
     }
 
     private static void RefreshMaterials(MainWindow window, bool selectLatest)
