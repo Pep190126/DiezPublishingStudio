@@ -18,15 +18,27 @@ jobs:
       - run: dotnet publish src/Diez.Desktop/Diez.Desktop.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -o artifacts/publish
 
       # Hard deterministic gate: construct/show the real MainWindow, attach the real Diez modules and
-      # execute the complete UI contract using Avalonia's supported headless session.
+      # execute the complete UI contract using Avalonia's supported headless session. Never wait forever:
+      # the harness writes START/OK breadcrumbs per sub-contract so a timeout still identifies the hang.
       - name: Run deterministic Windows UI flow contract
         shell: powershell
         run: |
           $exe = (Resolve-Path "artifacts\publish\DiezPublishingStudio.exe").Path
-          $process = Start-Process -FilePath $exe -ArgumentList "--ui-headless-ci --ui-flow-contract" -Wait -PassThru
+          $resultFile = "artifacts\publish\ui-flow-contract.txt"
+          $process = Start-Process -FilePath $exe -ArgumentList "--ui-headless-ci --ui-flow-contract" -PassThru
+          $completed = $process.WaitForExit(180000)
+          if (-not $completed) {
+            Write-Host "UI flow contract timed out after 180 seconds."
+            if (Test-Path $resultFile) {
+              Write-Host "--- partial ui-flow-contract.txt ---"
+              Get-Content $resultFile
+            }
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+            throw "Deterministic UI flow timed out; inspect the last START breadcrumb above."
+          }
+          $process.WaitForExit()
           Write-Host "Headless real-UI-tree exit code: $($process.ExitCode)"
           if ($process.ExitCode -ne 0) {
-            $resultFile = "artifacts\publish\ui-flow-contract.txt"
             if (Test-Path $resultFile) { Get-Content $resultFile }
             throw "Deterministic UI flow failed with exit code $($process.ExitCode)"
           }
@@ -39,15 +51,22 @@ jobs:
         shell: powershell
         run: |
           $exe = (Resolve-Path "artifacts\publish\DiezPublishingStudio.exe").Path
-          $process = Start-Process -FilePath $exe -ArgumentList "--ui-flow-contract" -Wait -PassThru
-          Write-Host "Classic desktop diagnostic exit code: $($process.ExitCode)"
+          $process = Start-Process -FilePath $exe -ArgumentList "--ui-flow-contract" -PassThru
+          $completed = $process.WaitForExit(60000)
+          if (-not $completed) {
+            Write-Host "Classic desktop diagnostic timed out after 60 seconds."
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+          } else {
+            $process.WaitForExit()
+            Write-Host "Classic desktop diagnostic exit code: $($process.ExitCode)"
+          }
           $resultFile = "artifacts\publish\ui-flow-contract.txt"
           if (Test-Path $resultFile) { Get-Content $resultFile }
           $fatal = Join-Path $env:LOCALAPPDATA "Diez Publishing Studio\logs\fatal-errors.log"
           $startup = Join-Path $env:LOCALAPPDATA "Diez Publishing Studio\logs\startup-errors.log"
           if (Test-Path $fatal) { Write-Host "--- fatal-errors.log ---"; Get-Content $fatal }
           if (Test-Path $startup) { Write-Host "--- startup-errors.log ---"; Get-Content $startup }
-          if ($process.ExitCode -ne 0) { exit $process.ExitCode }
+          if ($completed -and $process.ExitCode -ne 0) { exit $process.ExitCode }
 
       - name: Upload UI flow diagnostic when produced
         if: always()
