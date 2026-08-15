@@ -10,6 +10,8 @@ namespace DiezPublishingStudio;
 /// <summary>
 /// Restores two user-facing affordances on the native visual 1/4 page: a persistent real-image preview
 /// in the right preview host and an explicit, wheel-capable vertical scrollbar for the long form.
+/// Scroll configuration is synchronous with Content assignment so it cannot be lost behind the classic
+/// Win32 delayed-render layout turn; image decoding remains asynchronous.
 /// </summary>
 internal static class SingleWindowQuantityUsabilityUi
 {
@@ -34,7 +36,17 @@ internal static class SingleWindowQuantityUsabilityUi
         pageHost.PropertyChanged += (_, e) =>
         {
             if (e.Property != ContentControl.ContentProperty) return;
-            Dispatcher.UIThread.Post(() => _ = ApplyAsync(window, pageHost, previewHost), DispatcherPriority.Loaded);
+
+            // The logical page tree already exists at Content assignment time even if Win32 has not yet
+            // executed the queued physical layout. Configure the ScrollViewer now, then repeat at Loaded/Render
+            // as an idempotent guard for wrappers or decorators added by later modules.
+            ConfigureCurrentPage(pageHost, "content-change");
+            Dispatcher.UIThread.Post(() =>
+            {
+                ConfigureCurrentPage(pageHost, "loaded");
+                _ = LoadPreviewAsync(window, pageHost, previewHost);
+                Dispatcher.UIThread.Post(() => ConfigureCurrentPage(pageHost, "render"), DispatcherPriority.Render);
+            }, DispatcherPriority.Loaded);
         };
 
         window.Closed += (_, _) =>
@@ -43,16 +55,39 @@ internal static class SingleWindowQuantityUsabilityUi
             if (PreviewBitmaps.Remove(window, out var bitmap)) bitmap.Dispose();
         };
 
-        _ = ApplyAsync(window, pageHost, previewHost);
+        ConfigureCurrentPage(pageHost, "attach");
+        _ = LoadPreviewAsync(window, pageHost, previewHost);
     }
 
-    private static async Task ApplyAsync(MainWindow window, ContentControl pageHost, ContentControl previewHost)
+    private static ScrollViewer? ConfigureCurrentPage(ContentControl pageHost, string phase)
     {
-        if (pageHost.Content is not Control page) return;
-        if (!Descendants(page).Any(c => string.Equals(c.Name, "DiezNativeV11QuantityPage", StringComparison.Ordinal))) return;
+        if (pageHost.Content is not Control page) return null;
 
         var scroll = page as ScrollViewer ?? Descendants(page).OfType<ScrollViewer>().FirstOrDefault();
-        if (scroll is not null) ConfigureScroll(scroll);
+        if (scroll is null) return null;
+
+        // Quantity is the only native page whose ScrollViewer directly contains this named root. This check is
+        // independent of physical Bounds so it works before the delayed classic Win32 layout pass.
+        var quantityRoot = scroll.Content as Control;
+        var isQuantity = string.Equals(quantityRoot?.Name, "DiezNativeV11QuantityPage", StringComparison.Ordinal) ||
+                         Descendants(scroll).Any(c => string.Equals(c.Name, "DiezNativeV11QuantityPage", StringComparison.Ordinal));
+        if (!isQuantity) return null;
+
+        ConfigureScroll(scroll);
+        SafeStartupTrace.Write(
+            "quantity-scroll | phase=" + phase +
+            " | vertical=" + scroll.VerticalScrollBarVisibility +
+            " | bounds=" + scroll.Bounds +
+            " | extent=" + scroll.Extent +
+            " | viewport=" + scroll.Viewport);
+        return scroll;
+    }
+
+    private static async Task LoadPreviewAsync(MainWindow window, ContentControl pageHost, ContentControl previewHost)
+    {
+        if (pageHost.Content is not Control page) return;
+        var scroll = ConfigureCurrentPage(pageHost, "preview-start");
+        if (scroll is null) return;
 
         var project = Field<PreviewProject>(window, "_project");
         var path = Field<string>(window, "_currentProjectPath");
@@ -118,10 +153,12 @@ internal static class SingleWindowQuantityUsabilityUi
                 }
             };
 
+            AvaloniaLayoutPumpUi.Execute(window, "quantity-preview-content");
             SafeStartupTrace.Write(
                 "quantity-usability | preview=image | file=" + imageMaterial.FileName +
                 " | bytes=" + bytes.Length +
-                " | scroll=" + (scroll is null ? "missing" : "configured"));
+                " | previewHostBounds=" + previewHost.Bounds +
+                " | scroll=configured");
         }
         catch (Exception ex)
         {
@@ -185,7 +222,7 @@ internal static class SingleWindowQuantityUsabilityUi
                 case Border border when border.Child is Control child:
                     stack.Push(child);
                     break;
-                case ScrollViewer scroll when scroll.Content is Control child:
+                case ScrollViewer viewer when viewer.Content is Control child:
                     stack.Push(child);
                     break;
                 case ContentControl content when content.Content is Control child:
