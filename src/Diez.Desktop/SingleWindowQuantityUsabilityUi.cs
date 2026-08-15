@@ -40,23 +40,16 @@ internal static class SingleWindowQuantityUsabilityUi
         {
             if (e.Property != ContentControl.ContentProperty) return;
 
-            // The logical page tree already exists at Content assignment time even if Win32 has not yet
-            // executed the queued physical layout. Configure the ScrollViewer now, then repeat at Loaded/Render
-            // as an idempotent guard for wrappers or decorators added by later modules.
-            ConfigureCurrentPage(pageHost, "content-change");
+            ConfigureCurrentPage(window, pageHost, "content-change");
             Dispatcher.UIThread.Post(() =>
             {
-                ConfigureCurrentPage(pageHost, "loaded");
-
-                // On the affected classic-Win32 path Avalonia can finish measure/arrange while the HWND still
-                // presents the previous page. Force a real window repaint only after the stable layout turn;
-                // this does not reparent controls and does not manually Measure/Arrange anything.
+                ConfigureCurrentPage(window, pageHost, "loaded");
                 ForceWin32Frame(window, "page-content-loaded");
 
                 _ = LoadPreviewAsync(window, pageHost, previewHost);
                 Dispatcher.UIThread.Post(() =>
                 {
-                    ConfigureCurrentPage(pageHost, "render");
+                    ConfigureCurrentPage(window, pageHost, "render");
                     ForceWin32Frame(window, "page-content-render");
                 }, DispatcherPriority.Render);
             }, DispatcherPriority.Loaded);
@@ -68,26 +61,22 @@ internal static class SingleWindowQuantityUsabilityUi
             if (PreviewBitmaps.Remove(window, out var bitmap)) bitmap.Dispose();
         };
 
-        ConfigureCurrentPage(pageHost, "attach");
+        ConfigureCurrentPage(window, pageHost, "attach");
         _ = LoadPreviewAsync(window, pageHost, previewHost);
     }
 
-    private static ScrollViewer? ConfigureCurrentPage(ContentControl pageHost, string phase)
+    private static ScrollViewer? ConfigureCurrentPage(MainWindow window, ContentControl pageHost, string phase)
     {
         if (pageHost.Content is not Control page) return null;
 
         var scroll = page as ScrollViewer ?? Descendants(page).OfType<ScrollViewer>().FirstOrDefault();
         if (scroll is null) return null;
 
-        // Quantity is the only native page whose ScrollViewer directly contains this named root. This check is
-        // independent of physical Bounds so it works before the delayed classic Win32 layout pass.
         var quantityRoot = scroll.Content as Control;
         var isQuantity = string.Equals(quantityRoot?.Name, "DiezNativeV11QuantityPage", StringComparison.Ordinal) ||
                          Descendants(scroll).Any(c => string.Equals(c.Name, "DiezNativeV11QuantityPage", StringComparison.Ordinal));
         if (!isQuantity) return null;
 
-        // These are input-ownership invariants for the active page, not cosmetic defaults. Keeping them explicit
-        // prevents an inherited disabled/hit-test state from making the physically rendered 1/4 page inert.
         page.IsEnabled = true;
         page.IsHitTestVisible = true;
         if (quantityRoot is not null)
@@ -96,7 +85,7 @@ internal static class SingleWindowQuantityUsabilityUi
             quantityRoot.IsHitTestVisible = true;
         }
 
-        ConfigureScroll(scroll);
+        ConfigureScroll(window, scroll);
         SafeStartupTrace.Write(
             "quantity-scroll | phase=" + phase +
             " | vertical=" + scroll.VerticalScrollBarVisibility +
@@ -111,7 +100,7 @@ internal static class SingleWindowQuantityUsabilityUi
     private static async Task LoadPreviewAsync(MainWindow window, ContentControl pageHost, ContentControl previewHost)
     {
         if (pageHost.Content is not Control page) return;
-        var scroll = ConfigureCurrentPage(pageHost, "preview-start");
+        var scroll = ConfigureCurrentPage(window, pageHost, "preview-start");
         if (scroll is null) return;
 
         var project = Field<PreviewProject>(window, "_project");
@@ -192,10 +181,8 @@ internal static class SingleWindowQuantityUsabilityUi
         }
     }
 
-    private static void ConfigureScroll(ScrollViewer scroll)
+    private static void ConfigureScroll(MainWindow window, ScrollViewer scroll)
     {
-        // Do not assign Name here: at ContentChanged the control may already be styled, and Avalonia forbids
-        // renaming a StyledElement at that point. The Quantity page is identified by its named content root.
         scroll.VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Visible;
         scroll.HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled;
         scroll.IsEnabled = true;
@@ -204,9 +191,22 @@ internal static class SingleWindowQuantityUsabilityUi
 
         if (!WiredScrollers.Add(scroll)) return;
 
-        // Listen even when a child control or Avalonia's built-in ScrollViewer logic already marked the wheel
-        // event handled. This is the installed-app failure mode: the form has a valid extent, but wheel input over
-        // editors/combos never reaches the old fallback because it returned immediately on e.Handled.
+        // The real-PC trace proved that Offset changes while the pixels and scrollbar remain stale. Repaint is
+        // therefore bound to the Offset property itself, so mouse wheel, touchpad and scrollbar dragging all
+        // refresh the actual viewport instead of relying on a one-off page repaint.
+        scroll.PropertyChanged += (_, e) =>
+        {
+            if (e.Property != ScrollViewer.OffsetProperty) return;
+            scroll.InvalidateVisual();
+            if (scroll.Content is Control content) content.InvalidateVisual();
+            ForceWin32Frame(window, "quantity-offset-changed");
+            SafeStartupTrace.Write(
+                "quantity-scroll | offset-repaint=true" +
+                " | offsetY=" + scroll.Offset.Y.ToString("0.##") +
+                " | extent=" + scroll.Extent +
+                " | viewport=" + scroll.Viewport);
+        };
+
         scroll.AddHandler(InputElement.PointerWheelChangedEvent, (_, e) =>
         {
             var handledBefore = e.Handled;
@@ -227,14 +227,12 @@ internal static class SingleWindowQuantityUsabilityUi
         }, RoutingStrategies.Tunnel | RoutingStrategies.Bubble, handledEventsToo: true);
 
         SafeStartupTrace.Write(
-            "quantity-scroll | configured=true | vertical=Visible | extent=" + scroll.Extent +
+            "quantity-scroll | configured=true | vertical=Visible | offset-repaint=wired | extent=" + scroll.Extent +
             " | viewport=" + scroll.Viewport);
     }
 
     internal static void ForceWin32Frame(MainWindow window, string reason)
     {
-        // Keep Avalonia's own invalidation first. RedrawWindow is only a classic-Win32 presentation fallback
-        // for the observed case where layout is current but the compositor still displays the previous page.
         window.InvalidateVisual();
         StableWorkflowRootUi.StableRoot(window)?.InvalidateVisual();
         StableWorkflowRootUi.WorkflowRoot(window)?.InvalidateVisual();
