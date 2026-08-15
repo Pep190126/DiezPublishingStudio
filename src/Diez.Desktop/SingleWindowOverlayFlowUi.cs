@@ -9,9 +9,9 @@ using Avalonia.Platform.Storage;
 namespace DiezPublishingStudio;
 
 /// <summary>
-/// One physical MainWindow. The existing home controls stay in their original
-/// parents; a logical workflow overlay is added to the same desktop Grid.
-/// Navigation switches IsVisible only, so no initialized control is reparented.
+/// One physical MainWindow. Home controls stay in their original tree while the logical workflow surface is
+/// constructed detached and receives its first visual parent from StableWorkflowRootUi. Navigation then only
+/// changes active surface state; the initialized workflow subtree is never reparented at runtime.
 /// </summary>
 internal static class SingleWindowOverlayFlowUi
 {
@@ -123,7 +123,7 @@ internal sealed class SingleWindowOverlayFlowHost
         };
         Grid.SetRow(_overlay, 0);
         Grid.SetRowSpan(_overlay, Math.Max(1, _desktop.RowDefinitions.Count));
-        _desktop.Children.Add(_overlay);
+        SafeStartupTrace.Write("workflow-overlay-created | initialParent=<null> | first-parent=stable-root");
 
         foreach (var old in commandRow.Children.OfType<Button>())
         {
