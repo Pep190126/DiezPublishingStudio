@@ -297,6 +297,35 @@ internal sealed class DiezProjectDocument
         return mutation;
     }
 
+    public async Task<DiezAiFrontendImageMutation> IngestAiImageResultAsync(
+        Guid workUnitId,
+        string imagePath,
+        string? description,
+        int? candidateVersion = null,
+        string resultStatus = "COMPLETE")
+    {
+        var mutation = await DiezAiExchangeBridge.IngestImageResultAsync(
+            ExportProjectJson(),
+            workUnitId,
+            imagePath,
+            description,
+            candidateVersion,
+            resultStatus);
+        ApplyCoreJson(mutation.ProjectJson);
+
+        var material = mutation.Material;
+        if (material is { NeedsPackageStaging: true } &&
+            !string.IsNullOrWhiteSpace(material.EmbeddedPath) &&
+            !string.IsNullOrWhiteSpace(material.SourcePath) &&
+            File.Exists(material.SourcePath))
+        {
+            _stagedEmbeddedFiles[material.EmbeddedPath] = material.SourcePath;
+            MarkMaterialEmbedded(material.MaterialId, material.EmbeddedPath);
+        }
+
+        return mutation;
+    }
+
     public DiezAiFrontendResultMutation ApproveAiVersion(Guid versionId)
     {
         var mutation = DiezAiExchangeBridge.ApproveVersion(ExportProjectJson(), versionId);
@@ -451,6 +480,18 @@ internal sealed class DiezProjectDocument
         foreach (var pair in updated)
             _root[pair.Key] = pair.Value?.DeepClone();
         Normalize();
+    }
+
+    private void MarkMaterialEmbedded(Guid materialId, string embeddedPath)
+    {
+        foreach (var material in EnsureArray(_root, "Materials").OfType<JsonObject>())
+        {
+            if (!Guid.TryParse(GetString(material, "MaterialId"), out var id) || id != materialId)
+                continue;
+            material["EmbeddedPath"] = embeddedPath;
+            material["IsEmbedded"] = true;
+            return;
+        }
     }
 
     private void Normalize()
