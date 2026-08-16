@@ -16,6 +16,7 @@ on:
       - 'tests/Diez.PromptCompiler.Pianist/**'
       - 'tests/Diez.Vision.Pianist/**'
       - 'tests/Diez.Publication.Pianist/**'
+      - 'tests/Diez.BookTypeRouting.Pianist/**'
       - '.github/workflows/uno-platform-spike.yml'
   workflow_dispatch:
 
@@ -74,6 +75,9 @@ jobs:
 
       - name: Run cross-family publication pianist contract
         run: dotnet run --project tests/Diez.Publication.Pianist/Diez.Publication.Pianist.csproj -c Release
+
+      - name: Run multi-book routing pianist contract
+        run: dotnet run --project tests/Diez.BookTypeRouting.Pianist/Diez.BookTypeRouting.Pianist.csproj -c Release
 
       - name: Restore Uno desktop spike
         run: dotnet restore src/Diez.Uno/Diez.Uno.csproj
