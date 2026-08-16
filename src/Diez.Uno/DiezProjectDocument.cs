@@ -371,6 +371,83 @@ internal sealed class DiezProjectDocument
         return result;
     }
 
+    public DiezWordSearchWorkspaceDto WordSearchWorkspace()
+    {
+        try { return DiezPuzzleFrontendBridge.ReadWordSearch(ExportProjectJson()); }
+        catch { return new DiezWordSearchWorkspaceDto([], [], string.Empty, string.Empty); }
+    }
+
+    public DiezPuzzleMutationResult SaveWordSearchPuzzle(
+        Guid? contentId,
+        string? puzzleId,
+        string? title,
+        string? theme,
+        IEnumerable<string>? words,
+        string? status,
+        string? notes)
+    {
+        var result = DiezPuzzleFrontendBridge.SaveWordSearchPuzzle(
+            ExportProjectJson(), contentId, puzzleId, title, theme, words, status, notes);
+        ApplyCoreJson(result.ProjectJson);
+        return result;
+    }
+
+    public DiezPuzzleMutationResult DeleteWordSearchPuzzle(Guid contentId)
+    {
+        var result = DiezPuzzleFrontendBridge.DeleteWordSearchPuzzle(ExportProjectJson(), contentId);
+        ApplyCoreJson(result.ProjectJson);
+        return result;
+    }
+
+    public DiezPuzzleMutationResult ImportWordSearchLexiconText(string? text)
+    {
+        var result = DiezPuzzleFrontendBridge.ImportWordSearchLexiconText(ExportProjectJson(), text);
+        ApplyCoreJson(result.ProjectJson);
+        return result;
+    }
+
+    public string WordSearchCsv() => DiezPuzzleFrontendBridge.BuildWordSearchCsv(ExportProjectJson());
+
+    public DiezCrosswordWorkspaceDto CrosswordWorkspace()
+    {
+        try { return DiezPuzzleFrontendBridge.ReadCrossword(ExportProjectJson()); }
+        catch { return new DiezCrosswordWorkspaceDto(string.Empty, "Italiano", true, 0, [], string.Empty, string.Empty); }
+    }
+
+    public DiezPuzzleMutationResult SaveCrosswordSettings(string? theme, string? primaryLanguage, bool adaptive)
+    {
+        var result = DiezPuzzleFrontendBridge.SaveCrosswordSettings(
+            ExportProjectJson(), theme, primaryLanguage, adaptive);
+        ApplyCoreJson(result.ProjectJson);
+        return result;
+    }
+
+    public DiezPuzzleMutationResult SaveCrosswordEntry(
+        Guid? entityId,
+        string? word,
+        string? definition1,
+        string? definition2,
+        string? definition3,
+        string? definition4,
+        string? notes,
+        string? approved)
+    {
+        var result = DiezPuzzleFrontendBridge.SaveCrosswordEntry(
+            ExportProjectJson(), entityId, word,
+            definition1, definition2, definition3, definition4, notes, approved);
+        ApplyCoreJson(result.ProjectJson);
+        return result;
+    }
+
+    public DiezPuzzleMutationResult DeleteCrosswordEntry(Guid entityId)
+    {
+        var result = DiezPuzzleFrontendBridge.DeleteCrosswordEntry(ExportProjectJson(), entityId);
+        ApplyCoreJson(result.ProjectJson);
+        return result;
+    }
+
+    public string CrosswordQxwText() => DiezPuzzleFrontendBridge.BuildCrosswordQxwText(ExportProjectJson());
+
     public int MaterialCount => EnsureArray(_root, "Materials").Count;
     public int ContentCount => EnsureArray(_root, "ContentNodes").Count;
     public int EntityCount => EnsureArray(_root, "Entities").OfType<JsonObject>()
