@@ -15,6 +15,7 @@ on:
       - 'tests/Diez.WordSearch.Pianist/**'
       - 'tests/Diez.PromptCompiler.Pianist/**'
       - 'tests/Diez.Vision.Pianist/**'
+      - 'tests/Diez.Publication.Pianist/**'
       - '.github/workflows/uno-platform-spike.yml'
   workflow_dispatch:
 
@@ -70,6 +71,9 @@ jobs:
 
       - name: Run Vision HARD-gate pianist contract
         run: dotnet run --project tests/Diez.Vision.Pianist/Diez.Vision.Pianist.csproj -c Release
+
+      - name: Run cross-family publication pianist contract
+        run: dotnet run --project tests/Diez.Publication.Pianist/Diez.Publication.Pianist.csproj -c Release
 
       - name: Restore Uno desktop spike
         run: dotnet restore src/Diez.Uno/Diez.Uno.csproj
