@@ -2,7 +2,7 @@
 
 This file is the migration checklist for the Uno frontend. The repository and `PROJECT_STATE.md`
 are the primary technical source of truth. Historical product intent supplied by the project owner during
-migration is also recorded here as a recovery signal when it is not yet represented by current code.
+migration is also recorded here when it clarifies intent that is not fully represented by current code.
 
 ## Migration rules
 
@@ -15,17 +15,29 @@ migration is also recorded here as a recovery signal when it is not yet represen
 - Prompt/Vision HARD constraints remain visible and must not be weakened.
 - Diez must remain a multi-book editorial framework. No migration decision may optimize Coloring or puzzle books at the expense of the other supported book families.
 
-## Product lineage / historical recovery markers
+## Product lineage / historical product intent
 
-The following markers were supplied by the project owner while reconstructing the migration. They are
-important product-memory signals, but their exact historical implementation has not yet been recovered
-from the repository and must therefore NOT be invented.
+These points have now been explicitly confirmed by the project owner and are part of the migration contract.
 
-- **Gold → Diez**: Diez descends from an earlier framework/product identity called **Gold**. The migration must preserve the broad framework intent rather than treating the current Avalonia implementation as the whole product definition.
-- **Azzurro Napoli**: this is a historical visual-identity cue that must be recovered before finalizing the Uno design system. Do not assign an arbitrary hex value and call it canonical; recover the actual token/value from surviving evidence or an explicit owner confirmation.
-- **Test del pianista**: this is a historical/canonical test scenario remembered by the project owner. Its exact steps and assertions are not currently present in the repository. Treat it as an acceptance-test recovery item; do not fabricate its contract. Once its original meaning is recovered, encode it as an automated or documented end-to-end Uno regression test.
+- **Gold → Diez Publishing Studio**: **Gold** was the original name proposed for the framework during its first design phase. The project owner then asked to rename it **Diez Publishing Studio**. Gold is therefore not a separate product line or a legacy file format: it is the earlier name of the same framework concept. References to “Gold-era intent” mean the original broad multi-book framework design before later implementation details accumulated.
+- **Azzurro Napoli**: this remains a historical visual-identity cue that must be recovered before finalizing the Uno design system. Do not assign an arbitrary hex value and call it canonical; recover the actual token/value from surviving evidence or an explicit owner confirmation.
+- **Test del pianista**: this is the project’s stress/chaos usability principle. The metaphor is a pianist pressing all the keys: assume a real user, especially while stressed, may click, type, navigate, repeat actions, cancel, reopen, switch context and generally exercise controls in combinations that the happy path did not anticipate. Diez must remain stable under that behavior: no crash, no corrupted project state, no silent data loss, no duplicated destructive action, no broken navigation root and no requirement that the user behave “correctly” to keep the application safe.
 
-These markers are deliberately persisted here so they are not lost again during the UI rewrite.
+### Pianist-test acceptance principle
+
+The pianist test is not a single scripted happy-path test. It is a family of adversarial interaction tests to be applied to every book family and to shared framework surfaces. At minimum, regression coverage should exercise:
+
+- rapid/repeated activation of buttons and navigation targets;
+- changing selection or workspace while edits are in progress;
+- cancelling file/dialog operations and immediately trying another action;
+- empty, partial, unusually long and repeatedly edited input;
+- repeated save/open/import/remove operations where idempotence or deduplication is expected;
+- switching among book-family workspaces without losing shared project state;
+- invalid or stale selections after the underlying object has been removed or changed;
+- recovery after an operation fails, without requiring application restart;
+- preservation of `.diez` contents and stable IDs after stressful interaction sequences.
+
+The exact test cases can grow, but this principle is canonical: **design for the stressed user who may press every key, not for a cooperative demo operator**.
 
 ## Framework scope: book families are first-class
 
@@ -237,7 +249,7 @@ Deep domain engines that are still physically mixed with Avalonia types in the c
 
 Service extraction must now be performed as framework work, with an explicit cross-book matrix:
 
-1. **Framework foundation** — project/material/content graph/editable master/consistency, verified against every book family.
+1. **Framework foundation** — project/material/content graph/editable master/consistency, verified against every book family and subjected to pianist-test stress sequences.
 2. **Book routing and profiles** — preserve all ten current routing targets; extract shared type/profile contracts before specializing individual workspaces.
 3. **Visual family** — Coloring, Image Collection and Illustrated Book; structured subjects/scenes, image specifications, Prompt Compiler and Vision.
 4. **Long-form family** — Novel/story and Essay/manual; structure, editorial notes, facts/consistency, revisions, illustration planning and handoff.
@@ -245,6 +257,6 @@ Service extraction must now be performed as framework work, with an explicit cro
 6. **Structured/reference family** — Catalog/data collection; ingestion, structured generation, validation and export.
 7. **Cross-family AI** — AI Exchange/Production/Prompt Pack/response review as reusable infrastructure rather than a Coloring-only flow.
 8. **Cross-family publication** — DOCX/Google/edition freeze/publication candidate/finalized library/archive-regeneration.
-9. **Historical acceptance recovery** — recover the Gold-era intent, the canonical Azzurro Napoli visual token and the exact Test del pianista contract, then add regression coverage instead of relying on conversational memory.
+9. **Historical visual identity recovery** — recover the canonical Azzurro Napoli visual token before finalizing the Uno design system.
 
 The visual layer must not be rewritten again while those services are extracted. The next UI changes should be driven by recovered framework contracts or verified missing parity, not by another framework redesign.
