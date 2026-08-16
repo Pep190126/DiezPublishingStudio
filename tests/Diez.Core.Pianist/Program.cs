@@ -75,6 +75,43 @@ try
     Require(EditableMasterService.ManualRevisionCount(project, secondChapter.ContentId) == revisionCountBeforeBookTypeHammer,
         "Book-type hammering must not lose revision history.");
 
+    // Stable subject identity under stressful editing: names are mutable presentation,
+    // SubjectId is the identity used by downstream consistency/scene participation.
+    BookTypeProfileService.Set(project, BookTypeProfileService.ColoringBook);
+    var cast = MultiSubjectProfileService.Load(project);
+    cast.Enabled = true;
+    MultiSubjectProfileService.SetCount(cast, 3);
+    var initialSubjects = MultiSubjectProfileService.ActiveSubjects(cast).ToList();
+    Require(initialSubjects.Count == 3, "Pianist cast should expose three active subjects.");
+    var firstSubjectId = initialSubjects[0].SubjectId;
+    var removedSubjectId = initialSubjects[2].SubjectId;
+
+    Require(MultiSubjectProfileService.TryRename(cast, initialSubjects[0], "Anna protagonista", out _),
+        "Subject rename should succeed.");
+    Require(initialSubjects[0].SubjectId == firstSubjectId, "Renaming a subject must never change SubjectId.");
+    Require(!MultiSubjectProfileService.TryRename(cast, initialSubjects[1], "Anna protagonista", out _),
+        "Duplicate active subject names must be rejected safely.");
+
+    MultiSubjectProfileService.RemoveFromActiveCast(cast, removedSubjectId);
+    Require(MultiSubjectProfileService.ActiveSubjects(cast).All(s => s.SubjectId != removedSubjectId),
+        "Removed subject must leave the active cast.");
+    var reactivated = MultiSubjectProfileService.Add(cast);
+    Require(reactivated.SubjectId == removedSubjectId,
+        "Reactivating a non-archived cast member must preserve its stable SubjectId/history.");
+    MultiSubjectProfileService.Save(project, cast);
+
+    var castReloadedFromProject = MultiSubjectProfileService.Load(project);
+    var renamedReloaded = castReloadedFromProject.Subjects.FirstOrDefault(s => s.SubjectId == firstSubjectId);
+    Require(renamedReloaded is not null && renamedReloaded.Name == "Anna protagonista",
+        "SubjectId and rename must round-trip through project persistence.");
+    Require(castReloadedFromProject.Subjects.Select(s => s.SubjectId).Distinct(StringComparer.OrdinalIgnoreCase).Count()
+            == castReloadedFromProject.Subjects.Count,
+        "Subject identities must remain unique after frantic cast edits.");
+
+    StructuredSceneEnvironmentStore.Save(project, "Napoli, luce mediterranea; ambiente generico della serie.");
+    Require(StructuredSceneEnvironmentStore.Load(project, string.Empty).Contains("Napoli", StringComparison.Ordinal),
+        "Generic scene environment must survive independent from scene-local editing.");
+
     // A visual job belongs to its active visual session. Frantic switching to another
     // family must archive it instead of leaking it into the next book-type workflow.
     BookTypeProfileService.Set(project, BookTypeProfileService.ColoringBook);
@@ -130,11 +167,16 @@ try
         "Active book type must survive stress save/reload.");
     Require(VisualPromptSessionService.ArchivedJobCount(reloaded) >= 1,
         "Archived visual session history must survive stress save/reload.");
+    var persistedCast = MultiSubjectProfileService.Load(reloaded);
+    Require(persistedCast.Subjects.Any(s => s.SubjectId == firstSubjectId && s.Name == "Anna protagonista"),
+        "Stable SubjectId and user rename must survive package stress saves.");
+    Require(StructuredSceneEnvironmentStore.Load(reloaded, string.Empty).Contains("Napoli", StringComparison.Ordinal),
+        "Generic scene environment must survive package stress saves.");
 
     var embedded = await ProjectFileStore.ReadEmbeddedMaterialAsync(packagePath, reloaded.Materials[0]);
     Require(embedded is { Length: > 0 }, "Embedded source must survive repeated package rewrites.");
 
-    Console.WriteLine("PIANIST CORE PASS: all book families plus repeated, stale and concurrent actions preserved project integrity.");
+    Console.WriteLine("PIANIST CORE PASS: all book families, stable subjects, repeated, stale and concurrent actions preserved project integrity.");
 }
 finally
 {
