@@ -1,6 +1,6 @@
 namespace DiezPublishingStudio;
 
-internal enum BookTypeAiOptionKind
+public enum BookTypeAiOptionKind
 {
     Text,
     Number,
@@ -8,7 +8,7 @@ internal enum BookTypeAiOptionKind
     Toggle
 }
 
-internal sealed record BookTypeAiOptionDefinition(
+public sealed record BookTypeAiOptionDefinition(
     string Key,
     string Label,
     BookTypeAiOptionKind Kind,
@@ -18,22 +18,22 @@ internal sealed record BookTypeAiOptionDefinition(
 
 /// <summary>
 /// UI-neutral editorial/AI option contract shared by all Diez frontends.
-/// The values are stored per canonical book type so frantic routing cannot leak
-/// options from one family into another.
+/// Definitions are public so every frontend can render the same book-specific
+/// controls; project persistence remains internal to the shared framework.
 /// </summary>
-internal static class BookTypeAiOptionsCoreService
+public static class BookTypeAiOptionsCoreService
 {
     private const string EntityKind = "DiezAiOption";
     private const string StructureDecisionKey = "StructureDecision";
     private const string StructureKnown = "Known";
     private const string StructureFromProject = "FromProject";
 
-    public static IReadOnlyList<BookTypeAiOptionDefinition> Definitions(PreviewProject project)
+    public static IReadOnlyList<BookTypeAiOptionDefinition> DefinitionsFor(string? bookType)
     {
-        var type = BookTypeProfileService.Get(project);
+        var type = BookTypeCatalog.Normalize(bookType);
         return type switch
         {
-            BookTypeProfileService.WordSearch =>
+            BookTypeCatalog.WordSearch =>
             [
                 N("PuzzleCount", "Numero di puzzle", "100"),
                 N("WordsPerPuzzle", "Parole per puzzle", "20"),
@@ -43,7 +43,7 @@ internal static class BookTypeAiOptionsCoreService
                 T("AllowPhrases", "Consenti anche frasi brevi", true),
                 N("MaxWordLength", "Lunghezza massima parola/frase", "22")
             ],
-            BookTypeProfileService.Crossword =>
+            BookTypeCatalog.Crossword =>
             [
                 N("PuzzleCount", "Numero di cruciverba", "1"),
                 C("Language", "Lingua", "Come il progetto", "Come il progetto", "Italiano", "Inglese", "Spagnolo", "Francese", "Tedesco"),
@@ -51,7 +51,7 @@ internal static class BookTypeAiOptionsCoreService
                 T("GenerateDefinitionCandidates", "Genera più definizioni candidate per parola", true),
                 T("PrepareQxwHandoff", "Prepara i contenuti per l'handoff Qxw", true)
             ],
-            BookTypeProfileService.ColoringBook =>
+            BookTypeCatalog.ColoringBook =>
             [
                 N("ImageCount", "Numero di tavole", "50"),
                 C("PageFormat", "Formato pagina", "8.5 x 11 in", "8.5 x 11 in", "8 x 10 in", "A4", "Quadrato", "Personalizzato nel box"),
@@ -61,7 +61,7 @@ internal static class BookTypeAiOptionsCoreService
                 C("LineStyle", "Tratto", "Linee pulite", "Linee pulite", "Linee spesse", "Linee sottili", "Molto dettagliato"),
                 T("SeriesConsistency", "Mantieni coerente tutta la raccolta", true)
             ],
-            BookTypeProfileService.ImageCollection =>
+            BookTypeCatalog.ImageCollection =>
             [
                 N("ImageCount", "Numero di immagini", "50"),
                 C("Orientation", "Orientamento", "Verticale", "Verticale", "Quadrato", "Orizzontale", "Misto"),
@@ -71,7 +71,7 @@ internal static class BookTypeAiOptionsCoreService
                 T("CreateDescription", "Crea anche una descrizione per ogni immagine", false),
                 C("DescriptionLength", "Lunghezza descrizione", "Dettagliata", "Breve", "Dettagliata", "Lunga", "Molto lunga / migliaia di parole")
             ],
-            BookTypeProfileService.IllustratedBook =>
+            BookTypeCatalog.IllustratedBook =>
             [
                 N("PageCount", "Numero indicativo di pagine", "32"),
                 N("ImageCount", "Numero indicativo di illustrazioni", "16"),
@@ -80,7 +80,7 @@ internal static class BookTypeAiOptionsCoreService
                 T("CharacterConsistency", "Mantieni coerenti personaggi e ambienti ricorrenti", true),
                 T("KeepOriginalImages", "Mantieni sempre gli originali separati", true)
             ],
-            BookTypeProfileService.EssayManual =>
+            BookTypeCatalog.EssayManual =>
             [
                 N("TargetWords", "Lunghezza indicativa totale (parole)", "40000"),
                 N("PageCount", "Numero indicativo di pagine", "180"),
@@ -90,7 +90,7 @@ internal static class BookTypeAiOptionsCoreService
                 T("FactContinuity", "Mantieni coerenza terminologica e fattuale", true),
                 T("IllustrationPlan", "Pianifica eventuali figure / illustrazioni", true)
             ],
-            BookTypeProfileService.Novel =>
+            BookTypeCatalog.Novel =>
             [
                 X("Genre", "Genere", ""),
                 N("TargetWords", "Lunghezza indicativa totale (parole)", "70000"),
@@ -102,7 +102,7 @@ internal static class BookTypeAiOptionsCoreService
                 X("Tone", "Tono", ""),
                 T("Continuity", "Mantieni coerenza di personaggi, luoghi, eventi e fili narrativi", true)
             ],
-            BookTypeProfileService.Quiz =>
+            BookTypeCatalog.Quiz =>
             [
                 N("QuestionCount", "Numero di domande", "100"),
                 N("AnswersPerQuestion", "Risposte per domanda", "4"),
@@ -111,18 +111,13 @@ internal static class BookTypeAiOptionsCoreService
                 T("NoDuplicates", "Evita domande duplicate", true),
                 T("Explanations", "Aggiungi spiegazione della risposta", false)
             ],
-            BookTypeProfileService.DataCollection =>
+            BookTypeCatalog.DataCollection =>
             [
                 N("TargetRows", "Numero indicativo di elementi", "500"),
                 X("RequiredColumns", "Colonne / campi desiderati", ""),
                 T("Deduplicate", "Unisci e rimuovi i doppioni", true),
                 T("Normalize", "Uniforma valori e formati", true),
                 T("KeepProvenance", "Mantieni l'origine dei dati", true)
-            ],
-            BookTypeProfileService.Other =>
-            [
-                N("ItemCount", "Numero indicativo di elementi", "1"),
-                C("Language", "Lingua", "Come il progetto", "Come il progetto", "Italiano", "Inglese", "Spagnolo", "Francese", "Tedesco")
             ],
             _ =>
             [
@@ -132,7 +127,10 @@ internal static class BookTypeAiOptionsCoreService
         };
     }
 
-    public static string Get(PreviewProject project, BookTypeAiOptionDefinition definition)
+    internal static IReadOnlyList<BookTypeAiOptionDefinition> Definitions(PreviewProject project) =>
+        DefinitionsFor(BookTypeProfileService.Get(project));
+
+    internal static string Get(PreviewProject project, BookTypeAiOptionDefinition definition)
     {
         var type = BookTypeProfileService.Get(project);
         var key = StorageKey(type, definition.Key);
@@ -142,14 +140,14 @@ internal static class BookTypeAiOptionsCoreService
         return entity is null ? definition.DefaultValue : entity.Notes ?? definition.DefaultValue;
     }
 
-    public static void Set(PreviewProject project, BookTypeAiOptionDefinition definition, string? value)
+    internal static void Set(PreviewProject project, BookTypeAiOptionDefinition definition, string? value)
     {
         var type = BookTypeProfileService.Get(project);
         var key = StorageKey(type, definition.Key);
         SetRaw(project, key, NormalizeValue(definition, value));
     }
 
-    public static IReadOnlyList<string> PromptLines(PreviewProject project)
+    internal static IReadOnlyList<string> PromptLines(PreviewProject project)
     {
         var lines = new List<string>();
         var type = BookTypeProfileService.Get(project);
@@ -172,19 +170,22 @@ internal static class BookTypeAiOptionsCoreService
         return lines;
     }
 
-    public static bool UsesStructureQuestion(string type) =>
-        string.Equals(type, BookTypeProfileService.Novel, StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(type, BookTypeProfileService.IllustratedBook, StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(type, BookTypeProfileService.EssayManual, StringComparison.OrdinalIgnoreCase);
+    public static bool UsesStructureQuestion(string? type)
+    {
+        var normalized = BookTypeCatalog.Normalize(type);
+        return string.Equals(normalized, BookTypeCatalog.Novel, StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(normalized, BookTypeCatalog.IllustratedBook, StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(normalized, BookTypeCatalog.EssayManual, StringComparison.OrdinalIgnoreCase);
+    }
 
-    public static bool StructureIsKnown(PreviewProject project)
+    internal static bool StructureIsKnown(PreviewProject project)
     {
         var type = BookTypeProfileService.Get(project);
         var value = GetRaw(project, StorageKey(type, StructureDecisionKey));
         return string.Equals(value, StructureKnown, StringComparison.OrdinalIgnoreCase);
     }
 
-    public static void SetStructureDecision(PreviewProject project, bool known)
+    internal static void SetStructureDecision(PreviewProject project, bool known)
     {
         var type = BookTypeProfileService.Get(project);
         SetRaw(project, StorageKey(type, StructureDecisionKey), known ? StructureKnown : StructureFromProject);
