@@ -14,6 +14,7 @@ on:
       - 'tests/Diez.Crossword.Pianist/**'
       - 'tests/Diez.WordSearch.Pianist/**'
       - 'tests/Diez.PromptCompiler.Pianist/**'
+      - 'tests/Diez.Vision.Pianist/**'
       - '.github/workflows/uno-platform-spike.yml'
   workflow_dispatch:
 
@@ -67,6 +68,9 @@ jobs:
       - name: Run Prompt Compiler 3.6 pianist contract
         run: dotnet run --project tests/Diez.PromptCompiler.Pianist/Diez.PromptCompiler.Pianist.csproj -c Release
 
+      - name: Run Vision HARD-gate pianist contract
+        run: dotnet run --project tests/Diez.Vision.Pianist/Diez.Vision.Pianist.csproj -c Release
+
       - name: Restore Uno desktop spike
         run: dotnet restore src/Diez.Uno/Diez.Uno.csproj
 
@@ -75,7 +79,7 @@ jobs:
 
       - name: Publish Windows x64 spike
         if: runner.os == 'Windows'
-        run: dotnet publish src/Diez.Uno/Diez.Uno.csproj -c Release -f net10.0-desktop -r win-x64 -p:SelfContained=true -p:TargetFrameworks=net10.0-desktop -o artifacts/uno-win-x64
+        run: dotnet publish src/Diez.Uno/Diez.Uno.csproj -c Release -f net10.0-desktop -r win-x64 -p:SelfContained=true -o artifacts/uno-win-x64
 
       - name: Upload Windows spike
         if: runner.os == 'Windows'
