@@ -17,5 +17,8 @@
   <ItemGroup>
     <ProjectReference Include="..\Diez.Core\Diez.Core.csproj" />
     <Content Include="Assets\preview.png" />
+    <UnoIcon Include="Assets\Icons\icon.svg"
+             ForegroundFile="Assets\Icons\icon_foreground.svg"
+             Color="#007FFF" />
   </ItemGroup>
 </Project>
