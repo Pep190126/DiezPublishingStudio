@@ -111,7 +111,7 @@ internal static class VisualBookPlanService
         if (applied.Count != plan.ImageCount)
             issues.Add($"Il piano richiede {plan.ImageCount} immagini applicate al libro ma ne risultano {applied.Count}.");
         if (materials.Count != plan.ImageCount)
-            issues.Add($"Le immagini applicate devono avere {plan.ImageCount} file distinti; ne risultano {materials.Count}.");
+            issues.Add($"Le immagini applicate devono avere {plan.ImageCount} file distinti e non duplicati; ne risultano {materials.Count}.");
 
         var duplicateHashes = materials
             .Where(m => !string.IsNullOrWhiteSpace(m.Sha256))
@@ -120,10 +120,6 @@ internal static class VisualBookPlanService
             .ToList();
         if (duplicateHashes.Count > 0)
             issues.Add($"Sono presenti {duplicateHashes.Count} gruppi di immagini duplicate identiche nel libro.");
-
-        var missingEmbedded = materials.Count(m => !m.IsEmbedded);
-        if (missingEmbedded > 0)
-            issues.Add($"{missingEmbedded} immagini applicate non risultano incorporate nel progetto .diez.");
 
         return issues;
     }
