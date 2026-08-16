@@ -26,7 +26,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest]
+        os: [windows-latest, ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -95,4 +95,28 @@ jobs:
         with:
           name: diez-uno-spike-win-x64
           path: artifacts/uno-win-x64
+          if-no-files-found: error
+
+      - name: Publish macOS Apple Silicon app
+        if: runner.os == 'macOS'
+        run: dotnet publish src/Diez.Uno/Diez.Uno.csproj -c Release -f net10.0-desktop -r osx-arm64 -p:PackageFormat=app -o artifacts/uno-macos-arm64
+
+      - name: Upload macOS Apple Silicon app
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: diez-uno-spike-macos-arm64
+          path: artifacts/uno-macos-arm64
+          if-no-files-found: error
+
+      - name: Publish macOS Intel app
+        if: runner.os == 'macOS'
+        run: dotnet publish src/Diez.Uno/Diez.Uno.csproj -c Release -f net10.0-desktop -r osx-x64 -p:PackageFormat=app -o artifacts/uno-macos-x64
+
+      - name: Upload macOS Intel app
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: diez-uno-spike-macos-x64
+          path: artifacts/uno-macos-x64
           if-no-files-found: error
