@@ -1,6 +1,7 @@
 using DiezPublishingStudio;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Windows.Storage.Pickers;
 
 namespace DiezPublishingStudio.UnoSpike;
 
@@ -21,7 +22,7 @@ internal static class AiCenterWorkspace
     {
         var root = PageRoot(
             "Produzione con AI",
-            "Prepara i Prompt, crea le attività AI, controlla le versioni e scegli esplicitamente quando un risultato approvato deve entrare nel libro.");
+            "Prepara i Prompt, crea il Prompt Pack o usa un trasporto API quando realmente disponibile, controlla le versioni e scegli esplicitamente quando un risultato approvato deve entrare nel libro.");
 
         var provider = Combo(
             ["ChatGPT / OpenAI", "Gemini", "Altra / nuova AI"],
@@ -97,6 +98,96 @@ internal static class AiCenterWorkspace
             Labeled("Tipo di risultato", outputType),
             Labeled("Regole comuni", brief),
             Labeled("Prompt", prompt))));
+
+        if (BookTypeCatalog.IsVisual(document.BookType))
+        {
+            var apiInfo = new TextBlock { TextWrapping = TextWrapping.Wrap };
+            var apiButton = new Button
+            {
+                Content = "Via API · non configurata",
+                Padding = new Thickness(14, 8),
+                IsEnabled = false
+            };
+
+            void RefreshApiCapability()
+            {
+                var capability = DiezAiTransportFrontendBridge.Provider(provider.SelectedItem?.ToString());
+                apiInfo.Text = capability.SupportsDirectApi
+                    ? $"{capability.DisplayName} dichiara supporto API nel catalogo Core, ma l’executor della Uno non è ancora collegato: il pulsante resta disabilitato per non simulare una generazione."
+                    : $"{capability.DisplayName}: il Core attuale non dichiara ancora un trasporto API diretto. La strada resta visibile ma non finge di essere operativa.";
+                apiButton.Content = capability.SupportsDirectApi
+                    ? "Via API · executor da collegare"
+                    : "Via API · non configurata";
+                apiButton.IsEnabled = false;
+            }
+
+            provider.SelectionChanged += (_, _) => RefreshApiCapability();
+            RefreshApiCapability();
+
+            root.Children.Add(Card("Prompt Pack e modalità di generazione", Vertical(
+                new TextBlock
+                {
+                    Text = "Per i libri con immagini ci sono due strade che devono convergere sulle stesse Work Unit: Manuale e Via API. La strada Manuale crea UN SOLO Prompt Pack ZIP da consegnare/uploadare all’AI; lo ZIP contiene PROMPT.md, manifest, istruzioni ed eventuali reference.",
+                    TextWrapping = TextWrapping.Wrap
+                },
+                Horizontal(
+                    AsyncButton("Crea Prompt Pack ZIP · Manuale", async () =>
+                    {
+                        document.SetUiString("AI.Provider", provider.SelectedItem?.ToString());
+                        document.SetUiBool("AI.PreferAdvanced", document.GetUiBool("AI.PreferAdvanced", true));
+
+                        var sync = document.EnsureVisualReadyJobs(
+                            document.GetUiString("Prompt.MustDo"),
+                            document.GetUiString("Prompt.MustNotDo"),
+                            ProviderId(provider.SelectedItem?.ToString()),
+                            document.GetUiBool("AI.PreferAdvanced", true));
+                        if (!sync.Success)
+                        {
+                            report(sync.Message);
+                            return;
+                        }
+
+                        var workUnitIds = sync.Jobs
+                            .Where(x => x.WorkUnitId.HasValue)
+                            .Select(x => x.WorkUnitId!.Value)
+                            .Distinct()
+                            .ToList();
+                        if (workUnitIds.Count == 0)
+                        {
+                            report("Il piano visuale non contiene ancora Work Unit pronte per il Prompt Pack.");
+                            return;
+                        }
+
+                        await save();
+                        try
+                        {
+                            var picker = new FileSavePicker
+                            {
+                                SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
+                                SuggestedFileName = SafeFileName(document.EditionTitle) + "-prompt-pack"
+                            };
+                            picker.FileTypeChoices.Add("Prompt Pack Diez", new List<string> { ".zip" });
+                            var file = await picker.PickSaveFileAsync();
+                            if (file is null) return;
+
+                            var result = await document.CreateManualPromptPackAsync(workUnitIds, file.Path);
+                            if (result.Success) await save();
+                            report(result.Message);
+                            if (result.Success) showAiCenter();
+                        }
+                        catch (Exception ex)
+                        {
+                            report("Creazione Prompt Pack non riuscita: " + ex.GetBaseException().Message);
+                        }
+                    }),
+                    apiButton),
+                apiInfo,
+                new TextBlock
+                {
+                    Text = "Copia Prompt resta una utility di emergenza. Il percorso Manuale normale è il file ZIP unico, non N copie/incolla e non N chat obbligatorie.",
+                    TextWrapping = TextWrapping.Wrap
+                })));
+        }
 
         root.Children.Add(Card("Attività AI", Vertical(jobs, selectedJob)));
 
@@ -178,7 +269,7 @@ internal static class AiCenterWorkspace
                 showAiCenter();
                 report("Attività AI creata e pronta da generare.");
             }),
-            ActionButton("Copia Prompt", () => CopyText(prompt.Text ?? string.Empty))));
+            ActionButton("Copia Prompt · utility", () => CopyText(prompt.Text ?? string.Empty))));
 
         return root;
     }
@@ -224,8 +315,7 @@ internal static class AiCenterWorkspace
         {
             Spacing = 16,
             Margin = new Thickness(28),
-            MaxWidth = 1050,
-            HorizontalAlignment = HorizontalAlignment.Left
+            HorizontalAlignment = HorizontalAlignment.Stretch
         };
         root.Children.Add(new TextBlock { Text = title, FontSize = 28, TextWrapping = TextWrapping.Wrap });
         root.Children.Add(new TextBlock { Text = description, TextWrapping = TextWrapping.Wrap });
@@ -238,19 +328,20 @@ internal static class AiCenterWorkspace
         Padding = new Thickness(16),
         BorderThickness = new Thickness(1),
         CornerRadius = new CornerRadius(6),
+        HorizontalAlignment = HorizontalAlignment.Stretch,
         Child = Vertical(new TextBlock { Text = title, FontSize = 19, TextWrapping = TextWrapping.Wrap }, content)
     };
 
     private static StackPanel Vertical(params UIElement[] items)
     {
-        var panel = new StackPanel { Spacing = 9 };
+        var panel = new StackPanel { Spacing = 9, HorizontalAlignment = HorizontalAlignment.Stretch };
         foreach (var item in items) panel.Children.Add(item);
         return panel;
     }
 
     private static StackPanel Horizontal(params UIElement[] items)
     {
-        var panel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 9 };
+        var panel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 9, HorizontalAlignment = HorizontalAlignment.Left };
         foreach (var item in items) panel.Children.Add(item);
         return panel;
     }
@@ -294,6 +385,21 @@ internal static class AiCenterWorkspace
         var button = new Button { Content = text, Padding = new Thickness(14, 8) };
         button.Click += async (_, _) => await action();
         return button;
+    }
+
+    private static string ProviderId(string? value)
+    {
+        if ((value ?? string.Empty).Contains("Gemini", StringComparison.OrdinalIgnoreCase)) return "gemini";
+        if ((value ?? string.Empty).Contains("OpenAI", StringComparison.OrdinalIgnoreCase) ||
+            (value ?? string.Empty).Contains("ChatGPT", StringComparison.OrdinalIgnoreCase)) return "openai";
+        return "generic";
+    }
+
+    private static string SafeFileName(string? value)
+    {
+        var name = string.IsNullOrWhiteSpace(value) ? "diez" : value.Trim();
+        foreach (var invalid in Path.GetInvalidFileNameChars()) name = name.Replace(invalid, '-');
+        return name.Length > 80 ? name[..80] : name;
     }
 
     private static void CopyText(string text)
