@@ -382,6 +382,57 @@ internal static class VisualBookWorkspace
                 ActionButton("Produzione con AI", showAiCenter),
                 ActionButton("Vision", showVision)))));
 
+        var imageAssets = DiezImagePreviewCatalog.Read(document).ToList();
+        if (imageAssets.Count == 0)
+        {
+            root.Children.Add(Card("Materiali e immagini · Anteprima", Vertical(
+                new TextBlock
+                {
+                    Text = "Non ci sono ancora materiali immagine. Aggiungi un'immagine ai Materiali del progetto oppure importa una Candidate da Vision: apparirà qui nella stessa gallery.",
+                    TextWrapping = TextWrapping.Wrap
+                },
+                WrapRow(ActionButton("Produzione con AI", showAiCenter), ActionButton("Vision", showVision)))));
+        }
+        else
+        {
+            var assetList = new ListView
+            {
+                Height = 420,
+                ItemsSource = imageAssets.Select(x => x.Label).ToList()
+            };
+            var assetPreview = new VisualImagePreviewSurface(420);
+            assetList.SelectionChanged += async (_, _) =>
+            {
+                if (assetList.SelectedIndex < 0 || assetList.SelectedIndex >= imageAssets.Count)
+                {
+                    assetPreview.Clear();
+                    return;
+                }
+                await assetPreview.ShowAssetAsync(document, imageAssets[assetList.SelectedIndex]);
+            };
+
+            var gallery = new Grid
+            {
+                ColumnSpacing = 16,
+                HorizontalAlignment = HorizontalAlignment.Stretch
+            };
+            gallery.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(330) });
+            gallery.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            Grid.SetColumn(assetList, 0);
+            Grid.SetColumn(assetPreview.View, 1);
+            gallery.Children.Add(assetList);
+            gallery.Children.Add(assetPreview.View);
+
+            root.Children.Add(Card("Materiali e immagini · Anteprima", Vertical(
+                new TextBlock
+                {
+                    Text = "La stessa preview mostra materiale aggiunto, Candidate AI, versione approvata o immagine già portata nel libro. Cambiare selezione non cambia approvazione, Vision o placement.",
+                    TextWrapping = TextWrapping.Wrap
+                },
+                gallery)));
+            assetList.SelectedIndex = 0;
+        }
+
         root.Children.Add(NavigationRow(
             AsyncButton("← Indietro", async () => await goToPhase(2)),
             AsyncButton("Continua → Revisione", async () =>
