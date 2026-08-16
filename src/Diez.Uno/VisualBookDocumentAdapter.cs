@@ -23,6 +23,81 @@ internal static class VisualBookDocumentAdapter
     public static DiezVisualBookSetupDto ReadVisualSetup(this DiezProjectDocument document) =>
         DiezVisualBookFrontendBridge.Read(document.ExportProjectJson());
 
+    public static DiezVisualSceneStateDto ReadVisualSceneState(this DiezProjectDocument document) =>
+        DiezVisualSceneFrontendBridge.Read(document.ExportProjectJson());
+
+    public static DiezVisualSceneMutation ConfigureVisualSubjects(
+        this DiezProjectDocument document,
+        bool enabled,
+        int requestedCount)
+    {
+        var result = DiezVisualSceneFrontendBridge.ConfigureSubjects(
+            document.ExportProjectJson(), enabled, requestedCount);
+        ApplyCoreJson(document, result.ProjectJson);
+        return result;
+    }
+
+    public static DiezVisualSceneMutation SaveVisualSubject(
+        this DiezProjectDocument document,
+        string subjectId,
+        string? name,
+        string? description)
+    {
+        var result = DiezVisualSceneFrontendBridge.SaveSubject(
+            document.ExportProjectJson(), subjectId, name, description);
+        ApplyCoreJson(document, result.ProjectJson);
+        return result;
+    }
+
+    public static DiezVisualSceneMutation SaveVisualConsistencyRule(
+        this DiezProjectDocument document,
+        string subjectId,
+        string key,
+        string? level,
+        string? strategy,
+        string? variation)
+    {
+        var result = DiezVisualSceneFrontendBridge.SaveConsistencyRule(
+            document.ExportProjectJson(), subjectId, key, level, strategy, variation);
+        ApplyCoreJson(document, result.ProjectJson);
+        return result;
+    }
+
+    public static DiezVisualSceneMutation ConfigureVisualScenes(
+        this DiezProjectDocument document,
+        bool enabled,
+        int requestedCount)
+    {
+        var result = DiezVisualSceneFrontendBridge.ConfigureScenes(
+            document.ExportProjectJson(), enabled, requestedCount);
+        ApplyCoreJson(document, result.ProjectJson);
+        return result;
+    }
+
+    public static DiezVisualSceneMutation SaveVisualScene(
+        this DiezProjectDocument document,
+        string sceneId,
+        string? name,
+        string? description)
+    {
+        var result = DiezVisualSceneFrontendBridge.SaveScene(
+            document.ExportProjectJson(), sceneId, name, description);
+        ApplyCoreJson(document, result.ProjectJson);
+        return result;
+    }
+
+    public static DiezVisualSceneMutation SetVisualSceneParticipation(
+        this DiezProjectDocument document,
+        string sceneId,
+        string subjectId,
+        bool participates)
+    {
+        var result = DiezVisualSceneFrontendBridge.SetSceneParticipation(
+            document.ExportProjectJson(), sceneId, subjectId, participates);
+        ApplyCoreJson(document, result.ProjectJson);
+        return result;
+    }
+
     public static DiezVisualBookMutation SaveColoringSetup(
         this DiezProjectDocument document,
         int imageCount,
