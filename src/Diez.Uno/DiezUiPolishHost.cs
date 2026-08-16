@@ -67,8 +67,8 @@ internal sealed class DiezUiPolishHost : ContentControl
             case TextBlock text:
                 if (string.Equals(text.Text, "Diez Publishing Studio", StringComparison.Ordinal))
                 {
-                    text.Text = "Diez\n∞  Publishing Studio";
-                    text.FontSize = 28;
+                    text.Text = "Diez ∞ Publishing Studio";
+                    text.FontSize = 24;
                     text.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
                 }
                 else
@@ -167,18 +167,29 @@ internal sealed class DiezUiPolishHost : ContentControl
             .Replace("AI Production / Human Prompt / Exchange", "Produzione con AI", StringComparison.Ordinal)
             .Replace("AI Production / Exchange", "Produzione con AI", StringComparison.Ordinal)
             .Replace("Prompt Pack", "Pacchetto di istruzioni", StringComparison.Ordinal)
+            .Replace("Prompt", "Istruzioni", StringComparison.Ordinal)
+            .Replace("prompt", "istruzioni", StringComparison.Ordinal)
             .Replace("Response Review", "Controllo della risposta", StringComparison.Ordinal)
             .Replace("Vision HARD gates", "Controlli obbligatori delle immagini", StringComparison.Ordinal)
             .Replace("Vision HARD", "Controlli obbligatori", StringComparison.Ordinal)
+            .Replace("Vision", "Controllo immagini", StringComparison.Ordinal)
             .Replace("HARD", "obbligatorio", StringComparison.Ordinal)
+            .Replace("Bold & Easy", "Linee marcate e forme semplici", StringComparison.Ordinal)
+            .Replace("Cozy", "Atmosfera accogliente", StringComparison.Ordinal)
+            .Replace("Consistent", "Coerenza", StringComparison.Ordinal)
             .Replace("Provider AI", "Servizio AI", StringComparison.Ordinal)
             .Replace("Provider", "Servizio AI", StringComparison.Ordinal)
             .Replace("Human prompt", "Istruzioni per l’AI", StringComparison.Ordinal)
+            .Replace("job AI", "attività AI", StringComparison.OrdinalIgnoreCase)
+            .Replace("Job", "Attività", StringComparison.Ordinal)
+            .Replace("job", "attività", StringComparison.Ordinal)
             .Replace("Output", "Risultato", StringComparison.Ordinal)
             .Replace("Metadata", "Dati dell’edizione", StringComparison.Ordinal)
             .Replace("metadata", "dati dell’edizione", StringComparison.Ordinal)
+            .Replace("Bible", "Guida del progetto", StringComparison.Ordinal)
             .Replace("Handoff", "Consegna", StringComparison.Ordinal)
             .Replace("handoff", "consegna", StringComparison.Ordinal)
+            .Replace("freeze", "copia bloccata", StringComparison.OrdinalIgnoreCase)
             .Replace("workspace", "area di lavoro", StringComparison.Ordinal)
             .Replace("Workspace", "Area di lavoro", StringComparison.Ordinal)
             .Replace("Review", "Controllo", StringComparison.Ordinal)
