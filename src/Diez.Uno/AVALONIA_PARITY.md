@@ -10,8 +10,21 @@ Questo documento è la checklist di migrazione funzionale. Il repository e `PROJ
 - Colore principale dell'interfaccia: **Azzurro Napoli `#007FFF`**.
 - Gli altri elementi grafici usano sfumature di blu coerenti con il colore principale.
 - I campi editabili e i selettori restano bianchi per distinguere chiaramente ciò che l'utente può modificare.
-- Tutto ciò che l'utente legge — titoli, etichette, pulsanti, menu a discesa, placeholder, messaggi e descrizioni — deve essere in **italiano semplice e user friendly**.
-- I valori interni persistiti possono restare canonici/tecnici quando servono alla compatibilità; la UI deve tradurli senza alterare il significato dei dati.
+- Tutto ciò che l'utente legge — titoli, etichette, pulsanti, menu a discesa, placeholder, messaggi e descrizioni — deve essere comprensibile e user friendly.
+- Filosofia terminologica: **italiano per spiegare, terminologia standard per nominare**. Termini comunemente riconosciuti come Prompt, Prompt Pack, Cozy, Bold & Easy, Consistent e i nomi standard degli stili non vanno tradotti artificialmente.
+- I valori interni persistiti possono restare canonici/tecnici quando servono alla compatibilità; la UI deve presentarli senza alterare il significato dei dati.
+
+## Parità multipiattaforma
+
+Diez Desktop deve restare una singola applicazione di framework verificata su **Windows, macOS e Linux**.
+
+La CI della migrazione Uno deve quindi trattare come gate obbligatori:
+
+- Windows: build, pianist harness, build Uno e publish self-contained `win-x64`;
+- Linux/Ubuntu: build, pianist harness e build Uno desktop;
+- macOS: build, pianist harness, build Uno desktop e publish di bundle `.app` per `osx-arm64` e `osx-x64`.
+
+Una funzionalità desktop non è considerata cross-platform solo perché compila su Windows. I servizi comuni, il routing e gli invarianti del framework devono attraversare gli stessi pianist harness sui tre sistemi.
 
 ## Principio del framework multi-libro
 
@@ -90,6 +103,9 @@ La shell Uno mantiene un unico root visivo e contiene aree per:
 - scene / soggetti
 - Word Search
 - Cruciverba
+- Quiz / trivia
+- Catalogo / raccolta dati
+- Altro / tipologie future
 - raccolta immagini
 - narrativa / manuale
 - Editable Master
@@ -99,6 +115,8 @@ La shell Uno mantiene un unico root visivo e contiene aree per:
 - export / finalizzazione
 - libreria finalizzati
 
+Il routing Uno usa ora il catalogo canonico del Core: Quiz, Catalogo e Altro non ricadono più nel workspace Narrativa; Romanzo e Saggio/manuale restano long-form distinti, mentre le famiglie visuali usano il percorso immagini.
+
 La shell deve evitare gli hack di layout Avalonia (`RedrawWindow`, layout pump, reflection del compositor, root swapping/manual template recovery).
 
 ## Servizi già estratti in Diez.Core durante la migrazione
@@ -107,8 +125,8 @@ La migrazione sta trasformando i servizi condivisi in una libreria UI-neutral co
 
 - progetto, materiali e persistenza `.diez` tipizzata;
 - Editable Master, Content Graph e consistency;
-- catalogo e profili dei tipi libro;
-- opzioni AI per tipo libro;
+- catalogo pubblico e profili dei tipi libro;
+- opzioni AI/editoriali per tipo libro;
 - soggetti stabili e scene strutturate;
 - profili Coloring / Bold & Easy / Cozy;
 - profilo raccolta immagini;
@@ -119,7 +137,7 @@ La migrazione sta trasformando i servizi condivisi in una libreria UI-neutral co
 - policy Vision HARD;
 - metadata edizione, Edition Freeze, Publication Candidate;
 - handoff CSV/XLSX/ZIP di dominio;
-- **contratti, stato, Work Unit, versioni, snapshot e Prompt Pack dell'AI Exchange** (estrazione in corso di verifica CI).
+- contratti, stato, Work Unit, versioni, snapshot e Prompt Pack dell'AI Exchange.
 
 ## Pianist harness attivi
 
@@ -132,13 +150,13 @@ La CI di migrazione deve verificare, oltre alla build Core/Avalonia/Uno:
 - Word Search;
 - Prompt Compiler 3.6;
 - Vision HARD;
-- pubblicazione cross-family su tutte le dieci tipologie.
+- pubblicazione cross-family su tutte le dieci tipologie;
+- routing multi-book e isolamento delle opzioni per tutte le dieci tipologie.
 
 ## Lavoro ancora aperto
 
-- Il routing Uno deve smettere di mandare `Quiz / trivia`, `Catalogo / raccolta dati` e `Altro` nel workspace Narrativa.
-- Il catalogo dei tipi nella shell Uno deve leggere il contratto canonico del Core invece di duplicare stringhe.
 - Il resto dell'AI Exchange provider/request/response ingest va separato dai file che contengono ancora integrazione legacy/UI.
 - La libreria finalizzati va separata in archivio Core e adapter locali/Google/DOCX.
-- DOCX, Google e produzione package vanno collegati al frontend Uno attraverso servizi condivisi.
-- La localizzazione italiana deve essere mantenuta come contratto di presentazione: nessuna nuova label tecnica inglese deve apparire senza una traduzione semplice.
+- DOCX, Google e production package vanno collegati al frontend Uno attraverso servizi condivisi.
+- La UI Uno deve usare progressivamente i servizi Core anche per la persistenza delle opzioni, eliminando lo stato di transizione `UnoUiState` dove esiste già un'entità canonica.
+- La parità macOS deve includere, oltre al build/publish CI, smoke test runtime mirati su apertura/salvataggio `.diez`, picker file e clipboard quando avremo un harness UI desktop automatizzabile sul runner macOS.
