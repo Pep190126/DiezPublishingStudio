@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using DiezPublishingStudio;
 
 namespace DiezPublishingStudio.UnoSpike;
 
@@ -247,7 +248,7 @@ internal sealed class DiezProjectDocument
 
     public IReadOnlyList<string> EntityDisplayItems() =>
         EnsureArray(_root, "Entities").OfType<JsonObject>()
-            .Where(x => !string.Equals(GetString(x, "Kind"), "DiezBookType", StringComparison.OrdinalIgnoreCase))
+            .Where(x => !GetString(x, "Kind").StartsWith("Diez", StringComparison.OrdinalIgnoreCase))
             .Select(x => $"{GetString(x, "Kind", "Concept")} · {GetString(x, "Name", "(senza nome)")}")
             .ToList();
 
@@ -256,15 +257,27 @@ internal sealed class DiezProjectDocument
             .Select(x => $"[{GetString(x, "Status", "Open")}] {GetString(x, "Severity", "Warning")} · {GetString(x, "Message", GetString(x, "Code", "Problema"))}")
             .ToList();
 
-    public IReadOnlyList<string> AiJobDisplayItems() =>
-        EnsureArray(_root, "AiProductionJobs").OfType<JsonObject>()
-            .OrderBy(x => GetString(x, "Code"))
-            .Select(x => $"{GetString(x, "Code", "AI")} · {GetString(x, "OutputType", "Image")} · {GetString(x, "Status", "Ready")} · {GetString(x, "Title")}")
-            .ToList();
+    public IReadOnlyList<string> AiJobDisplayItems()
+    {
+        try
+        {
+            return DiezAiExchangeBridge.ReadJobs(ExportProjectJson())
+                .Select(x => $"{x.Code} · {x.DisplayType} · {x.DisplayStatus} · {x.Title}")
+                .ToList();
+        }
+        catch
+        {
+            return EnsureArray(_root, "AiProductionJobs").OfType<JsonObject>()
+                .OrderBy(x => GetString(x, "Code"))
+                .Select(x => $"{GetString(x, "Code", "AI")} · {GetString(x, "OutputType", "Image")} · {GetString(x, "Status", "Ready")} · {GetString(x, "Title")}")
+                .ToList();
+        }
+    }
 
     public int MaterialCount => EnsureArray(_root, "Materials").Count;
     public int ContentCount => EnsureArray(_root, "ContentNodes").Count;
-    public int EntityCount => EnsureArray(_root, "Entities").Count;
+    public int EntityCount => EnsureArray(_root, "Entities").OfType<JsonObject>()
+        .Count(x => !GetString(x, "Kind").StartsWith("Diez", StringComparison.OrdinalIgnoreCase));
     public int OpenIssueCount => EnsureArray(_root, "ConsistencyIssues").OfType<JsonObject>()
         .Count(x => string.Equals(GetString(x, "Status", "Open"), "Open", StringComparison.OrdinalIgnoreCase));
 
@@ -388,24 +401,27 @@ internal sealed class DiezProjectDocument
 
     public void AddAiJob(string title, string outputType, string prompt)
     {
-        var jobs = EnsureArray(_root, "AiProductionJobs");
-        var index = jobs.Count + 1;
-        jobs.Add(new JsonObject
-        {
-            ["JobId"] = Guid.NewGuid().ToString(),
-            ["Code"] = $"UNO-{index:000}",
-            ["OutputType"] = outputType,
-            ["Title"] = title,
-            ["Request"] = prompt,
-            ["Prompt"] = prompt,
-            ["Status"] = "Ready",
-            ["ResultText"] = "",
-            ["CreatedAtLocal"] = DateTimeOffset.Now.ToString("G"),
-            ["UpdatedAtLocal"] = DateTimeOffset.Now.ToString("G")
-        });
+        var brief = GetUiString("AI.ProjectBrief");
+        var mutation = DiezAiExchangeBridge.CreateReadyJob(
+            ExportProjectJson(),
+            title,
+            outputType,
+            prompt,
+            string.IsNullOrWhiteSpace(brief) ? null : brief);
+        ApplyCoreJson(mutation.ProjectJson);
     }
 
     public string ExportProjectJson() => _root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+
+    private void ApplyCoreJson(string json)
+    {
+        var updated = JsonNode.Parse(json) as JsonObject
+            ?? throw new InvalidDataException("Il Core ha restituito un progetto Diez non valido.");
+        _root.Clear();
+        foreach (var pair in updated)
+            _root[pair.Key] = pair.Value?.DeepClone();
+        Normalize();
+    }
 
     private void Normalize()
     {
