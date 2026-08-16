@@ -18,8 +18,7 @@ internal static class VisionWorkspace
         {
             Spacing = 16,
             Margin = new Thickness(28),
-            MaxWidth = 1050,
-            HorizontalAlignment = HorizontalAlignment.Left
+            HorizontalAlignment = HorizontalAlignment.Stretch
         };
         root.Children.Add(new TextBlock
         {
@@ -52,6 +51,7 @@ internal static class VisionWorkspace
             Text = "Nessuna immagine scelta.",
             TextWrapping = TextWrapping.Wrap
         };
+        var preview = new VisualImagePreviewSurface(420);
         var description = Editor(
             document.GetUiString("Vision.ImageDescriptionDraft"),
             "Descrivi ciò che è realmente visibile nell'immagine: soggetto, scena, composizione e dettagli utili al controllo.",
@@ -116,6 +116,7 @@ internal static class VisionWorkspace
         {
             selectedImagePath = string.Empty;
             selectedImage.Text = "Nessuna immagine scelta.";
+            preview.Clear("Scegli una nuova immagine oppure seleziona una versione già importata.");
             versions.SelectedIndex = -1;
 
             if (jobs.SelectedIndex < 0 || jobs.SelectedIndex >= imageJobs.Count)
@@ -140,12 +141,36 @@ internal static class VisionWorkspace
         }
 
         jobs.SelectionChanged += (_, _) => RefreshSelection();
-        versions.SelectionChanged += (_, _) =>
+        versions.SelectionChanged += async (_, _) =>
         {
-            if (versions.SelectedIndex < 0 || versions.SelectedIndex >= versionModels.Count) return;
+            if (versions.SelectedIndex < 0 || versions.SelectedIndex >= versionModels.Count)
+            {
+                preview.Clear("Scegli una nuova immagine oppure seleziona una versione già importata.");
+                return;
+            }
+
             var version = versionModels[versions.SelectedIndex];
             if (!string.IsNullOrWhiteSpace(version.Description))
                 description.Text = version.Description;
+
+            if (!version.MaterialId.HasValue)
+            {
+                preview.Clear("La versione selezionata non contiene ancora un'immagine.");
+                return;
+            }
+
+            var asset = DiezImagePreviewCatalog.Read(document)
+                .FirstOrDefault(x => x.MaterialId == version.MaterialId.Value);
+            if (asset is null)
+            {
+                preview.Clear("Il materiale immagine collegato alla versione non è disponibile.");
+                return;
+            }
+
+            await preview.ShowAssetAsync(
+                document,
+                asset,
+                $"{asset.Origin} · v{version.VersionNumber} · {version.DisplayStatus} · {asset.FileName}");
         };
         jobs.SelectedIndex = imageJobs.Count > 0 ? 0 : -1;
         RefreshSelection();
@@ -164,6 +189,7 @@ internal static class VisionWorkspace
                         if (file is null) return;
                         selectedImagePath = file.Path;
                         selectedImage.Text = $"Immagine scelta: {file.Name}";
+                        await preview.ShowFileAsync(file.Path, $"Nuova Candidate da importare · {file.Name}");
                     }
                     catch (Exception ex)
                     {
@@ -171,6 +197,7 @@ internal static class VisionWorkspace
                     }
                 }),
                 selectedImage),
+            preview.View,
             Labeled("Descrizione dell'immagine candidata", description),
             AsyncButton("Importa immagine candidata", async () =>
             {
@@ -207,7 +234,7 @@ internal static class VisionWorkspace
             versions,
             new TextBlock
             {
-                Text = "Ogni nuova versione candidata resta separata dalle precedenti. Un file diverso non sovrascrive una versione già esistente.",
+                Text = "Ogni nuova versione candidata resta separata dalle precedenti. Selezionando una versione, Diez mostra i byte reali del materiale associato senza modificarne approvazione o placement.",
                 TextWrapping = TextWrapping.Wrap
             })));
 
@@ -284,6 +311,7 @@ internal static class VisionWorkspace
         Padding = new Thickness(16),
         BorderThickness = new Thickness(1),
         CornerRadius = new CornerRadius(6),
+        HorizontalAlignment = HorizontalAlignment.Stretch,
         Child = Vertical(
             new TextBlock { Text = title, FontSize = 19, TextWrapping = TextWrapping.Wrap },
             content)
@@ -291,7 +319,7 @@ internal static class VisionWorkspace
 
     private static StackPanel Vertical(params UIElement[] items)
     {
-        var panel = new StackPanel { Spacing = 9 };
+        var panel = new StackPanel { Spacing = 9, HorizontalAlignment = HorizontalAlignment.Stretch };
         foreach (var item in items) panel.Children.Add(item);
         return panel;
     }
