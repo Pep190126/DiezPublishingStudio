@@ -114,6 +114,99 @@ Require(DiezAiExchangeBridge.ReadVersions(invalidImagePaste.ProjectJson, first.J
     "Il tentativo testuale su immagine non deve creare versioni spurie.");
 currentJson = invalidImagePaste.ProjectJson;
 
+var imageTemp = Path.Combine(Path.GetTempPath(), "Diez-AiExchange-Pianist-" + Guid.NewGuid().ToString("N"));
+Directory.CreateDirectory(imageTemp);
+var imageA = Path.Combine(imageTemp, "candidate-a.png");
+var imageB = Path.Combine(imageTemp, "candidate-b.png");
+await File.WriteAllBytesAsync(imageA, [137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3, 4, 5]);
+await File.WriteAllBytesAsync(imageB, [137, 80, 78, 71, 13, 10, 26, 10, 9, 8, 7, 6, 5]);
+try
+{
+    var imageIncomplete = await DiezAiExchangeBridge.IngestImageResultAsync(
+        currentJson,
+        first.Job.WorkUnitId.Value,
+        imageA,
+        "",
+        candidateVersion: 1);
+    Require(imageIncomplete.Status == "INCOMPLETE", "Un'immagine senza descrizione deve restare incompleta.");
+    Require(imageIncomplete.Version is { VersionNumber: 1, CanApprove: false }, "Una candidate immagine non deve mai essere approvabile dal bridge generico.");
+    Require(imageIncomplete.Version?.DescriptionStatus == "MISSING", "La descrizione mancante deve essere registrata come MISSING.");
+    Require(imageIncomplete.Material is { NeedsPackageStaging: true }, "Un nuovo asset immagine accettato deve essere segnalato per l'incorporamento nel .diez.");
+    Require(imageIncomplete.Material!.EmbeddedPath.StartsWith("materials/", StringComparison.Ordinal), "Il materiale deve ricevere un percorso embedded canonico.");
+    Require(imageIncomplete.Version!.MaterialId == imageIncomplete.Material.MaterialId, "La versione deve puntare al materiale importato.");
+    var imageShaV1 = imageIncomplete.Version.ContentSha256;
+    Require(!string.IsNullOrWhiteSpace(imageShaV1), "La candidate immagine deve avere un hash contenuto.");
+    currentJson = imageIncomplete.ProjectJson;
+
+    var imageRoot = JsonNode.Parse(currentJson)!.AsObject();
+    var rawImageMaterial = imageRoot["Materials"]!.AsArray().OfType<JsonObject>()
+        .Single(x => x["MaterialId"]?.GetValue<string>() == imageIncomplete.Material.MaterialId.ToString());
+    rawImageMaterial["FutureMaterialField"] = "keep-material-extension";
+    currentJson = imageRoot.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+
+    var imageUpdated = await DiezAiExchangeBridge.IngestImageResultAsync(
+        currentJson,
+        first.Job.WorkUnitId.Value,
+        imageA,
+        "Un soggetto unico, ben leggibile, nella scena richiesta.",
+        candidateVersion: 1);
+    Require(imageUpdated.Status == "UPDATED", "La descrizione deve poter completare la stessa candidate immagine v1.");
+    Require(imageUpdated.Version is { Status: "CANDIDATE", DescriptionStatus: "VALID", CanApprove: false },
+        "La candidate completa deve essere controllabile ma restare non approvabile fuori da Vision.");
+    Require(imageUpdated.Version!.ContentSha256 == imageShaV1, "Completare la descrizione non deve cambiare l'asset o il suo hash.");
+    currentJson = imageUpdated.ProjectJson;
+
+    var genericImageApproval = DiezAiExchangeBridge.ApproveVersion(currentJson, imageUpdated.Version.VersionId);
+    Require(genericImageApproval.Status == "VISION_REQUIRED", "L'approvazione generica di una candidate immagine deve sempre richiedere Vision.");
+    Require(genericImageApproval.Version is { CanApprove: false }, "Il DTO immagine deve continuare a dichiarare CanApprove=false.");
+    currentJson = genericImageApproval.ProjectJson;
+
+    var imageDuplicate = await DiezAiExchangeBridge.IngestImageResultAsync(
+        currentJson,
+        first.Job.WorkUnitId.Value,
+        imageA,
+        "Un soggetto unico, ben leggibile, nella scena richiesta.",
+        candidateVersion: 1);
+    Require(imageDuplicate.Status == "DUPLICATE", "Stesso file e stessa descrizione sulla stessa v1 devono essere idempotenti.");
+    currentJson = imageDuplicate.ProjectJson;
+
+    var imageConflict = await DiezAiExchangeBridge.IngestImageResultAsync(
+        currentJson,
+        first.Job.WorkUnitId.Value,
+        imageB,
+        "Un soggetto unico, ben leggibile, nella scena richiesta.",
+        candidateVersion: 1);
+    Require(imageConflict.Status == "CONFLICT", "Un file diverso sulla stessa Work Unit/versione deve produrre conflitto.");
+    Require(imageConflict.Version?.ContentSha256 == imageShaV1, "Il conflitto non deve sostituire l'hash della v1 esistente.");
+    currentJson = imageConflict.ProjectJson;
+
+    var imageV2 = await DiezAiExchangeBridge.IngestImageResultAsync(
+        currentJson,
+        first.Job.WorkUnitId.Value,
+        imageB,
+        "Seconda candidate immagine, descritta e pronta per Vision.",
+        candidateVersion: 2);
+    Require(imageV2.Status == "IMPORTED", "Un file diverso deve poter entrare come nuova candidate v2.");
+    Require(imageV2.Version is { VersionNumber: 2, Status: "CANDIDATE", CanApprove: false }, "Anche la v2 completa deve richiedere Vision.");
+    Require(imageV2.Material is { NeedsPackageStaging: true }, "La nuova v2 deve segnalare il nuovo materiale da incorporare.");
+    Require(imageV2.Version!.MaterialId != imageUpdated.Version.MaterialId, "Asset diversi devono avere MaterialId distinti.");
+    currentJson = imageV2.ProjectJson;
+
+    var imageVersions = DiezAiExchangeBridge.ReadVersions(currentJson, first.Job.WorkUnitId.Value);
+    Require(imageVersions.Count == 2, "Il job immagine deve conservare entrambe le candidate v1/v2.");
+    Require(imageVersions.All(v => !v.CanApprove), "Nessuna versione immagine può esporre approvazione generica.");
+
+    var afterImageStress = JsonNode.Parse(currentJson)!.AsObject();
+    var preservedRawImageMaterial = afterImageStress["Materials"]!.AsArray().OfType<JsonObject>()
+        .Single(x => x["MaterialId"]?.GetValue<string>() == imageUpdated.Material!.MaterialId.ToString());
+    Require(preservedRawImageMaterial["FutureMaterialField"]?.GetValue<string>() == "keep-material-extension",
+        "Gli aggiornamenti immagine non devono cancellare campi futuri del materiale raw.");
+}
+finally
+{
+    try { Directory.Delete(imageTemp, true); } catch { }
+}
+
 var incomplete = await DiezAiExchangeBridge.IngestTextResultAsync(
     currentJson,
     second.Job.WorkUnitId!.Value,
@@ -206,4 +299,4 @@ Require(finalRoot["FutureSection"]?["Version"]?.GetValue<int>() == 42, "Lo stres
 Require(finalRoot["AiProduction"]?["ProjectBrief"]?.GetValue<string>() == "Brief comune del progetto", "Il brief Core deve sopravvivere ai job successivi.");
 Require(finalRoot["AiProduction"]?["FutureAiFlag"]?.GetValue<string>() == "must-survive", "I campi AI sconosciuti devono sopravvivere anche a ingest e approval.");
 
-Console.WriteLine("AI EXCHANGE PIANIST PASS: canonical jobs/work units, clean prompts, text ingest, duplicate/conflict handling, approval history and unknown JSON survived noisy frontend use.");
+Console.WriteLine("AI EXCHANGE PIANIST PASS: canonical jobs/work units, clean prompts, text/data and image candidate ingest, duplicate/conflict handling, Vision approval boundary, approval history and unknown JSON survived noisy frontend use.");
