@@ -42,7 +42,7 @@ internal static class UnifiedBookWorkspaceUi
             var profile = ResolveProfile(project);
             var signature = ContentSignature(project, profile);
             var shouldRebuild = !string.Equals(profile, activeProfile, StringComparison.Ordinal) ||
-                                ((profile is "novel" or "illustrated" or "generic" or "none") &&
+                                ((profile is "long-form" or "illustrated" or "generic" or "none") &&
                                  !string.Equals(signature, activeSignature, StringComparison.Ordinal));
 
             if (shouldRebuild)
@@ -61,10 +61,14 @@ internal static class UnifiedBookWorkspaceUi
                         SetContents(tabs, imageWorkspace.Contents.Cast<object?>().ToList());
                         break;
 
-                    case "novel":
+                    case "long-form":
+                        if (project is not null)
+                            SetContents(tabs, NarrativeWorkspaceSubtabs.Build(window, project, illustrated: false));
+                        break;
+
                     case "illustrated":
                         if (project is not null)
-                            SetContents(tabs, NarrativeWorkspaceSubtabs.Build(window, project, profile == "illustrated"));
+                            SetContents(tabs, NarrativeWorkspaceSubtabs.Build(window, project, illustrated: true));
                         break;
 
                     case "crossword":
@@ -98,12 +102,17 @@ internal static class UnifiedBookWorkspaceUi
     {
         if (project is null) return "none";
         var type = BookTypeProfileService.Get(project);
-        if (BookTypeProfileService.IsImageCollection(project) ||
-            string.Equals(type, BookTypeProfileService.ColoringBook, StringComparison.OrdinalIgnoreCase))
+
+        // Keep routing explicit. Illustrated books share some image infrastructure,
+        // but their editorial workspace is not an Image Collection workspace.
+        if (string.Equals(type, BookTypeProfileService.ColoringBook, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(type, BookTypeProfileService.ImageCollection, StringComparison.OrdinalIgnoreCase))
             return "images";
-        if (string.Equals(type, BookTypeProfileService.Crossword, StringComparison.OrdinalIgnoreCase)) return "crossword";
-        if (string.Equals(type, BookTypeProfileService.Novel, StringComparison.OrdinalIgnoreCase)) return "novel";
         if (string.Equals(type, BookTypeProfileService.IllustratedBook, StringComparison.OrdinalIgnoreCase)) return "illustrated";
+        if (string.Equals(type, BookTypeProfileService.Novel, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(type, BookTypeProfileService.EssayManual, StringComparison.OrdinalIgnoreCase))
+            return "long-form";
+        if (string.Equals(type, BookTypeProfileService.Crossword, StringComparison.OrdinalIgnoreCase)) return "crossword";
         if (BookTypeRecognition.IsWordSearch(project)) return "word-search";
         return "generic";
     }
@@ -111,7 +120,7 @@ internal static class UnifiedBookWorkspaceUi
     private static string ContentSignature(PreviewProject? project, string profile)
     {
         if (project is null) return "none";
-        if (profile is not ("novel" or "illustrated" or "generic")) return profile;
+        if (profile is not ("long-form" or "illustrated" or "generic")) return profile;
         return string.Join("|",
             project.ProjectId,
             project.Materials.Count,
