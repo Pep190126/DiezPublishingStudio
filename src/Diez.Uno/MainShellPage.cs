@@ -231,234 +231,28 @@ public sealed class MainShellPage : Page
             ShowExportAndFinalization));
     }
 
-    private void ShowVisualQuantity()
+    private void ShowVisualQuantity() => ShowVisualWorkspace();
+    private void ShowVisualPrompt() => ShowVisualWorkspace();
+    private void ShowPromptPack() => ShowVisualWorkspace();
+
+    private void ShowVisualWorkspace()
     {
         if (!RequireDocument()) return;
         var type = BookTypeCatalog.Normalize(_document!.BookType);
         if (!BookTypeCatalog.IsVisual(type))
         {
-            Report("Il Tipo libro attuale non usa il flusso immagini. Apro la scelta Tipo libro.");
+            Report("Il Tipo libro attuale non usa il percorso immagini. Apro la scelta Tipo libro.");
             ShowBookRoute();
             return;
         }
 
-        var root = PageRoot($"{VisualLabel(type)} · 1/4 Quantità e contenuto",
-            "Numero esatto, soggetti, ambientazione, stile e Consistent sono editabili direttamente con controlli Uno.");
-        var count = Editor(Math.Max(1, _document.GetUiInt("Visual.ImageCount", 1)).ToString(), "1–500", 42, false);
-        var subject = Editor(_document.GetUiString("Visual.Subject"), "Personaggio/i o soggetto/i; sono ammesse eccezioni “Immagine N”.", 115);
-        var environment = Editor(_document.GetUiString("Visual.Environment"), "Ambientazione / scenario; sono ammesse variazioni per immagine.", 115);
-        var consistent = new CheckBox { Content = "Consistent — mantieni coerenti le immagini", IsChecked = _document.GetUiBool("Visual.Consistent") };
-        var rules = Editor(_document.GetUiString("Visual.ConsistencyRules"), "Regole di coerenza: soggetti, stile, colori, proporzioni, elementi ricorrenti…", 100);
-
-        root.Children.Add(Card("Quantità e contenuto",
-            Vertical(
-                Labeled("Quante immagini vuoi creare?", count),
-                Labeled("Personaggio/i, soggetto/i e variazioni", subject),
-                Labeled("Ambientazione / scenario", environment),
-                consistent,
-                Labeled("Regole Consistent", rules))));
-        root.Children.Add(type.Equals(BookTypeCatalog.ColoringBook, StringComparison.OrdinalIgnoreCase) ? BuildColoringProfile() : BuildImageProfile());
-
-        root.Children.Add(Horizontal(
-            ActionButton("Scene / Soggetti", ShowScenesAndSubjects),
-            AsyncButton("Salva e vai a 2/4", async () =>
-            {
-                if (!int.TryParse(count.Text, out var parsed) || parsed < 1 || parsed > 500)
-                {
-                    Report("Inserisci un numero di immagini da 1 a 500.");
-                    count.Focus(FocusState.Programmatic);
-                    return;
-                }
-                _document.SetUiInt("Visual.ImageCount", parsed);
-                _document.SetUiString("Visual.Subject", subject.Text);
-                _document.SetUiString("Visual.Environment", environment.Text);
-                _document.SetUiBool("Visual.Consistent", consistent.IsChecked == true);
-                _document.SetUiString("Visual.ConsistencyRules", consistent.IsChecked == true ? rules.Text : "");
-                await SaveIfPossibleAsync();
-                ShowVisualPrompt();
-            })));
-        SetContent(root);
-    }
-
-    private UIElement BuildColoringProfile()
-    {
-        var style = Combo(ColoringStyles, _document!.GetUiString("Coloring.Style", "Clean Line Art"));
-        var audience = Combo(
-            ["Prescolare 3–5 anni", "Bambini 6–9 anni", "Ragazzi 10–13 anni", "Adolescenti", "Adulti", "Tutte le età"],
-            _document.GetUiString("Coloring.Audience", "Bambini 6–9 anni"));
-        var difficulty = Combo(["Molto facile", "Facile", "Media", "Impegnativa"], _document.GetUiString("Coloring.Difficulty", "Facile"));
-        var lineWeight = Combo(
-            ["Molto spesso — Extra Bold", "Spesso — Bold", "Medio", "Sottile — Fine", "Molto sottile — Extra Fine", "Variabile"],
-            _document.GetUiString("Coloring.LineWeight", "Spesso — Bold"));
-        var complexity = Combo(["Molto bassa", "Bassa", "Media", "Alta"], _document.GetUiString("Coloring.Complexity", "Bassa"));
-        var density = Combo(["Molto bassa", "Bassa", "Media", "Alta"], _document.GetUiString("Coloring.Density", "Bassa"));
-        var background = Combo(["Nessuno / bianco", "Semplice / minimo", "Contestuale leggero", "Dettagliato"], _document.GetUiString("Coloring.Background", "Semplice / minimo"));
-        var whiteSpace = Combo(["Molto ampio", "Ampio", "Medio", "Compatto"], _document.GetUiString("Coloring.WhiteSpace", "Ampio"));
-        var boldEasy = Check("Bold & Easy — HARD indipendente", _document.GetUiBool("Coloring.BoldEasy"));
-        var cozy = Check("Cozy — HARD indipendente", _document.GetUiBool("Coloring.Cozy"));
-        var closed = Check("Aree chiuse e facili da colorare", _document.GetUiBool("Coloring.ClosedAreas", true));
-        var tiny = Check("Evita aree e dettagli minuscoli", _document.GetUiBool("Coloring.AvoidTinyAreas", true));
-        var contours = Check("Contorni puliti e continui", _document.GetUiBool("Coloring.CleanContours", true));
-        var noText = Check("Niente testo o numeri nell'immagine", _document.GetUiBool("Coloring.NoText", true));
-        var separated = Check("Soggetto ben separato dallo sfondo", _document.GetUiBool("Coloring.Separated", true));
-        var notes = Editor(_document.GetUiString("Coloring.Notes"), "Note stile Custom / eccezioni.", 85);
-
-        var save = ActionButton("Memorizza profilo Coloring", () =>
-        {
-            _document.SetUiString("Coloring.Style", style.SelectedItem?.ToString());
-            _document.SetUiString("Coloring.Audience", audience.SelectedItem?.ToString());
-            _document.SetUiString("Coloring.Difficulty", difficulty.SelectedItem?.ToString());
-            _document.SetUiString("Coloring.LineWeight", lineWeight.SelectedItem?.ToString());
-            _document.SetUiString("Coloring.Complexity", complexity.SelectedItem?.ToString());
-            _document.SetUiString("Coloring.Density", density.SelectedItem?.ToString());
-            _document.SetUiString("Coloring.Background", background.SelectedItem?.ToString());
-            _document.SetUiString("Coloring.WhiteSpace", whiteSpace.SelectedItem?.ToString());
-            _document.SetUiBool("Coloring.BoldEasy", boldEasy.IsChecked == true);
-            _document.SetUiBool("Coloring.Cozy", cozy.IsChecked == true);
-            _document.SetUiBool("Coloring.ClosedAreas", closed.IsChecked == true);
-            _document.SetUiBool("Coloring.AvoidTinyAreas", tiny.IsChecked == true);
-            _document.SetUiBool("Coloring.CleanContours", contours.IsChecked == true);
-            _document.SetUiBool("Coloring.NoText", noText.IsChecked == true);
-            _document.SetUiBool("Coloring.Separated", separated.IsChecked == true);
-            _document.SetUiString("Coloring.Notes", notes.Text);
-            Report("Profilo Coloring memorizzato.");
-        });
-
-        return Card("Stile e leggibilità del Coloring",
-            Vertical(
-                new TextBlock { Text = "HARD: solo nero puro (#000000) e bianco puro (#FFFFFF). Nessun grigio, colore, ombra o sfumatura.", TextWrapping = TextWrapping.Wrap },
-                Labeled("Stile", style),
-                Horizontal(Labeled("Pubblico", audience), Labeled("Difficoltà", difficulty)),
-                Labeled("Spessore linee", lineWeight),
-                Horizontal(Labeled("Complessità", complexity), Labeled("Densità", density)),
-                Horizontal(Labeled("Sfondo", background), Labeled("Spazio bianco", whiteSpace)),
-                boldEasy, cozy, closed, tiny, contours, noText, separated,
-                Labeled("Note stile", notes), save));
-    }
-
-    private UIElement BuildImageProfile()
-    {
-        var use = Combo(["Illustrazione editoriale", "Scheda / catalogo", "Reference", "Decorativa", "Sequenza narrativa"], _document!.GetUiString("ImageProfile.Use", "Illustrazione editoriale"));
-        var color = Combo(["Colore", "Bianco e nero", "Monocromatico", "Palette controllata"], _document.GetUiString("ImageProfile.Color", "Colore"));
-        var detail = Combo(["Basso", "Medio", "Alto"], _document.GetUiString("ImageProfile.Detail", "Medio"));
-        var rendering = Combo(["Pulito editoriale", "Pittorico", "Vettoriale", "Fotografico", "Custom"], _document.GetUiString("ImageProfile.Rendering", "Pulito editoriale"));
-        var sameScale = Check("Mantieni scala/inquadratura comparabili nelle serie", _document.GetUiBool("ImageProfile.SameScale", true));
-        var readable = Check("Soggetto sempre chiaramente leggibile", _document.GetUiBool("ImageProfile.Readable", true));
-        var noText = Check("Evita testo/etichette salvo richiesta", _document.GetUiBool("ImageProfile.NoText", true));
-        var notes = Editor(_document.GetUiString("ImageProfile.Notes"), "Note aggiuntive sulla serie.", 85);
-
-        var save = ActionButton("Memorizza profilo immagini", () =>
-        {
-            _document.SetUiString("ImageProfile.Use", use.SelectedItem?.ToString());
-            _document.SetUiString("ImageProfile.Color", color.SelectedItem?.ToString());
-            _document.SetUiString("ImageProfile.Detail", detail.SelectedItem?.ToString());
-            _document.SetUiString("ImageProfile.Rendering", rendering.SelectedItem?.ToString());
-            _document.SetUiBool("ImageProfile.SameScale", sameScale.IsChecked == true);
-            _document.SetUiBool("ImageProfile.Readable", readable.IsChecked == true);
-            _document.SetUiBool("ImageProfile.NoText", noText.IsChecked == true);
-            _document.SetUiString("ImageProfile.Notes", notes.Text);
-            Report("Profilo immagini memorizzato.");
-        });
-        return Card("Profilo Raccolta immagini / Libro illustrato",
-            Vertical(
-                Labeled("Uso editoriale", use), Labeled("Resa cromatica", color), Labeled("Dettaglio", detail),
-                Labeled("Stile resa", rendering), sameScale, readable, noText, Labeled("Note", notes), save));
-    }
-
-    private void ShowVisualPrompt()
-    {
-        if (!RequireDocument()) return;
-        var root = PageRoot($"{VisualLabel(_document!.BookType)} · 2/4 Istruzioni",
-            "DEVE FARE, NON DEVE FARE e PROMPT sono TextBox Uno reali e modificabili.");
-        var mustDo = Editor(_document.GetUiString("Prompt.MustDo"), "Cosa devono rappresentare e come devono essere i risultati.", 130);
-        var mustNot = Editor(_document.GetUiString("Prompt.MustNot"), "Cosa deve essere evitato.", 110);
-        var prompt = Editor(_document.GetUiString("Prompt.Master"), "Prepara il prompt, poi modificalo liberamente.", 280);
-
-        void PreparePrompt()
-        {
-            _document.SetUiString("Prompt.MustDo", mustDo.Text);
-            _document.SetUiString("Prompt.MustNot", mustNot.Text);
-            var built = BuildMasterPrompt(mustDo.Text, mustNot.Text);
-            _document.SetUiString("Prompt.Master", built);
-            prompt.Text = built;
-            Report("Prompt master preparato.");
-        }
-
-        root.Children.Add(Labeled("DEVE FARE", mustDo));
-        root.Children.Add(Labeled("NON DEVE FARE", mustNot));
-        root.Children.Add(Labeled("PROMPT — modificabile", prompt));
-        root.Children.Add(Horizontal(
-            ActionButton("Prepara prompt", PreparePrompt),
-            ActionButton("Copia prompt", () => CopyText(prompt.Text ?? string.Empty)),
-            AsyncButton("Salva e vai a 3/4", async () =>
-            {
-                _document.SetUiString("Prompt.MustDo", mustDo.Text);
-                _document.SetUiString("Prompt.MustNot", mustNot.Text);
-                _document.SetUiString("Prompt.Master", prompt.Text);
-                await SaveIfPossibleAsync();
-                ShowPromptPack();
-            })));
-        SetContent(root);
-    }
-
-    private string BuildMasterPrompt(string? mustDo, string? mustNot)
-    {
-        var type = BookTypeCatalog.Normalize(_document!.BookType);
-        var count = Math.Max(1, _document.GetUiInt("Visual.ImageCount", 1));
-        var lines = new List<string>
-        {
-            $"Crea {count} {(count == 1 ? "immagine" : "immagini")} per {VisualLabel(type)}.", "",
-            "DEVE FARE:", (mustDo ?? string.Empty).Trim(), "",
-            "NON DEVE FARE:", (mustNot ?? string.Empty).Trim(), "",
-            "SOGGETTO/I:", _document.GetUiString("Visual.Subject"), "",
-            "AMBIENTAZIONE:", _document.GetUiString("Visual.Environment")
-        };
-        if (_document.GetUiBool("Visual.Consistent"))
-        {
-            lines.Add(""); lines.Add("CONSISTENT — HARD:"); lines.Add(_document.GetUiString("Visual.ConsistencyRules"));
-        }
-        if (type.Equals(BookTypeCatalog.ColoringBook, StringComparison.OrdinalIgnoreCase))
-        {
-            lines.Add(""); lines.Add("PROFILO COLORING:");
-            lines.Add($"- Stile: {_document.GetUiString("Coloring.Style", "Clean Line Art")}");
-            lines.Add($"- Pubblico: {_document.GetUiString("Coloring.Audience", "Bambini 6–9 anni")}");
-            lines.Add($"- Difficoltà: {_document.GetUiString("Coloring.Difficulty", "Facile")}");
-            lines.Add($"- Linee: {_document.GetUiString("Coloring.LineWeight", "Spesso — Bold")}");
-            lines.Add($"- Bold & Easy HARD: {(_document.GetUiBool("Coloring.BoldEasy") ? "ON" : "OFF")}");
-            lines.Add($"- Cozy HARD: {(_document.GetUiBool("Coloring.Cozy") ? "ON" : "OFF")}");
-            lines.Add("- SOLO #000000 e #FFFFFF; vietati grigi, colori, ombre e sfumature.");
-        }
-        lines.Add("");
-        lines.Add("Ogni immagine deve essere una singola composizione VISUAL_ONLY e non deve mostrare ID interni, routing, retry, numeri di sessione o nomi file.");
-        return string.Join(Environment.NewLine, lines).Trim();
-    }
-
-    private void ShowPromptPack()
-    {
-        if (!RequireDocument()) return;
-        var root = PageRoot($"{VisualLabel(_document!.BookType)} · 3/4 Prompt Pack / AI Exchange",
-            "Seleziona il provider, conserva il prompt master e prepara una richiesta AI senza contaminare il prompt visuale con metadati interni.");
-        var provider = Combo(["ChatGPT / OpenAI", "Gemini", "Altra / nuova AI"], _document.GetUiString("AI.Provider", "ChatGPT / OpenAI"));
-        var preferAdvanced = Check("Usa il modello immagini più avanzato disponibile", _document.GetUiBool("AI.PreferAdvanced", true));
-        var prompt = Editor(_document.GetUiString("Prompt.Master"), "Prompt master", 300);
-        var exchangeNotes = Editor(_document.GetUiString("AI.ExchangeNotes"), "Note di scambio, correzioni o handoff.", 110);
-
-        root.Children.Add(Card("Provider e richiesta",
-            Vertical(Labeled("Provider AI", provider), preferAdvanced, Labeled("Prompt provider-facing", prompt), Labeled("Note exchange", exchangeNotes))));
-        root.Children.Add(Horizontal(
-            ActionButton("Copia Prompt Pack", () => CopyText($"PROVIDER: {provider.SelectedItem}\n\n{prompt.Text}\n\nNOTE:\n{exchangeNotes.Text}")),
-            AsyncButton("Crea job AI Ready", async () =>
-            {
-                _document.SetUiString("AI.Provider", provider.SelectedItem?.ToString());
-                _document.SetUiBool("AI.PreferAdvanced", preferAdvanced.IsChecked == true);
-                _document.SetUiString("AI.ExchangeNotes", exchangeNotes.Text);
-                _document.SetUiString("Prompt.Master", prompt.Text);
-                _document.AddAiJob($"{VisualLabel(_document.BookType)} · Prompt Pack", "Image", prompt.Text ?? "");
-                await SaveIfPossibleAsync();
-                Report("Job AI aggiunto con stato Ready.");
-            }),
-            ActionButton("Vai a 4/4 Vision", ShowVisionReview)));
-        SetContent(root);
+        SetContent(VisualBookWorkspace.Build(
+            _document,
+            SaveIfPossibleAsync,
+            Report,
+            ShowVisualWorkspace,
+            ShowVisionReview,
+            ShowAiCenter));
     }
 
     private void ShowVisionReview()
