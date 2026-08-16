@@ -126,7 +126,8 @@ internal static class PromptPackRendererVisualBriefService
         if (!string.IsNullOrWhiteSpace(synthesizedArtDirection))
             output.Insert(Math.Min(1, output.Count), synthesizedArtDirection);
 
-        var result = PromptEnglishNormalizer.NormalizeProviderFacing(string.Join(Environment.NewLine, output)).Trim();
+        var result = ImageCollectionPromptEnglishNormalizer.Normalize(
+            PromptEnglishNormalizer.NormalizeProviderFacing(string.Join(Environment.NewLine, output))).Trim();
         EnsureVisualOnly(result);
         return result;
     }
