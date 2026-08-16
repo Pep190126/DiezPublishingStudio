@@ -151,6 +151,7 @@ internal static class StableWorkflowRootUi
         ActivateHomeCore(state);
         Invalidate(state.HomeRoot);
         Invalidate(state.StableRoot);
+        var homeRestoreLayout = AvaloniaLayoutPumpUi.Execute(window, "stable-root-home-restore");
         SafeStartupTrace.Write(
             "stable-root-state | active=home" +
             " | rootBounds=" + state.StableRoot.Bounds +
@@ -160,6 +161,7 @@ internal static class StableWorkflowRootUi
             " | compositorOrder=home-static-top" +
             " | inactiveHomeLayoutGate=true" +
             " | inputOwnership=static-order-home-layout-gate" +
+            " | homeRestoreLayout=" + homeRestoreLayout +
             " | homeHit=" + state.HomeRoot.IsHitTestVisible +
             " | workflowHit=" + state.Overlay.IsHitTestVisible +
             " | homeWidth=" + state.HomeRoot.Width +
