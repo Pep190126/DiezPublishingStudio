@@ -24,8 +24,10 @@ public sealed record DiezWordSearchFinalExportResult(
 
 /// <summary>
 /// Final handoff gate for Word Search. Working exports may be produced at any time,
-/// but a final database is released only when the whole configured book is complete,
-/// globally unique (when NoDuplicates is enabled), individually valid and approved.
+/// but final XLSX/CSV handoffs are released only when the whole configured book is
+/// complete, globally unique (when NoDuplicates is enabled), individually valid and approved.
+/// The final matrix follows the Self Publishing Titans sample contract: one puzzle per
+/// column and one word position per row, without Diez metadata rows.
 /// </summary>
 public static class DiezWordSearchFinalizationBridge
 {
@@ -35,30 +37,47 @@ public static class DiezWordSearchFinalizationBridge
         return Readiness(project);
     }
 
-    public static async Task<DiezWordSearchFinalExportResult> ExportFinalDatabaseAsync(
+    /// <summary>
+    /// Backward-compatible alias for the final XLSX handoff.
+    /// </summary>
+    public static Task<DiezWordSearchFinalExportResult> ExportFinalDatabaseAsync(
+        string projectJson,
+        string outputPath) => ExportFinalXlsxAsync(projectJson, outputPath);
+
+    public static async Task<DiezWordSearchFinalExportResult> ExportFinalXlsxAsync(
         string projectJson,
         string outputPath)
     {
         var project = Parse(projectJson);
-        var state = Readiness(project);
-        if (!state.Ready)
-        {
-            var failed = state.Checks.Where(check => !check.Passed).Take(3).Select(check => check.Message);
-            return new DiezWordSearchFinalExportResult(
-                false,
-                "Export finale Word Search bloccato: " + string.Join(" ", failed),
-                null);
-        }
-
+        var blocked = BlockedIfNotReady(project);
+        if (blocked is not null) return blocked;
         if (string.IsNullOrWhiteSpace(outputPath))
             return new DiezWordSearchFinalExportResult(false, "Percorso di esportazione non valido.", null);
 
         var fullPath = Path.GetFullPath(outputPath);
-        var result = await WordSearchFullDatabaseExportService.ExportAsync(project, fullPath);
+        var result = await WordSearchSelfPublishingTitansExportService.ExportXlsxAsync(project, fullPath);
         return new DiezWordSearchFinalExportResult(
             result.Success,
             result.Message,
             result.Success ? EnsureExtension(fullPath, ".xlsx") : null);
+    }
+
+    public static async Task<DiezWordSearchFinalExportResult> ExportFinalCsvAsync(
+        string projectJson,
+        string outputPath)
+    {
+        var project = Parse(projectJson);
+        var blocked = BlockedIfNotReady(project);
+        if (blocked is not null) return blocked;
+        if (string.IsNullOrWhiteSpace(outputPath))
+            return new DiezWordSearchFinalExportResult(false, "Percorso di esportazione non valido.", null);
+
+        var fullPath = Path.GetFullPath(outputPath);
+        var result = await WordSearchSelfPublishingTitansExportService.ExportCsvAsync(project, fullPath);
+        return new DiezWordSearchFinalExportResult(
+            result.Success,
+            result.Message,
+            result.Success ? EnsureExtension(fullPath, ".csv") : null);
     }
 
     internal static DiezWordSearchFinalizationState Readiness(PreviewProject project)
@@ -129,6 +148,17 @@ public static class DiezWordSearchFinalizationBridge
             unsafeOccurrences,
             book.DuplicateWords,
             checks);
+    }
+
+    private static DiezWordSearchFinalExportResult? BlockedIfNotReady(PreviewProject project)
+    {
+        var state = Readiness(project);
+        if (state.Ready) return null;
+        var failed = state.Checks.Where(check => !check.Passed).Take(3).Select(check => check.Message);
+        return new DiezWordSearchFinalExportResult(
+            false,
+            "Export finale Word Search bloccato: " + string.Join(" ", failed),
+            null);
     }
 
     private static PreviewProject Parse(string projectJson)
