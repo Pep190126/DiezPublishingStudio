@@ -732,30 +732,126 @@ public sealed class MainShellPage : Page
     private void ShowAiCenter()
     {
         if (!RequireDocument()) return;
-        var root = PageRoot("AI Production / Human Prompt / Exchange",
-            "Provider, brief comune, MUST DO / MUST NOT, job e scambio risposte sono unificati.");
+        var root = PageRoot("AI Production / Prompt / Exchange",
+            "Prepara i Prompt, crea i job e gestisci le risposte AI nello stesso spazio. Testo e dati usano versioni controllabili; le immagini passano da Vision.");
         var provider = Combo(["ChatGPT / OpenAI", "Gemini", "Altra / nuova AI"], _document!.GetUiString("AI.Provider", "ChatGPT / OpenAI"));
         var brief = Editor(_document.GetUiString("AI.ProjectBrief"), "Regole comuni del progetto.", 140);
-        var humanPrompt = Editor(_document.GetUiString("AI.HumanPrompt"), "Istruzione umana modificabile per testo, immagini o dati.", 180);
+        var prompt = Editor(_document.GetUiString("AI.HumanPrompt"), "Prompt modificabile per testo, immagini o dati.", 180);
         var outputType = Combo(["Image", "Text", "Data"], _document.GetUiString("AI.OutputType", "Image"));
-        var jobs = new ListView { Height = 220, ItemsSource = _document.AiJobDisplayItems() };
+
+        var jobModels = _document.AiJobs().ToList();
+        var jobs = new ListView
+        {
+            Height = 220,
+            ItemsSource = jobModels.Select(x => $"{x.Code} · {x.DisplayType} · {x.DisplayStatus} · {x.Title}").ToList()
+        };
+        var selectedJob = new TextBlock { TextWrapping = TextWrapping.Wrap };
+        var response = Editor(_document.GetUiString("AI.LastResponseDraft"), "Incolla qui la risposta ricevuta dall’AI.", 180);
+        var versions = new ListView { Height = 165 };
+        List<DiezAiFrontendVersion> versionModels = [];
+
+        void RefreshSelectedJob()
+        {
+            if (jobs.SelectedIndex < 0 || jobs.SelectedIndex >= jobModels.Count)
+            {
+                selectedJob.Text = jobModels.Count == 0 ? "Nessun job AI creato." : "Seleziona un job.";
+                versions.ItemsSource = Array.Empty<string>();
+                versionModels = [];
+                response.IsEnabled = false;
+                return;
+            }
+
+            var job = jobModels[jobs.SelectedIndex];
+            selectedJob.Text = $"{job.Code} · {job.DisplayType} · {job.DisplayStatus}\n{job.Title}";
+            var image = string.Equals(job.OutputType, "Image", StringComparison.OrdinalIgnoreCase);
+            response.IsEnabled = !image;
+            response.PlaceholderText = image
+                ? "Per le immagini usa il flusso Vision: il risultato non viene importato come semplice testo."
+                : "Incolla qui la risposta ricevuta dall’AI.";
+
+            versionModels = job.WorkUnitId.HasValue
+                ? _document.AiVersions(job.WorkUnitId.Value).ToList()
+                : [];
+            versions.ItemsSource = versionModels
+                .Select(v => $"v{v.VersionNumber} · {v.DisplayStatus}")
+                .ToList();
+            versions.SelectedIndex = versionModels.Count > 0 ? 0 : -1;
+        }
+
+        jobs.SelectionChanged += (_, _) => RefreshSelectedJob();
+        jobs.SelectedIndex = jobModels.Count > 0 ? 0 : -1;
+        RefreshSelectedJob();
+
         root.Children.Add(Card("Configurazione AI", Vertical(
-            Labeled("Provider", provider), Labeled("Output", outputType), Labeled("Brief comune", brief), Labeled("Human prompt", humanPrompt))));
-        root.Children.Add(Card("Job", jobs));
+            Labeled("Provider AI", provider),
+            Labeled("Tipo di risultato", outputType),
+            Labeled("Brief comune", brief),
+            Labeled("Prompt", prompt))));
+        root.Children.Add(Card("Job AI", Vertical(jobs, selectedJob)));
+        root.Children.Add(Card("Risposta e versioni", Vertical(
+            new TextBlock
+            {
+                Text = "Per Testo e Dati puoi importare una risposta come candidato, confrontare le versioni e approvare quella corretta. Per le immagini usa Vision.",
+                TextWrapping = TextWrapping.Wrap
+            },
+            Labeled("Risposta ricevuta", response),
+            Labeled("Versioni del job selezionato", versions),
+            Horizontal(
+                AsyncButton("Importa come candidato", async () =>
+                {
+                    if (jobs.SelectedIndex < 0 || jobs.SelectedIndex >= jobModels.Count)
+                    {
+                        Report("Seleziona prima un job AI.");
+                        return;
+                    }
+
+                    var job = jobModels[jobs.SelectedIndex];
+                    if (!job.WorkUnitId.HasValue)
+                    {
+                        Report("Questo job non ha ancora una Work Unit AI Exchange valida.");
+                        return;
+                    }
+                    if (string.Equals(job.OutputType, "Image", StringComparison.OrdinalIgnoreCase))
+                    {
+                        Report("Per un job Immagine usa Vision: descrizione e controlli HARD non possono essere saltati.");
+                        return;
+                    }
+
+                    _document.SetUiString("AI.LastResponseDraft", response.Text);
+                    var result = await _document.IngestAiTextResultAsync(job.WorkUnitId.Value, response.Text);
+                    if (result.Status is "IMPORTED" or "UPDATED" or "DUPLICATE")
+                        _document.SetUiString("AI.LastResponseDraft", "");
+                    await SaveIfPossibleAsync();
+                    ShowAiCenter();
+                    Report(result.Message);
+                }),
+                AsyncButton("Approva versione selezionata", async () =>
+                {
+                    if (versions.SelectedIndex < 0 || versions.SelectedIndex >= versionModels.Count)
+                    {
+                        Report("Seleziona una versione da approvare.");
+                        return;
+                    }
+
+                    var result = _document.ApproveAiVersion(versionModels[versions.SelectedIndex].VersionId);
+                    await SaveIfPossibleAsync();
+                    ShowAiCenter();
+                    Report(result.Message);
+                }),
+                ActionButton("Vai a Vision immagini", ShowVisionReview))));
         root.Children.Add(Horizontal(
             AsyncButton("Crea job Ready", async () =>
             {
                 _document.SetUiString("AI.Provider", provider.SelectedItem?.ToString());
                 _document.SetUiString("AI.OutputType", outputType.SelectedItem?.ToString());
                 _document.SetUiString("AI.ProjectBrief", brief.Text);
-                _document.SetUiString("AI.HumanPrompt", humanPrompt.Text);
-                _document.AddAiJob("Human prompt", outputType.SelectedItem?.ToString() ?? "Image", humanPrompt.Text ?? "");
+                _document.SetUiString("AI.HumanPrompt", prompt.Text);
+                _document.AddAiJob("Prompt", outputType.SelectedItem?.ToString() ?? "Image", prompt.Text ?? "");
                 await SaveIfPossibleAsync();
                 ShowAiCenter();
-                Report("Job AI Ready creato.");
+                Report("Job AI creato e pronto da generare.");
             }),
-            ActionButton("Copia richiesta", () => CopyText(humanPrompt.Text ?? "")),
-            ActionButton("Response Review", ShowVisionReview)));
+            ActionButton("Copia Prompt", () => CopyText(prompt.Text ?? string.Empty))));
         SetContent(root);
     }
 
