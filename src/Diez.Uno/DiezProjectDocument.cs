@@ -355,6 +355,22 @@ internal sealed class DiezProjectDocument
         return mutation;
     }
 
+    public IReadOnlyList<DiezEditorialDestination> EditorialDestinations()
+    {
+        try { return DiezAiEditorialBridge.ReadDestinations(ExportProjectJson()); }
+        catch { return []; }
+    }
+
+    public DiezEditorialPromotionResult PromoteAiVersion(Guid versionId, Guid? targetContentId = null)
+    {
+        var result = DiezAiEditorialBridge.PromoteApprovedVersion(
+            ExportProjectJson(),
+            versionId,
+            targetContentId);
+        ApplyCoreJson(result.ProjectJson);
+        return result;
+    }
+
     public int MaterialCount => EnsureArray(_root, "Materials").Count;
     public int ContentCount => EnsureArray(_root, "ContentNodes").Count;
     public int EntityCount => EnsureArray(_root, "Entities").OfType<JsonObject>()
