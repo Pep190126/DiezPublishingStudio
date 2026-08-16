@@ -122,6 +122,89 @@ Require(novelNodesV2[0]["Body"]?.GetValue<string>() == "Seconda versione editori
 var novelJobs = Root(novelApplied2.ProjectJson)["AiProductionJobs"]!.AsArray().OfType<JsonObject>().ToList();
 Require(novelJobs.Single()["Status"]?.GetValue<string>() == "Applied",
     "Dopo la promozione il job legacy deve risultare Applied.");
+Require(DiezAiExchangeBridge.ReadJobs(novelApplied2.ProjectJson).Single().DisplayStatus == "Applicato al libro",
+    "Lo stato Applied deve essere framework-wide e non limitato al testo.");
+
+// --- Vision-gated image promotion into an illustrated book ---
+var imagePath = Path.Combine(Path.GetTempPath(), $"diez-ai-editorial-{Guid.NewGuid():N}.png");
+try
+{
+    // A minimal PNG signature is enough for the package/import contract; pixel semantics are
+    // represented by the explicit Vision checks below, which are the approval authority.
+    await File.WriteAllBytesAsync(imagePath, [137, 80, 78, 71, 13, 10, 26, 10]);
+    var illustratedJson = NewProject("Pianista promozione libro illustrato", BookTypeCatalog.IllustratedBook);
+    var imageJob = DiezAiExchangeBridge.CreateReadyJob(
+        illustratedJson,
+        "Illustrazione capitolo",
+        "Image",
+        "Crea una singola illustrazione editoriale coerente con il capitolo.");
+    Require(imageJob.Job.WorkUnitId.HasValue, "Il job immagine deve avere una Work Unit.");
+
+    var imageCandidate = await DiezAiExchangeBridge.IngestImageResultAsync(
+        imageJob.ProjectJson,
+        imageJob.Job.WorkUnitId.Value,
+        imagePath,
+        "Una singola illustrazione editoriale con il soggetto principale chiaramente leggibile.",
+        candidateVersion: 1);
+    Require(imageCandidate.Status is "IMPORTED" or "UPDATED",
+        "L'immagine completa deve entrare come versione candidata.");
+    Require(imageCandidate.Version?.MaterialId.HasValue == true,
+        "La versione immagine deve mantenere il MaterialId importato.");
+
+    var imagePremature = DiezAiEditorialBridge.PromoteApprovedVersion(
+        imageCandidate.ProjectJson,
+        imageCandidate.Version!.VersionId);
+    Require(imagePremature.Status == "NOT_APPROVED",
+        "Una immagine non deve poter essere portata nel libro prima di Vision.");
+    Require(Root(imagePremature.ProjectJson)["IllustrationPlacements"]!.AsArray().Count == 0,
+        "Il tentativo prematuro non deve creare una collocazione editoriale.");
+
+    var requirements = DiezVisionFrontendBridge.Requirements(
+        imageCandidate.ProjectJson,
+        imageJob.Job.WorkUnitId.Value);
+    Require(requirements.Count >= 2,
+        "Vision deve derivare dal progetto almeno soggetto e composizione come gate richiesti.");
+    var passChecks = requirements
+        .Where(r => r.Required)
+        .Select(r => new DiezVisionCheckInput(r.Key, "PASS", "Pianista: gate verificato."))
+        .ToList();
+    var visionApproved = DiezVisionFrontendBridge.ApproveImageVersion(
+        imageCandidate.ProjectJson,
+        imageCandidate.Version.VersionId,
+        passChecks,
+        "Pianista: tutti i gate richiesti sono PASS.");
+    Require(visionApproved.Status == "APPROVED" && visionApproved.Approved,
+        "L'immagine deve essere approvata solo tramite Vision con tutti i gate richiesti PASS.");
+
+    var imageApplied = DiezAiEditorialBridge.PromoteApprovedVersion(
+        visionApproved.ProjectJson,
+        imageCandidate.Version.VersionId);
+    Require(imageApplied.Status == "APPLIED",
+        "Dopo Vision PASS l'immagine deve poter essere portata nel libro.");
+    Require(imageApplied.ContentId.HasValue && imageApplied.PlacementId.HasValue && imageApplied.MaterialId.HasValue,
+        "Il libro illustrato deve ricevere contenuto, collocazione e materiale canonici.");
+    Require(imageApplied.Surface == "Piano illustrazioni",
+        "Una immagine approvata del libro illustrato deve entrare nel Piano illustrazioni.");
+    var illustratedRoot = Root(imageApplied.ProjectJson);
+    Require(illustratedRoot["ContentNodes"]!.AsArray().Count == 1,
+        "La prima immagine promossa deve creare una destinazione editoriale stabile.");
+    Require(illustratedRoot["IllustrationPlacements"]!.AsArray().Count == 1,
+        "La promozione immagine deve creare una sola collocazione editoriale.");
+    Require(DiezAiExchangeBridge.ReadJobs(imageApplied.ProjectJson).Single().DisplayStatus == "Applicato al libro",
+        "Anche un job immagine promosso deve mostrare lo stato Applicato al libro.");
+
+    var imageRepeat = DiezAiEditorialBridge.PromoteApprovedVersion(
+        imageApplied.ProjectJson,
+        imageCandidate.Version.VersionId);
+    Require(imageRepeat.Status == "ALREADY_APPLIED",
+        "Ripromuovere la stessa immagine deve essere idempotente.");
+    Require(Root(imageRepeat.ProjectJson)["IllustrationPlacements"]!.AsArray().Count == 1,
+        "L'idempotenza immagine non deve duplicare la collocazione.");
+}
+finally
+{
+    try { if (File.Exists(imagePath)) File.Delete(imagePath); } catch { }
+}
 
 // --- Word Search structured-data promotion ---
 var wordSearchJson = NewProject("Pianista promozione Word Search", BookTypeCatalog.WordSearch);
@@ -183,4 +266,4 @@ Require(bible.Any(b => b["Value"]?.GetValue<string>() == "Satellite naturale del
 Require(crosswordRoot["FutureRoot"]?["Marker"]?.GetValue<string>() == "must-survive",
     "La promozione puzzle non deve cancellare estensioni JSON future.");
 
-Console.WriteLine("AI EDITORIAL PIANIST PASS: approval stayed separate from application, Work Unit destinations were stable across versions, and structured puzzle results reached their canonical editorial surfaces.");
+Console.WriteLine("AI EDITORIAL PIANIST PASS: approval stayed separate from application, Vision gated image promotion, Work Unit destinations remained stable, and structured puzzle results reached their canonical editorial surfaces.");
