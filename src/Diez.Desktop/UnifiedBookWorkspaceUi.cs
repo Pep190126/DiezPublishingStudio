@@ -109,9 +109,7 @@ internal static class UnifiedBookWorkspaceUi
             string.Equals(type, BookTypeProfileService.ImageCollection, StringComparison.OrdinalIgnoreCase))
             return "images";
         if (string.Equals(type, BookTypeProfileService.IllustratedBook, StringComparison.OrdinalIgnoreCase)) return "illustrated";
-        if (string.Equals(type, BookTypeProfileService.Novel, StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(type, BookTypeProfileService.EssayManual, StringComparison.OrdinalIgnoreCase))
-            return "long-form";
+        if (LongFormWorkspaceService.Supports(type)) return "long-form";
         if (string.Equals(type, BookTypeProfileService.Crossword, StringComparison.OrdinalIgnoreCase)) return "crossword";
         if (BookTypeRecognition.IsWordSearch(project)) return "word-search";
         return "generic";
