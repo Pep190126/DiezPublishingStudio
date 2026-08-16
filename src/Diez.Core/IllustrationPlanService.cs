@@ -12,6 +12,11 @@ internal static class IllustrationPlanService
         BeforeHeading, AfterHeading, AfterContent, FullPageAfter
     };
 
+    private static readonly HashSet<string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"
+    };
+
     private static readonly HashSet<string> DocxExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".png", ".jpg", ".jpeg", ".gif", ".bmp"
@@ -100,8 +105,15 @@ internal static class IllustrationPlanService
             !materialIds.Contains(p.MaterialId) || !contentIds.Contains(p.ContentId));
     }
 
-    public static bool IsImage(MaterialEntry material) =>
-        material.Kind?.StartsWith("Immagine", StringComparison.OrdinalIgnoreCase) == true;
+    public static bool IsImage(MaterialEntry material)
+    {
+        var kind = material.Kind?.Trim() ?? string.Empty;
+        if (kind.StartsWith("Immagine", StringComparison.OrdinalIgnoreCase) ||
+            kind.StartsWith("Image", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return ImageExtensions.Contains(Path.GetExtension(material.FileName ?? string.Empty));
+    }
 
     public static bool CanEmbedInDocx(MaterialEntry material) =>
         IsImage(material) && DocxExtensions.Contains(Path.GetExtension(material.FileName ?? string.Empty));
