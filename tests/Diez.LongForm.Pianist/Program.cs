@@ -68,7 +68,7 @@ var originalEntityIds = project.Entities.Select(e => e.EntityId).Order().ToArray
 var originalContentIds = project.ContentNodes.Select(n => n.ContentId).Order().ToArray();
 for (var i = 0; i < 60; i++)
 {
-    var type = i % 3 switch
+    var type = (i % 3) switch
     {
         0 => BookTypeProfileService.Novel,
         1 => BookTypeProfileService.EssayManual,
