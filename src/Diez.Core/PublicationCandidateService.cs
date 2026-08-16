@@ -27,7 +27,7 @@ internal static class PublicationCandidateService
 
         var master = RenderMaster(project);
         if (string.IsNullOrWhiteSpace(master))
-            return new PublicationCandidateResult(null, "Publication Candidate non creato: il Master editoriale è vuoto.");
+            return new PublicationCandidateResult(null, "Publication Candidate non creato: non esiste ancora contenuto editoriale finale.");
 
         var sequence = project.RevisionCandidates.Count(c => c.Key == CandidateKey && c.Status == "Applied") + 1;
         var masterHash = Hash(master);
@@ -129,6 +129,7 @@ internal static class PublicationCandidateService
             metadata,
             project.Materials.Count,
             project.ContentNodes.Count(n => EditableMasterService.CanEdit(project, n)),
+            VisualBookPlanService.IsVisualFamily(project) ? VisualBookPlanService.AppliedImageJobs(project).Count : 0,
             project.BibleEntries.Count(b => b.IsActive),
             preflight.Checks.Select(c => new PublicationManifestCheck(c.Code, c.Severity, c.Passed, c.Message)).ToList());
 
@@ -151,6 +152,9 @@ internal static class PublicationCandidateService
             .ThenBy(n => n.ContentId)
             .ToList();
 
+        if (nodes.Count == 0 && VisualBookPlanService.IsImageOnlyFamily(project))
+            return RenderVisualAssetManifest(project);
+
         var builder = new StringBuilder();
         foreach (var node in nodes)
         {
@@ -163,6 +167,26 @@ internal static class PublicationCandidateService
                 builder.AppendLine();
             }
             builder.Append((node.Body ?? string.Empty).Trim());
+        }
+        return builder.ToString().Trim();
+    }
+
+    private static string RenderVisualAssetManifest(PreviewProject project)
+    {
+        var plan = VisualBookPlanService.Load(project);
+        var builder = new StringBuilder();
+        builder.AppendLine("DIEZ VISUAL PUBLICATION MASTER");
+        builder.AppendLine($"Book type: {BookTypeProfileService.Get(project)}");
+        builder.AppendLine($"Planned images: {plan.ImageCount}");
+        builder.AppendLine($"Consistent: {(plan.Consistent ? "ON" : "OFF")}");
+        builder.AppendLine();
+        var order = 0;
+        foreach (var job in VisualBookPlanService.AppliedImageJobs(project))
+        {
+            if (!job.ResultMaterialId.HasValue) continue;
+            var material = project.Materials.FirstOrDefault(m => m.MaterialId == job.ResultMaterialId.Value);
+            if (material is null) continue;
+            builder.AppendLine($"{++order:D3} | {job.Code} | {material.FileName} | {material.MaterialId:N} | SHA256 {material.Sha256}");
         }
         return builder.ToString().Trim();
     }
@@ -222,6 +246,7 @@ internal static class PublicationCandidateService
         PublicationMetadataDocument Metadata,
         int MaterialCount,
         int EditableContentCount,
+        int AppliedVisualAssetCount,
         int ActiveBibleEntryCount,
         List<PublicationManifestCheck> PreflightChecks);
 
