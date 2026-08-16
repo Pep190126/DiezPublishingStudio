@@ -19,6 +19,7 @@ on:
       - 'tests/Diez.BookTypeRouting.Pianist/**'
       - 'tests/Diez.AiExchange.Pianist/**'
       - 'tests/Diez.AiEditorial.Pianist/**'
+      - 'tests/Diez.AiImageEditorial.Pianist/**'
       - '.github/workflows/uno-platform-spike.yml'
   workflow_dispatch:
 
@@ -86,6 +87,9 @@ jobs:
 
       - name: Run AI editorial promotion pianist contract
         run: dotnet run --project tests/Diez.AiEditorial.Pianist/Diez.AiEditorial.Pianist.csproj -c Release
+
+      - name: Run AI image editorial promotion pianist contract
+        run: dotnet run --project tests/Diez.AiImageEditorial.Pianist/Diez.AiImageEditorial.Pianist.csproj -c Release
 
       - name: Restore Uno desktop spike
         run: dotnet restore src/Diez.Uno/Diez.Uno.csproj
