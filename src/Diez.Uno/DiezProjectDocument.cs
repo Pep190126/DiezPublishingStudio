@@ -326,6 +326,28 @@ internal sealed class DiezProjectDocument
         return mutation;
     }
 
+    public IReadOnlyList<DiezVisionRequirement> VisionRequirements(Guid workUnitId)
+    {
+        try { return DiezVisionFrontendBridge.Requirements(ExportProjectJson(), workUnitId); }
+        catch { return []; }
+    }
+
+    public DiezVisionApprovalResult ApproveAiImageVersionWithVision(
+        Guid versionId,
+        IEnumerable<DiezVisionCheckInput> checks,
+        string? summary = null,
+        double confidence = 1.0)
+    {
+        var result = DiezVisionFrontendBridge.ApproveImageVersion(
+            ExportProjectJson(),
+            versionId,
+            checks,
+            summary,
+            confidence);
+        ApplyCoreJson(result.ProjectJson);
+        return result;
+    }
+
     public DiezAiFrontendResultMutation ApproveAiVersion(Guid versionId)
     {
         var mutation = DiezAiExchangeBridge.ApproveVersion(ExportProjectJson(), versionId);
