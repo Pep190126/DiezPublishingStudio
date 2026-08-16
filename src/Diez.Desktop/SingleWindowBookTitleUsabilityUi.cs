@@ -59,9 +59,6 @@ internal static class SingleWindowBookTitleUsabilityUi
             title.Text = project.EditionMetadata.Title;
         }
 
-        // Never let the visible editor extend beyond the mounted pageHost input region. The previous fixed
-        // 620 px width overflowed the real 564 px pageHost on Windows, so the geometric centre used by a
-        // physical mouse click could lie outside the page subtree even though the TextBox was visibly drawn.
         const double preferredWidth = 620;
         const double horizontalSafety = 16;
         var mountedWidth = pageHost.Bounds.Width;
@@ -120,9 +117,6 @@ internal static class SingleWindowBookTitleUsabilityUi
             " | withinMountedPage=" + (mountedWidth <= 0 || width <= mountedWidth) +
             " | editable=" + (!title.IsReadOnly && title.IsEnabled && title.IsHitTestVisible && title.Focusable));
 
-        // Diagnostic only: client-side CompositionVisual geometry can be correct while the compositor server
-        // readback transform used by CompositionTarget.TryHitTest is still unavailable. Log both states on the
-        // same visual chain so a null server transform identifies the exact branch that the physical hit-test skips.
         Dispatcher.UIThread.Post(() => TraceCompositionChain(title), DispatcherPriority.Render);
         Dispatcher.UIThread.Post(() => TraceCompositionChain(title), DispatcherPriority.Background);
     }
@@ -185,6 +179,7 @@ internal static class SingleWindowBookTitleUsabilityUi
                     ":parentChildren=" + parentChildrenState +
                     ":serverTransform=" + ReadServerTransform(composition) +
                     ":compRoot=" + ReadCompositionProperty(composition, "Root") +
+                    ":compDrawList=" + ReadCompositionProperty(composition, "DrawList") +
                     ":compOffset=" + ReadCompositionProperty(composition, "Offset") +
                     ":compSize=" + ReadCompositionProperty(composition, "Size") +
                     ":compVisible=" + ReadCompositionProperty(composition, "Visible") +
