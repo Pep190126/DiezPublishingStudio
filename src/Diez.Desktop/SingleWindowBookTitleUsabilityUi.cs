@@ -118,7 +118,66 @@ internal static class SingleWindowBookTitleUsabilityUi
             " | editable=" + (!title.IsReadOnly && title.IsEnabled && title.IsHitTestVisible && title.Focusable));
 
         Dispatcher.UIThread.Post(() => TraceCompositionChain(title), DispatcherPriority.Render);
+        Dispatcher.UIThread.Post(() => TraceVisualDescendants(title), DispatcherPriority.Render);
         Dispatcher.UIThread.Post(() => TraceCompositionChain(title), DispatcherPriority.Background);
+        Dispatcher.UIThread.Post(() => TraceVisualDescendants(title), DispatcherPriority.Background);
+    }
+
+    private static void TraceVisualDescendants(Control target)
+    {
+        try
+        {
+            var compositionProperty = typeof(Avalonia.Visual).GetProperty(
+                "CompositionVisual",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            if (compositionProperty is null)
+            {
+                SafeStartupTrace.Write("book-title-compositor-descendants | compositionProperty=<missing>");
+                return;
+            }
+
+            var descendants = target.GetVisualDescendants().Take(32).ToList();
+            var parts = new List<string>();
+            foreach (var visual in descendants)
+            {
+                var composition = compositionProperty.GetValue(visual);
+                var parent = visual.GetVisualParent();
+                var parentComposition = parent is null ? null : compositionProperty.GetValue(parent);
+                var linked = false;
+                var parentChildren = "n/a";
+                if (composition is not null && parentComposition is not null)
+                {
+                    var childrenProperty = FindProperty(parentComposition.GetType(), "Children");
+                    if (childrenProperty?.GetValue(parentComposition) is IEnumerable children)
+                    {
+                        var childObjects = children.Cast<object>().ToList();
+                        linked = childObjects.Any(child => ReferenceEquals(child, composition));
+                        parentChildren = "count=" + childObjects.Count;
+                    }
+                }
+
+                parts.Add(
+                    Describe(visual) +
+                    ":parent=" + (parent is null ? "<null>" : parent.GetType().Name) +
+                    ":comp=" + (composition is null ? "null" : composition.GetType().Name) +
+                    ":linked=" + linked +
+                    ":parentChildren=" + parentChildren +
+                    ":serverTransform=" + ReadServerTransform(composition) +
+                    ":compDrawList=" + ReadCompositionProperty(composition, "DrawList") +
+                    ":compOffset=" + ReadCompositionProperty(composition, "Offset") +
+                    ":compSize=" + ReadCompositionProperty(composition, "Size") +
+                    ":compVisible=" + ReadCompositionProperty(composition, "Visible") +
+                    ":compOpacity=" + ReadCompositionProperty(composition, "Opacity"));
+            }
+
+            SafeStartupTrace.Write(
+                "book-title-compositor-descendants | count=" + descendants.Count +
+                " | " + string.Join(" > ", parts));
+        }
+        catch (Exception ex)
+        {
+            SafeStartupTrace.Write("book-title-compositor-descendants | error=" + ex.GetBaseException().Message);
+        }
     }
 
     private static void TraceCompositionChain(Control target)
