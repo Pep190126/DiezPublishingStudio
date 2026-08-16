@@ -84,7 +84,7 @@ public static class DiezPublicationFrontendBridge
     {
         var (_, project) = Parse(projectJson);
         var result = await VisualHandoffExportService.ExportFinalImagesZipAsync(project, projectPath, outputPath);
-        return new DiezFileExportResult(result.Exported, result.Message, result.OutputPath, result.Count);
+        return new DiezFileExportResult(result.Exported, result.Message, result.OutputPath, result.ItemCount);
     }
 
     private static DiezPublicationStateDto State(PreviewProject project)
