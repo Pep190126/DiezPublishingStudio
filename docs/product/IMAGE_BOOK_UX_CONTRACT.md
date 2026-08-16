@@ -1,6 +1,8 @@
 # Contratto UX — libri con immagini
 
-Status: **DIRETTIVA DI PRODOTTO PER UNO**
+Status: **DIRETTIVA DI PRODOTTO PER UNO — NON CONSOLIDATA FINO A TEST FISICO**
+
+Regola di consolidamento: vale `docs/product/SPEC_CONSOLIDATION_MEMO.md`. CI, build e pianisti possono rendere questa specifica **verificata tecnicamente**, ma solo una prova fisica della build installata sul PC dell'utente può promuovere un comportamento a **CONSOLIDATO** e renderlo base obbligatoria delle versioni successive.
 
 Famiglie coperte:
 
@@ -214,7 +216,7 @@ Il provider-facing visual prompt **non deve** contenere:
 - nomi file tecnici;
 - marcatori interni `ELEMENTO DIEZ`.
 
-Prompt Compiler 3.6 resta autoritativo: ART DIRECTION sintetizzata + HARD locks, con scene-local environment prioritario.
+Prompt Compiler 3.6 resta autoritativo: ART DIRECTION sintetizzata + HARD locks, con scenes-local environment prioritario.
 
 ## 11. Vision e approvazione
 
@@ -261,4 +263,4 @@ Quando viene consegnata la prossima build da provare, il percorso Coloring deve 
 13. finalizza e verifica package/export;
 14. ripeti con click/typing/navigation casuale da “test del pianista”.
 
-Solo dopo questa prova reale si considera la nuova UX visuale pronta come base per le altre famiglie.
+Solo dopo questa prova reale e una conferma esplicita dell'utente il comportamento testato può essere marcato **CONSOLIDATO DA TEST FISICO** e diventare la base delle versioni successive. Fino ad allora resta una direttiva/non consolidata, anche con CI completamente verde.
