@@ -13,8 +13,15 @@ internal static class EditionFreezeService
     {
         project.RevisionCandidates ??= [];
         var editable = project.ContentNodes.Where(n => EditableMasterService.CanEdit(project, n)).ToList();
-        if (editable.Count == 0)
-            return new EditionFreezeResult(null, "Edition Freeze non creato: il Master non contiene ancora capitoli o sezioni modificabili.");
+        var imageOnly = VisualBookPlanService.IsImageOnlyFamily(project);
+        var visualProblems = imageOnly ? VisualBookPlanService.ProductionProblems(project) : [];
+        if (editable.Count == 0 && (!imageOnly || visualProblems.Count > 0))
+        {
+            var reason = imageOnly && visualProblems.Count > 0
+                ? "Edition Freeze non creato: il libro con immagini non è completo. " + string.Join(" ", visualProblems.Take(3))
+                : "Edition Freeze non creato: il Master non contiene ancora capitoli o sezioni modificabili.";
+            return new EditionFreezeResult(null, reason);
+        }
 
         var snapshot = BuildCanonicalSnapshot(project);
         var hash = Hash(snapshot);
@@ -38,7 +45,7 @@ internal static class EditionFreezeService
             ProposedBody = snapshot,
             BaseContentSha256 = hash,
             Rationale = string.IsNullOrWhiteSpace(note)
-                ? $"Edition Freeze #{sequence}: snapshot immutabile di metadati, Master, piano illustrazioni e Bible prima del preflight."
+                ? $"Edition Freeze #{sequence}: snapshot immutabile di metadati, Master, asset visuali finali, piano illustrazioni e Bible prima del preflight."
                 : note.Trim(),
             Status = "Applied",
             CreatedAtLocal = now,
@@ -46,7 +53,7 @@ internal static class EditionFreezeService
             AppliedAtLocal = now
         };
         project.RevisionCandidates.Add(freeze);
-        return new EditionFreezeResult(freeze, $"Edition Freeze #{sequence} creato. Modifiche successive a metadati, Master, piano illustrazioni o Bible renderanno questo freeze non corrente.");
+        return new EditionFreezeResult(freeze, $"Edition Freeze #{sequence} creato. Modifiche successive a metadati, Master, asset visuali, piano illustrazioni o Bible renderanno questo freeze non corrente.");
     }
 
     public static RevisionCandidate? GetLatestFreeze(PreviewProject project) =>
@@ -71,6 +78,9 @@ internal static class EditionFreezeService
         var freeze = GetLatestFreeze(project);
         var checks = new List<PreflightCheck>();
         var metadata = project.EditionMetadata ?? new EditionMetadata();
+        var visualFamily = VisualBookPlanService.IsVisualFamily(project);
+        var imageOnly = VisualBookPlanService.IsImageOnlyFamily(project);
+        var visualProblems = visualFamily ? VisualBookPlanService.ProductionProblems(project).ToList() : [];
 
         checks.Add(new PreflightCheck(
             "FREEZE_EXISTS",
@@ -85,7 +95,7 @@ internal static class EditionFreezeService
             freezeCurrent,
             freeze is null
                 ? "Impossibile verificare il progetto senza Edition Freeze."
-                : freezeCurrent ? "Metadati, Master, piano illustrazioni e Bible coincidono con l'ultimo Edition Freeze." : "Il progetto editoriale è cambiato dopo l'ultimo Edition Freeze: crea un nuovo freeze."));
+                : freezeCurrent ? "Metadati, Master, asset visuali, piano illustrazioni e Bible coincidono con l'ultimo Edition Freeze." : "Il progetto editoriale è cambiato dopo l'ultimo Edition Freeze: crea un nuovo freeze."));
 
         checks.Add(new PreflightCheck(
             "EDITION_TITLE",
@@ -115,18 +125,34 @@ internal static class EditionFreezeService
             string.IsNullOrWhiteSpace(metadata.Creator) ? "Autore/creatore non indicato." : $"Autore/creatore: {metadata.Creator}."));
 
         var editable = project.ContentNodes.Where(n => EditableMasterService.CanEdit(project, n)).ToList();
+        var contentPresent = imageOnly ? visualProblems.Count == 0 : editable.Count > 0;
         checks.Add(new PreflightCheck(
             "CONTENT_PRESENT",
             "Error",
-            editable.Count > 0,
-            editable.Count > 0 ? $"{editable.Count} contenuti editoriali modificabili presenti." : "Nessun capitolo o sezione editoriale da pubblicare."));
+            contentPresent,
+            imageOnly
+                ? contentPresent
+                    ? $"Libro visuale completo: {VisualBookPlanService.AppliedImageJobs(project).Count} immagini finali applicate."
+                    : "Il libro visuale non contiene ancora l'insieme completo di immagini finali applicate."
+                : editable.Count > 0 ? $"{editable.Count} contenuti editoriali modificabili presenti." : "Nessun capitolo o sezione editoriale da pubblicare."));
 
         var empty = editable.Where(n => string.IsNullOrWhiteSpace(n.Body)).ToList();
         checks.Add(new PreflightCheck(
             "NO_EMPTY_CONTENT",
             "Error",
-            empty.Count == 0,
-            empty.Count == 0 ? "Nessun contenuto editoriale vuoto." : $"{empty.Count} contenuti editoriali sono vuoti."));
+            imageOnly || empty.Count == 0,
+            imageOnly ? "Il libro visuale non richiede contenuti testuali nel Master." : empty.Count == 0 ? "Nessun contenuto editoriale vuoto." : $"{empty.Count} contenuti editoriali sono vuoti."));
+
+        if (visualFamily)
+        {
+            checks.Add(new PreflightCheck(
+                "VISUAL_BOOK_COMPLETE",
+                "Error",
+                visualProblems.Count == 0,
+                visualProblems.Count == 0
+                    ? $"Percorso immagini completo: {VisualBookPlanService.Load(project).ImageCount} immagini pianificate, approvate e applicate senza duplicati."
+                    : "Percorso immagini incompleto: " + string.Join(" ", visualProblems.Take(3))));
+        }
 
         var notEmbedded = project.Materials.Where(m => !m.IsEmbedded).ToList();
         checks.Add(new PreflightCheck(
@@ -152,10 +178,12 @@ internal static class EditionFreezeService
         checks.Add(new PreflightCheck(
             "ILLUSTRATIONS_REVIEW",
             "Warning",
-            unplacedImages == 0,
-            imageMaterials.Count == 0
-                ? "Nessuna immagine editoriale nel progetto."
-                : unplacedImages == 0 ? "Tutte le immagini del progetto hanno almeno una collocazione DOCX." : $"{unplacedImages} immagini non hanno una collocazione DOCX; possono essere asset, copertine o immagini destinate solo allo ZIP."));
+            imageOnly || unplacedImages == 0,
+            imageOnly
+                ? "Coloring/Raccolta immagini: gli asset finali appartengono alla raccolta del libro e non richiedono una collocazione DOCX."
+                : imageMaterials.Count == 0
+                    ? "Nessuna immagine editoriale nel progetto."
+                    : unplacedImages == 0 ? "Tutte le immagini del progetto hanno almeno una collocazione DOCX." : $"{unplacedImages} immagini non hanno una collocazione DOCX; possono essere asset, copertine o immagini destinate solo allo ZIP."));
 
         var activeProposals = project.RevisionCandidates.Count(c =>
             c.Key != ManualEditKey && c.Key != FreezeKey && c.Status is "Proposed" or "Approved");
@@ -234,7 +262,44 @@ internal static class EditionFreezeService
             .Select(b => new FreezeBible(b.SubjectEntityId, b.Key ?? string.Empty, b.Value ?? string.Empty, b.Authority ?? string.Empty))
             .ToList();
 
-        return JsonSerializer.Serialize(new FreezeSnapshot(project.ProjectId, freezeMetadata, orderedContent, illustrations, bible));
+        var visual = BuildVisualFreeze(project);
+        return JsonSerializer.Serialize(new FreezeSnapshot(project.ProjectId, freezeMetadata, orderedContent, illustrations, bible, visual));
+    }
+
+    private static FreezeVisualPlan? BuildVisualFreeze(PreviewProject project)
+    {
+        if (!VisualBookPlanService.IsVisualFamily(project)) return null;
+        var plan = VisualBookPlanService.Load(project);
+        var type = BookTypeProfileService.Get(project);
+        var profile = string.Equals(type, BookTypeProfileService.ColoringBook, StringComparison.OrdinalIgnoreCase)
+            ? JsonSerializer.Serialize(new
+            {
+                Prompt = BookTypePromptProfileService.LoadColoring(project),
+                Hard = ColoringIndependentHardProfileService.Resolve(project)
+            })
+            : JsonSerializer.Serialize(ImageCollectionPromptProfileService.Load(project));
+        var assets = new List<FreezeVisualAsset>();
+        var order = 0;
+        foreach (var job in VisualBookPlanService.AppliedImageJobs(project))
+        {
+            if (!job.ResultMaterialId.HasValue) continue;
+            var material = project.Materials.FirstOrDefault(m => m.MaterialId == job.ResultMaterialId.Value);
+            if (material is null) continue;
+            assets.Add(new FreezeVisualAsset(
+                ++order,
+                job.Code ?? string.Empty,
+                material.MaterialId,
+                material.FileName ?? string.Empty,
+                material.Sha256 ?? string.Empty,
+                job.TargetContentId));
+        }
+        return new FreezeVisualPlan(
+            type,
+            plan.ImageCount,
+            plan.Consistent,
+            ImageCollectionWorkspaceService.GetConsistencyRules(project),
+            profile,
+            assets);
     }
 
     private static int FreezeSequence(RevisionCandidate freeze) =>
@@ -249,11 +314,13 @@ internal static class EditionFreezeService
     private static string Hash(string value) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value ?? string.Empty)));
 
-    private sealed record FreezeSnapshot(Guid ProjectId, FreezeMetadata Metadata, List<FreezeContent> Contents, List<FreezeIllustration> Illustrations, List<FreezeBible> Bible);
+    private sealed record FreezeSnapshot(Guid ProjectId, FreezeMetadata Metadata, List<FreezeContent> Contents, List<FreezeIllustration> Illustrations, List<FreezeBible> Bible, FreezeVisualPlan? Visual);
     private sealed record FreezeMetadata(string Title, string Subtitle, string Creator, string Language, string Publisher, string Isbn, string Description);
     private sealed record FreezeContent(Guid ContentId, Guid MaterialId, Guid? ParentId, string Kind, string Title, string SourceLocator, int Ordinal, string Body);
     private sealed record FreezeIllustration(Guid PlacementId, Guid MaterialId, Guid ContentId, string Position, int WidthPercent, string Caption, int Ordinal);
     private sealed record FreezeBible(Guid SubjectEntityId, string Key, string Value, string Authority);
+    private sealed record FreezeVisualPlan(string BookType, int ImageCount, bool Consistent, string ConsistencyRules, string Profile, List<FreezeVisualAsset> Assets);
+    private sealed record FreezeVisualAsset(int Order, string JobCode, Guid MaterialId, string FileName, string Sha256, Guid? TargetContentId);
 }
 
 internal readonly record struct EditionFreezeResult(RevisionCandidate? Freeze, string Message);
