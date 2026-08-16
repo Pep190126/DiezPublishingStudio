@@ -107,7 +107,7 @@ internal static class VisionStructuredSubjectService
 
     private static void ApplyScene(PreviewProject project, AiExchangeWorkUnit unit, VisionValidationRequest request)
     {
-        var scene = StructuredSceneProfileService.SceneForWorkUnit(project, unit);
+        var scene = StructuredSceneProfileService.SceneForPosition(project, unit.Position);
         if (scene is null) return;
         var participants = StructuredSceneProfileService.Participants(project, scene);
         if (participants.Count > 0)
