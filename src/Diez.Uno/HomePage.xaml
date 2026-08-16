@@ -1,0 +1,23 @@
+<Page
+    x:Class="DiezPublishingStudio.UnoSpike.HomePage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Grid Background="White">
+    <StackPanel Width="720" HorizontalAlignment="Left" Margin="40" Spacing="18">
+      <TextBlock Text="Diez Publishing Studio · Uno spike" FontSize="28" FontWeight="SemiBold" />
+      <TextBlock Text="HOME" FontSize="15" />
+
+      <Border BorderBrush="Gray" BorderThickness="1" Padding="18" CornerRadius="6">
+        <StackPanel Spacing="10">
+          <TextBlock Text="Progetto attivo" FontWeight="SemiBold" />
+          <TextBlock x:Name="ProjectNameText" FontSize="20" />
+          <TextBlock Text="Materiali importati" FontWeight="SemiBold" Margin="0,8,0,0" />
+          <TextBlock x:Name="MaterialText" />
+        </StackPanel>
+      </Border>
+
+      <Button Content="Tipo libro" Click="OpenBookType_Click" HorizontalAlignment="Left" Padding="24,10" />
+      <TextBlock Text="Contratto spike: il progetto e i materiali devono restare visibili dopo il ritorno dalla 1/4." TextWrapping="Wrap" />
+    </StackPanel>
+  </Grid>
+</Page>

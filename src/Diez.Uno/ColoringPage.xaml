@@ -1,0 +1,53 @@
+<Page
+    x:Class="DiezPublishingStudio.UnoSpike.ColoringPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Grid Background="White">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="*" />
+    </Grid.RowDefinitions>
+
+    <Grid Grid.Row="0" Padding="32,20" Background="#FFF4F4F4">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*" />
+        <ColumnDefinition Width="Auto" />
+      </Grid.ColumnDefinitions>
+      <StackPanel>
+        <TextBlock Text="Coloring Book · 1/4" FontSize="26" FontWeight="SemiBold" />
+        <TextBlock Text="Test nativo di preview, wheel e scrollbar" />
+      </StackPanel>
+      <Button Grid.Column="1" Content="Home progetto" Click="Home_Click" Padding="20,10" />
+    </Grid>
+
+    <ScrollViewer Grid.Row="1"
+                  x:Name="PageScroll"
+                  VerticalScrollBarVisibility="Visible"
+                  HorizontalScrollBarVisibility="Disabled">
+      <StackPanel Width="760" HorizontalAlignment="Left" Margin="40,24,40,60" Spacing="14">
+        <TextBlock Text="Anteprima materiale importato" FontWeight="SemiBold" />
+        <Border Width="480" Height="280" HorizontalAlignment="Left" BorderBrush="Gray" BorderThickness="1">
+          <Image Source="ms-appx:///Assets/preview.png" Stretch="Uniform" />
+        </Border>
+
+        <TextBlock Text="Titolo" FontWeight="SemiBold" />
+        <TextBox x:Name="TitleEcho" IsReadOnly="True" />
+        <TextBlock Text="Descrizione pagina" FontWeight="SemiBold" />
+        <TextBox Text="Campo sopra cui la rotella deve continuare a scorrere la pagina." />
+        <TextBlock Text="Prompt immagine" FontWeight="SemiBold" />
+        <TextBox AcceptsReturn="True" Height="100" Text="Una scena semplice da colorare, line art pulita." />
+        <TextBlock Text="Note" FontWeight="SemiBold" />
+        <TextBox AcceptsReturn="True" Height="100" Text="Secondo campo multilinea per rendere evidente lo spostamento verticale." />
+        <TextBlock Text="Stile" FontWeight="SemiBold" />
+        <ComboBox SelectedIndex="0">
+          <ComboBoxItem Content="Line art" />
+          <ComboBoxItem Content="Kids" />
+          <ComboBoxItem Content="Detailed" />
+        </ComboBox>
+        <TextBlock Text="Dettagli aggiuntivi" FontWeight="SemiBold" />
+        <TextBox Text="Il fondo della pagina deve essere raggiungibile con wheel e trascinamento della scrollbar." />
+        <TextBlock Text="FINE 1/4 · se leggi questo testo, il contenuto inferiore è realmente raggiungibile." FontSize="20" FontWeight="SemiBold" Margin="0,24,0,0" />
+      </StackPanel>
+    </ScrollViewer>
+  </Grid>
+</Page>

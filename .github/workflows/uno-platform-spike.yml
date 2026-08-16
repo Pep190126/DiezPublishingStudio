@@ -1,0 +1,46 @@
+name: Uno Platform Spike
+
+on:
+  push:
+    branches:
+      - spike/uno-platform-ui
+    paths:
+      - 'src/Diez.Uno/**'
+      - '.github/workflows/uno-platform-spike.yml'
+  workflow_dispatch:
+
+jobs:
+  desktop-build:
+    name: Desktop build (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore Uno desktop spike
+        run: dotnet restore src/Diez.Uno/Diez.Uno.csproj
+
+      - name: Build Uno desktop spike
+        run: dotnet build src/Diez.Uno/Diez.Uno.csproj -c Release -f net10.0-desktop --no-restore
+
+      - name: Publish Windows x64 spike
+        if: runner.os == 'Windows'
+        run: dotnet publish src/Diez.Uno/Diez.Uno.csproj -c Release -f net10.0-desktop -r win-x64 -p:SelfContained=true -p:TargetFrameworks=net10.0-desktop -o artifacts/uno-win-x64
+
+      - name: Upload Windows spike
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: diez-uno-spike-win-x64
+          path: artifacts/uno-win-x64
+          if-no-files-found: error
