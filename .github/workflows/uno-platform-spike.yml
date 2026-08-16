@@ -13,6 +13,7 @@ on:
       - 'tests/Diez.Scene.Pianist/**'
       - 'tests/Diez.Crossword.Pianist/**'
       - 'tests/Diez.WordSearch.Pianist/**'
+      - 'tests/Diez.WordSearchBook.Pianist/**'
       - 'tests/Diez.PromptCompiler.Pianist/**'
       - 'tests/Diez.Vision.Pianist/**'
       - 'tests/Diez.Publication.Pianist/**'
@@ -71,6 +72,9 @@ jobs:
 
       - name: Run Word Search pianist contract
         run: dotnet run --project tests/Diez.WordSearch.Pianist/Diez.WordSearch.Pianist.csproj -c Release
+
+      - name: Run whole-book Word Search duplicate gate
+        run: dotnet run --project tests/Diez.WordSearchBook.Pianist/Diez.WordSearchBook.Pianist.csproj -c Release
 
       - name: Run puzzle frontend bridge pianist contract
         run: dotnet run --project tests/Diez.PuzzleFrontend.Pianist/Diez.PuzzleFrontend.Pianist.csproj -c Release
