@@ -187,6 +187,10 @@ public static class DiezAiExchangeBridge
             legacy is null ? null : ToDto(legacy, unit));
     }
 
+    /// <summary>
+    /// Generic approval is deliberately limited to non-image results. Image approval is a
+    /// separate Vision-gated operation so no frontend can bypass the HARD semantic checks.
+    /// </summary>
     public static DiezAiFrontendResultMutation ApproveVersion(string projectJson, Guid versionId)
     {
         var (root, project) = Parse(projectJson);
@@ -195,6 +199,15 @@ public static class DiezAiExchangeBridge
         var unit = version is null ? null : exchange.WorkUnits.FirstOrDefault(w => w.WorkUnitId == version.WorkUnitId);
         if (version is null || unit is null)
             return Result(root, project, exchange, "INVALID", "Versione AI non trovata.", version, unit);
+        if (string.Equals(unit.ContentType, AiExchangeContentTypes.Image, StringComparison.OrdinalIgnoreCase))
+            return Result(
+                root,
+                project,
+                exchange,
+                "VISION_REQUIRED",
+                "Le immagini si approvano solo dopo Vision e tutti i controlli HARD applicabili.",
+                version,
+                unit);
 
         var approved = AiExchangeResultIngestor.Approve(project, exchange, versionId, out var message);
         if (approved) AiExchangeStateStore.Save(project, exchange);
@@ -241,23 +254,26 @@ public static class DiezAiExchangeBridge
             legacy is null ? null : ToDto(legacy, unit));
     }
 
-    private static DiezAiFrontendJob ToDto(AiProductionJob job, AiExchangeWorkUnit? workUnit) =>
-        new(
+    private static DiezAiFrontendJob ToDto(AiProductionJob job, AiExchangeWorkUnit? workUnit)
+    {
+        var outputType = job.OutputType ?? string.Empty;
+        var status = job.Status ?? string.Empty;
+        return new DiezAiFrontendJob(
             job.JobId,
             workUnit?.WorkUnitId,
             job.Code ?? string.Empty,
-            job.OutputType ?? string.Empty,
-            AiProductionService.DisplayType(job.OutputType),
-            job.Status ?? string.Empty,
-            AiProductionService.DisplayStatus(job.Status),
+            outputType,
+            AiProductionService.DisplayType(outputType),
+            status,
+            AiProductionService.DisplayStatus(status),
             job.Title ?? string.Empty,
             job.Prompt ?? string.Empty);
+    }
 
     private static DiezAiFrontendVersion ToVersionDto(AiExchangeWorkUnit unit, AiExchangeVersion version)
     {
-        var canApprove = version.Status != AiExchangeVersionStatuses.Incomplete &&
-            (!string.Equals(unit.ContentType, AiExchangeContentTypes.Image, StringComparison.OrdinalIgnoreCase) ||
-             version.DescriptionStatus == AiExchangeDescriptionStatuses.Valid);
+        var image = string.Equals(unit.ContentType, AiExchangeContentTypes.Image, StringComparison.OrdinalIgnoreCase);
+        var canApprove = !image && version.Status != AiExchangeVersionStatuses.Incomplete;
         return new DiezAiFrontendVersion(
             version.VersionId,
             version.WorkUnitId,
