@@ -838,7 +838,7 @@ public sealed class MainShellPage : Page
                     ShowAiCenter();
                     Report(result.Message);
                 }),
-                ActionButton("Vai a Vision immagini", ShowVisionReview))));
+                ActionButton("Vai a Vision immagini", ShowVisionReview)))));
         root.Children.Add(Horizontal(
             AsyncButton("Crea job Ready", async () =>
             {
