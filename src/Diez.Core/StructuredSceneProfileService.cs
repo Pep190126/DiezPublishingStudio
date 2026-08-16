@@ -33,7 +33,7 @@ internal sealed class StructuredSceneDefinition
 /// Optional structured scene graph. SceneId is stable and internal; display number/name may change freely.
 /// Scene membership is canonical here and is referenced by SubjectId, never by mutable subject names.
 /// Archived scenes are historical records: their SceneId is never recycled for a newly created scene.
-/// Initial Work Unit assignment follows stable WorkUnit.Position without changing the historical AI state schema.
+/// Initial Work Unit assignment follows stable WorkUnit.Position without coupling this core service to AI DTOs.
 /// </summary>
 internal static class StructuredSceneProfileService
 {
@@ -169,12 +169,12 @@ internal static class StructuredSceneProfileService
         return active.Where(x => wanted.Contains(x.SubjectId)).ToList();
     }
 
-    public static StructuredSceneDefinition? SceneForWorkUnit(PreviewProject project, AiExchangeWorkUnit unit)
+    public static StructuredSceneDefinition? SceneForPosition(PreviewProject project, int workUnitPosition)
     {
         var model = Load(project);
         var active = ActiveScenes(model);
         if (!model.Enabled || active.Count == 0) return null;
-        var position = Math.Max(1, unit.Position);
+        var position = Math.Max(1, workUnitPosition);
         return active[(position - 1) % active.Count];
     }
 
