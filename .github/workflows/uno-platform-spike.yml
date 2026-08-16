@@ -5,6 +5,7 @@ on:
     branches:
       - spike/uno-platform-ui
     paths:
+      - 'src/Diez.Core/**'
       - 'src/Diez.Uno/**'
       - '.github/workflows/uno-platform-spike.yml'
   workflow_dispatch:
@@ -22,10 +23,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup .NET 10
+      - name: Setup .NET 8 and 10
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '10.0.x'
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - name: Restore shared core
+        run: dotnet restore src/Diez.Core/Diez.Core.csproj
+
+      - name: Build shared core
+        run: dotnet build src/Diez.Core/Diez.Core.csproj -c Release --no-restore
 
       - name: Restore Uno desktop spike
         run: dotnet restore src/Diez.Uno/Diez.Uno.csproj

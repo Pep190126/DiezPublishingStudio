@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>DiezPublishingStudio</RootNamespace>
+    <AssemblyName>Diez.Core</AssemblyName>
+    <Description>UI-neutral framework services shared by Diez desktop frontends.</Description>
+  </PropertyGroup>
+</Project>
