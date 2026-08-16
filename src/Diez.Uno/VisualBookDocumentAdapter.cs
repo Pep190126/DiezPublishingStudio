@@ -160,6 +160,25 @@ internal static class VisualBookDocumentAdapter
             result.Jobs);
     }
 
+    public static IReadOnlyList<DiezPromptPackItemDto> PromptPackPreview(
+        this DiezProjectDocument document,
+        IEnumerable<Guid>? workUnitIds = null) =>
+        DiezPromptPackFrontendBridge.Preview(document.ExportProjectJson(), workUnitIds);
+
+    public static async Task<DiezPromptPackBuildResult> CreateManualPromptPackAsync(
+        this DiezProjectDocument document,
+        IEnumerable<Guid>? workUnitIds,
+        string outputPath)
+    {
+        var result = await DiezPromptPackFrontendBridge.BuildManualAsync(
+            document.ExportProjectJson(),
+            document.SourcePath,
+            workUnitIds,
+            outputPath);
+        if (result.Success) ApplyCoreJson(document, result.ProjectJson);
+        return result;
+    }
+
     public static DiezVisualBookProgress VisualProgress(this DiezProjectDocument document) =>
         DiezVisualBookFrontendBridge.Progress(document.ExportProjectJson());
 
