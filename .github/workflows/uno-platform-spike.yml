@@ -9,6 +9,7 @@ on:
       - 'src/Diez.Desktop/**'
       - 'src/Diez.Uno/**'
       - 'tests/Diez.Core.Pianist/**'
+      - 'tests/Diez.LongForm.Pianist/**'
       - '.github/workflows/uno-platform-spike.yml'
   workflow_dispatch:
 
@@ -46,6 +47,9 @@ jobs:
 
       - name: Run pianist core stress harness
         run: dotnet run --project tests/Diez.Core.Pianist/Diez.Core.Pianist.csproj -c Release
+
+      - name: Run long-form pianist contract
+        run: dotnet run --project tests/Diez.LongForm.Pianist/Diez.LongForm.Pianist.csproj -c Release
 
       - name: Restore Uno desktop spike
         run: dotnet restore src/Diez.Uno/Diez.Uno.csproj
