@@ -1,6 +1,7 @@
 using System.Reflection;
 using Avalonia.Controls;
 using Avalonia.Controls.Presenters;
+using Avalonia.Controls.Primitives;
 using Avalonia.Layout;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -13,8 +14,10 @@ namespace DiezPublishingStudio;
 /// next-render callback; on the affected Win32 path that callback can be delayed while the new Content page
 /// remains attached but measure-invalid at 0x0. We first use normal invalidation, then execute Avalonia's own
 /// queued LayoutManager pass only when the page is still layout-invalid after Loaded. The same narrow fallback
-/// is used when an already-mounted page reveals hidden controls, which is the other observed classic-Win32
-/// failure mode. We never manually Measure/Arrange controls and never reparent Home/Workflow at runtime.
+/// is used when an already-mounted page reveals hidden controls. We also make sure templates are applied after
+/// a page is mounted: a TemplatedControl with no template visual children and no draw list cannot participate
+/// in compositor hit-testing even when its logical bounds are valid. We never manually Measure/Arrange controls
+/// and never reparent Home/Workflow at runtime.
 /// </summary>
 internal static class StablePageContentHostUi
 {
@@ -38,7 +41,15 @@ internal static class StablePageContentHostUi
             if (e.Property != ContentControl.ContentProperty) return;
 
             if (pageHost.Content is Control currentPage)
+            {
+                var applied = ApplyTemplates(currentPage);
+                SafeStartupTrace.Write(
+                    "stable-page-template-apply" +
+                    " | phase=content-change" +
+                    " | applied=" + applied +
+                    " | page=" + (currentPage.Name ?? currentPage.GetType().Name));
                 WireDynamicVisibilityLayout(window, pageHost, currentPage);
+            }
 
             var presenter = pageHost.Presenter;
             SafeStartupTrace.Write(
@@ -53,6 +64,16 @@ internal static class StablePageContentHostUi
 
             Dispatcher.UIThread.Post(() =>
             {
+                if (pageHost.Content is Control loadedPage)
+                {
+                    var applied = ApplyTemplates(loadedPage);
+                    SafeStartupTrace.Write(
+                        "stable-page-template-apply" +
+                        " | phase=loaded" +
+                        " | applied=" + applied +
+                        " | page=" + (loadedPage.Name ?? loadedPage.GetType().Name));
+                }
+
                 InvalidateWorkflowChain(window, pageHost);
                 Trace(pageHost, "loaded-before-pass");
 
@@ -81,8 +102,39 @@ internal static class StablePageContentHostUi
             "stable-page-content-host-attached" +
             " | horizontal=Stretch | vertical=Stretch | manual-arrange=false" +
             " | content-invalidation=measured-workflow-chain" +
+            " | template-activation=mounted-subtree" +
             " | zero-page-fallback=avalonia-layout-manager-pass" +
             " | dynamic-visibility-fallback=avalonia-layout-manager-pass");
+    }
+
+    private static int ApplyTemplates(Control root)
+    {
+        var applied = 0;
+        var knownVisualCount = -1;
+
+        // A template can create more templated controls. Repeat a small bounded number of times so newly
+        // materialized visual children receive their own templates without introducing an unbounded walk.
+        for (var pass = 0; pass < 4; pass++)
+        {
+            var controls = Descendants(root)
+                .Concat(root.GetVisualDescendants().OfType<Control>())
+                .Distinct()
+                .ToList();
+
+            foreach (var templated in controls.OfType<TemplatedControl>())
+            {
+                var before = templated.GetVisualChildren().Count();
+                templated.ApplyTemplate();
+                var after = templated.GetVisualChildren().Count();
+                if (after > before) applied++;
+            }
+
+            var visualCount = root.GetVisualDescendants().Count();
+            if (visualCount == knownVisualCount) break;
+            knownVisualCount = visualCount;
+        }
+
+        return applied;
     }
 
     private static void WireDynamicVisibilityLayout(MainWindow window, ContentControl pageHost, Control page)
@@ -107,6 +159,7 @@ internal static class StablePageContentHostUi
                 Dispatcher.UIThread.Post(() =>
                 {
                     if (!ReferenceEquals(pageHost.Content, page)) return;
+                    ApplyTemplates(page);
                     var executed = ExecuteQueuedAvaloniaLayoutPassIfNeeded(window, pageHost);
                     SafeStartupTrace.Write(
                         "stable-page-layout-manager-pass" +
@@ -129,9 +182,6 @@ internal static class StablePageContentHostUi
 
         try
         {
-            // TopLevel.LayoutManager is internal in Avalonia 11.3.18, while its concrete manager exposes the
-            // standard ExecuteLayoutPass method. The app already pins this Avalonia version; keep the reflection
-            // isolated here and fall back safely if the framework surface changes in a future upgrade.
             var layoutManagerProperty = typeof(TopLevel).GetProperty(
                 "LayoutManager",
                 BindingFlags.Instance | BindingFlags.NonPublic);
