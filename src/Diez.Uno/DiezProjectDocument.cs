@@ -257,21 +257,51 @@ internal sealed class DiezProjectDocument
             .Select(x => $"[{GetString(x, "Status", "Open")}] {GetString(x, "Severity", "Warning")} · {GetString(x, "Message", GetString(x, "Code", "Problema"))}")
             .ToList();
 
+    public IReadOnlyList<DiezAiFrontendJob> AiJobs()
+    {
+        try { return DiezAiExchangeBridge.ReadJobs(ExportProjectJson()); }
+        catch { return []; }
+    }
+
     public IReadOnlyList<string> AiJobDisplayItems()
     {
-        try
-        {
-            return DiezAiExchangeBridge.ReadJobs(ExportProjectJson())
-                .Select(x => $"{x.Code} · {x.DisplayType} · {x.DisplayStatus} · {x.Title}")
-                .ToList();
-        }
-        catch
-        {
-            return EnsureArray(_root, "AiProductionJobs").OfType<JsonObject>()
-                .OrderBy(x => GetString(x, "Code"))
-                .Select(x => $"{GetString(x, "Code", "AI")} · {GetString(x, "OutputType", "Image")} · {GetString(x, "Status", "Ready")} · {GetString(x, "Title")}")
-                .ToList();
-        }
+        var coreJobs = AiJobs();
+        if (coreJobs.Count > 0)
+            return coreJobs.Select(x => $"{x.Code} · {x.DisplayType} · {x.DisplayStatus} · {x.Title}").ToList();
+
+        return EnsureArray(_root, "AiProductionJobs").OfType<JsonObject>()
+            .OrderBy(x => GetString(x, "Code"))
+            .Select(x => $"{GetString(x, "Code", "AI")} · {GetString(x, "OutputType", "Image")} · {GetString(x, "Status", "Ready")} · {GetString(x, "Title")}")
+            .ToList();
+    }
+
+    public IReadOnlyList<DiezAiFrontendVersion> AiVersions(Guid workUnitId)
+    {
+        try { return DiezAiExchangeBridge.ReadVersions(ExportProjectJson(), workUnitId); }
+        catch { return []; }
+    }
+
+    public async Task<DiezAiFrontendResultMutation> IngestAiTextResultAsync(
+        Guid workUnitId,
+        string? textContent,
+        int? candidateVersion = null,
+        string resultStatus = "COMPLETE")
+    {
+        var mutation = await DiezAiExchangeBridge.IngestTextResultAsync(
+            ExportProjectJson(),
+            workUnitId,
+            textContent,
+            candidateVersion,
+            resultStatus);
+        ApplyCoreJson(mutation.ProjectJson);
+        return mutation;
+    }
+
+    public DiezAiFrontendResultMutation ApproveAiVersion(Guid versionId)
+    {
+        var mutation = DiezAiExchangeBridge.ApproveVersion(ExportProjectJson(), versionId);
+        ApplyCoreJson(mutation.ProjectJson);
+        return mutation;
     }
 
     public int MaterialCount => EnsureArray(_root, "Materials").Count;
