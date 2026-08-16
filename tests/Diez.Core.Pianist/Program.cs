@@ -65,6 +65,8 @@ try
             BookTypeProfileService.Set(project, bookType);
             Require(string.Equals(BookTypeProfileService.Get(project), bookType, StringComparison.Ordinal),
                 $"Book type must round-trip exactly: {bookType}.");
+            Require(BookTypeAiOptionsCoreService.Definitions(project).Count > 0,
+                $"Every book type must expose a framework option contract: {bookType}.");
         }
     }
 
@@ -74,6 +76,34 @@ try
         "Book-type hammering must not change shared content identity.");
     Require(EditableMasterService.ManualRevisionCount(project, secondChapter.ContentId) == revisionCountBeforeBookTypeHammer,
         "Book-type hammering must not lose revision history.");
+
+    // Per-family editorial options must be explicit and isolated. This is especially important
+    // for the families that historically fell through the generic UI fallback.
+    BookTypeProfileService.Set(project, BookTypeProfileService.EssayManual);
+    var essayDefinitions = BookTypeAiOptionsCoreService.Definitions(project);
+    Require(essayDefinitions.Any(d => d.Key == "TargetWords") && essayDefinitions.Any(d => d.Key == "IllustrationPlan"),
+        "Essay/manual must have a dedicated long-form option contract.");
+    Require(BookTypeAiOptionsCoreService.UsesStructureQuestion(BookTypeProfileService.EssayManual),
+        "Essay/manual must participate in the structure-from-project decision.");
+    BookTypeAiOptionsCoreService.SetStructureDecision(project, true);
+    var essayTarget = essayDefinitions.First(d => d.Key == "TargetWords");
+    BookTypeAiOptionsCoreService.Set(project, essayTarget, "42000");
+
+    BookTypeProfileService.Set(project, BookTypeProfileService.Novel);
+    var novelTarget = BookTypeAiOptionsCoreService.Definitions(project).First(d => d.Key == "TargetWords");
+    BookTypeAiOptionsCoreService.Set(project, novelTarget, "81000");
+
+    BookTypeProfileService.Set(project, BookTypeProfileService.EssayManual);
+    essayTarget = BookTypeAiOptionsCoreService.Definitions(project).First(d => d.Key == "TargetWords");
+    Require(BookTypeAiOptionsCoreService.Get(project, essayTarget) == "42000",
+        "Essay/manual options must not be overwritten by Novel options with the same key.");
+    Require(BookTypeAiOptionsCoreService.StructureIsKnown(project),
+        "Essay/manual structure decision must survive switching to another book family and back.");
+
+    BookTypeProfileService.Set(project, BookTypeProfileService.Crossword);
+    var crosswordDefinitions = BookTypeAiOptionsCoreService.Definitions(project);
+    Require(crosswordDefinitions.Any(d => d.Key == "Theme") && crosswordDefinitions.Any(d => d.Key == "PrepareQxwHandoff"),
+        "Crossword must expose a dedicated option contract including its Qxw handoff intent.");
 
     // Stable subject identity under stressful editing: names are mutable presentation,
     // SubjectId is the identity used by downstream consistency/scene participation.
@@ -173,10 +203,15 @@ try
     Require(StructuredSceneEnvironmentStore.Load(reloaded, string.Empty).Contains("Napoli", StringComparison.Ordinal),
         "Generic scene environment must survive package stress saves.");
 
+    BookTypeProfileService.Set(reloaded, BookTypeProfileService.EssayManual);
+    var persistedEssayTarget = BookTypeAiOptionsCoreService.Definitions(reloaded).First(d => d.Key == "TargetWords");
+    Require(BookTypeAiOptionsCoreService.Get(reloaded, persistedEssayTarget) == "42000",
+        "Per-book editorial options must survive package stress saves.");
+
     var embedded = await ProjectFileStore.ReadEmbeddedMaterialAsync(packagePath, reloaded.Materials[0]);
     Require(embedded is { Length: > 0 }, "Embedded source must survive repeated package rewrites.");
 
-    Console.WriteLine("PIANIST CORE PASS: all book families, stable subjects, repeated, stale and concurrent actions preserved project integrity.");
+    Console.WriteLine("PIANIST CORE PASS: all book families, isolated editorial options, stable subjects, repeated, stale and concurrent actions preserved project integrity.");
 }
 finally
 {
