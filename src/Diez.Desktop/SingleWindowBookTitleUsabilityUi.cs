@@ -120,10 +120,11 @@ internal static class SingleWindowBookTitleUsabilityUi
             " | withinMountedPage=" + (mountedWidth <= 0 || width <= mountedWidth) +
             " | editable=" + (!title.IsReadOnly && title.IsEnabled && title.IsHitTestVisible && title.Focusable));
 
-        // Diagnostic only: physical Windows hit testing sees the Workflow backstop while the title and all of
-        // its Avalonia bounds are valid. Inspect compositor linkage and the exact properties Avalonia synchronizes
-        // from Visual.Bounds/visibility/opacity/clip/transform without altering layout or input.
+        // Diagnostic only: client-side CompositionVisual geometry can be correct while the compositor server
+        // readback transform used by CompositionTarget.TryHitTest is still unavailable. Log both states on the
+        // same visual chain so a null server transform identifies the exact branch that the physical hit-test skips.
         Dispatcher.UIThread.Post(() => TraceCompositionChain(title), DispatcherPriority.Render);
+        Dispatcher.UIThread.Post(() => TraceCompositionChain(title), DispatcherPriority.Background);
     }
 
     private static void TraceCompositionChain(Control target)
@@ -182,6 +183,8 @@ internal static class SingleWindowBookTitleUsabilityUi
                     ":comp=" + (composition is null ? "null" : composition.GetType().Name) +
                     ":linked=" + (linkedToParent.HasValue ? linkedToParent.Value.ToString() : "root") +
                     ":parentChildren=" + parentChildrenState +
+                    ":serverTransform=" + ReadServerTransform(composition) +
+                    ":compRoot=" + ReadCompositionProperty(composition, "Root") +
                     ":compOffset=" + ReadCompositionProperty(composition, "Offset") +
                     ":compSize=" + ReadCompositionProperty(composition, "Size") +
                     ":compVisible=" + ReadCompositionProperty(composition, "Visible") +
@@ -196,6 +199,22 @@ internal static class SingleWindowBookTitleUsabilityUi
         catch (Exception ex)
         {
             SafeStartupTrace.Write("book-title-compositor-chain | error=" + ex.GetBaseException().Message);
+        }
+    }
+
+    private static string ReadServerTransform(object? composition)
+    {
+        if (composition is null) return "<comp-null>";
+        try
+        {
+            var method = FindMethod(composition.GetType(), "TryGetServerGlobalTransform");
+            if (method is null) return "<missing>";
+            var value = method.Invoke(composition, null);
+            return value is null ? "<null>" : value.ToString() ?? "<null-string>";
+        }
+        catch (Exception ex)
+        {
+            return "<error:" + ex.GetBaseException().Message.Replace('|', '/') + ">";
         }
     }
 
@@ -223,6 +242,21 @@ internal static class SingleWindowBookTitleUsabilityUi
                 name,
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
             if (property is not null) return property;
+        }
+        return null;
+    }
+
+    private static MethodInfo? FindMethod(Type type, string name)
+    {
+        for (var current = type; current is not null; current = current.BaseType)
+        {
+            var method = current.GetMethod(
+                name,
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly,
+                binder: null,
+                types: Type.EmptyTypes,
+                modifiers: null);
+            if (method is not null) return method;
         }
         return null;
     }
