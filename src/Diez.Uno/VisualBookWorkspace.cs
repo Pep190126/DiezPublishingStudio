@@ -380,7 +380,7 @@ internal static class VisualBookWorkspace
                     report(result.Message);
                 }),
                 ActionButton("Produzione con AI", showAiCenter),
-                ActionButton("Vision", showVision))));
+                ActionButton("Vision", showVision)))));
 
         root.Children.Add(NavigationRow(
             AsyncButton("← Indietro", async () => await goToPhase(2)),
@@ -505,7 +505,7 @@ internal static class VisualBookWorkspace
                     {
                         report("Errore export pubblicazione: " + ex.GetBaseException().Message);
                     }
-                }))));
+                })))));
 
         root.Children.Add(NavigationRow(AsyncButton("← Indietro", async () => await goToPhase(3)), null));
     }
