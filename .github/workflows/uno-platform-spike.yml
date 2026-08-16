@@ -10,11 +10,13 @@ on:
       - 'src/Diez.Uno/**'
       - 'tests/Diez.Core.Pianist/**'
       - 'tests/Diez.LongForm.Pianist/**'
+      - 'tests/Diez.LongFormBook.Pianist/**'
       - 'tests/Diez.Scene.Pianist/**'
       - 'tests/Diez.Crossword.Pianist/**'
       - 'tests/Diez.CrosswordBook.Pianist/**'
       - 'tests/Diez.WordSearch.Pianist/**'
       - 'tests/Diez.WordSearchBook.Pianist/**'
+      - 'tests/Diez.BookFamily.Pianist/**'
       - 'tests/Diez.PromptCompiler.Pianist/**'
       - 'tests/Diez.Vision.Pianist/**'
       - 'tests/Diez.Publication.Pianist/**'
@@ -65,6 +67,9 @@ jobs:
       - name: Run long-form pianist contract
         run: dotnet run --project tests/Diez.LongForm.Pianist/Diez.LongForm.Pianist.csproj -c Release
 
+      - name: Run long-form editorial publication gate
+        run: dotnet run --project tests/Diez.LongFormBook.Pianist/Diez.LongFormBook.Pianist.csproj -c Release
+
       - name: Run structured-scene pianist contract
         run: dotnet run --project tests/Diez.Scene.Pianist/Diez.Scene.Pianist.csproj -c Release
 
@@ -79,6 +84,9 @@ jobs:
 
       - name: Run whole-book Word Search duplicate gate
         run: dotnet run --project tests/Diez.WordSearchBook.Pianist/Diez.WordSearchBook.Pianist.csproj -c Release
+
+      - name: Run canonical book-family options gate
+        run: dotnet run --project tests/Diez.BookFamily.Pianist/Diez.BookFamily.Pianist.csproj -c Release
 
       - name: Run puzzle frontend bridge pianist contract
         run: dotnet run --project tests/Diez.PuzzleFrontend.Pianist/Diez.PuzzleFrontend.Pianist.csproj -c Release
