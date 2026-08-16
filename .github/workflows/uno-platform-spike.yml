@@ -13,6 +13,7 @@ on:
       - 'tests/Diez.Scene.Pianist/**'
       - 'tests/Diez.Crossword.Pianist/**'
       - 'tests/Diez.WordSearch.Pianist/**'
+      - 'tests/Diez.PromptCompiler.Pianist/**'
       - '.github/workflows/uno-platform-spike.yml'
   workflow_dispatch:
 
@@ -62,6 +63,9 @@ jobs:
 
       - name: Run Word Search pianist contract
         run: dotnet run --project tests/Diez.WordSearch.Pianist/Diez.WordSearch.Pianist.csproj -c Release
+
+      - name: Run Prompt Compiler 3.6 pianist contract
+        run: dotnet run --project tests/Diez.PromptCompiler.Pianist/Diez.PromptCompiler.Pianist.csproj -c Release
 
       - name: Restore Uno desktop spike
         run: dotnet restore src/Diez.Uno/Diez.Uno.csproj
