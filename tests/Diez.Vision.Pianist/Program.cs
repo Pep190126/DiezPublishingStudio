@@ -1,3 +1,5 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using DiezPublishingStudio;
 
 static void Require(bool condition, string message)
@@ -87,4 +89,154 @@ foreach (var key in new[]
 Require(instructions.Contains("One HARD failure forces `overall_status = FAIL`", StringComparison.Ordinal),
     "Prompt Pack instructions must state the same blocking rule enforced by the Core policy.");
 
-Console.WriteLine("VISION PIANIST PASS: semantic failures could not be downgraded, soft quality stayed soft, and one HARD failure blocked approval.");
+// End-to-end public frontend bridge: requirements are derived by the Core, not by the UI.
+static string NewProjectJson(string bookType)
+{
+    var root = new JsonObject
+    {
+        ["Format"] = "diez-project-package",
+        ["SchemaVersion"] = 10,
+        ["Name"] = "Vision bridge pianist",
+        ["SavedAtLocal"] = "",
+        ["ProjectId"] = Guid.NewGuid().ToString(),
+        ["EditionMetadata"] = new JsonObject { ["Title"] = "Vision bridge pianist", ["Language"] = "it" },
+        ["AiProduction"] = new JsonObject { ["SchemaVersion"] = 1, ["ProjectBrief"] = "" },
+        ["AiProductionJobs"] = new JsonArray(),
+        ["Materials"] = new JsonArray(),
+        ["ContentNodes"] = new JsonArray(),
+        ["IllustrationPlacements"] = new JsonArray(),
+        ["Entities"] = new JsonArray
+        {
+            new JsonObject
+            {
+                ["EntityId"] = Guid.NewGuid().ToString(),
+                ["Kind"] = "DiezBookType",
+                ["Name"] = bookType,
+                ["IsCandidate"] = false,
+                ["Notes"] = ""
+            }
+        },
+        ["Relations"] = new JsonArray(),
+        ["BibleEntries"] = new JsonArray(),
+        ["ConsistencyFacts"] = new JsonArray(),
+        ["ConsistencyIssues"] = new JsonArray(),
+        ["ConsistencyResolutions"] = new JsonArray(),
+        ["RevisionCandidates"] = new JsonArray(),
+        ["FutureVisionHostField"] = "keep-me"
+    };
+    return root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+}
+
+var coloring = DiezAiExchangeBridge.CreateReadyJob(
+    NewProjectJson(BookTypeCatalog.ColoringBook),
+    "Tavola Vision",
+    "Image",
+    "ART DIRECTION — SYNTHESIZED\nClean Line Art\nsingle composition");
+Require(coloring.Job.WorkUnitId.HasValue, "Il job immagine deve avere una Work Unit per Vision.");
+
+var coloringRequirements = DiezVisionFrontendBridge.Requirements(coloring.ProjectJson, coloring.Job.WorkUnitId.Value);
+var coloringKeys = coloringRequirements.Select(x => x.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
+foreach (var requiredKey in new[]
+         {
+             VisionHardGatePolicy.SubjectMatch,
+             VisionHardGatePolicy.SingleComposition,
+             VisionHardGatePolicy.StyleMatch,
+             VisionHardGatePolicy.BoldEasyMatch,
+             VisionHardGatePolicy.CozyMatch,
+             VisionHardGatePolicy.LineWeightMatch
+         })
+    Require(coloringKeys.Contains(requiredKey), $"Il Core Coloring deve richiedere {requiredKey}.");
+Require(!coloringKeys.Contains(VisionHardGatePolicy.SceneParticipantsMatch),
+    "scene_participants_match non deve essere inventato quando non ci sono partecipanti strutturati.");
+
+var collection = DiezAiExchangeBridge.CreateReadyJob(
+    NewProjectJson(BookTypeCatalog.ImageCollection),
+    "Immagine editoriale",
+    "Image",
+    "Illustrazione editoriale chiara.");
+var collectionRequirements = DiezVisionFrontendBridge.Requirements(collection.ProjectJson, collection.Job.WorkUnitId!.Value);
+var collectionKeys = collectionRequirements.Select(x => x.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
+Require(collectionKeys.Contains(VisionHardGatePolicy.StyleMatch) && collectionKeys.Contains(VisionHardGatePolicy.LineWeightMatch),
+    "Raccolta immagini deve verificare stile di resa e trattamento linee.");
+Require(!collectionKeys.Contains(VisionHardGatePolicy.BoldEasyMatch) && !collectionKeys.Contains(VisionHardGatePolicy.CozyMatch),
+    "Raccolta immagini non deve ereditare per errore i gate Coloring Bold & Easy/Cozy.");
+
+var tempDir = Path.Combine(Path.GetTempPath(), "Diez-Vision-Pianist-" + Guid.NewGuid().ToString("N"));
+Directory.CreateDirectory(tempDir);
+var candidateFile = Path.Combine(tempDir, "vision-candidate.png");
+await File.WriteAllBytesAsync(candidateFile, [137, 80, 78, 71, 13, 10, 26, 10, 10, 20, 30, 40]);
+try
+{
+    var candidate = await DiezAiExchangeBridge.IngestImageResultAsync(
+        coloring.ProjectJson,
+        coloring.Job.WorkUnitId.Value,
+        candidateFile,
+        "Soggetto singolo, composizione unica e stile Clean Line Art.",
+        candidateVersion: 1);
+    Require(candidate.Status == "IMPORTED" && candidate.Version is { Status: "CANDIDATE", CanApprove: false },
+        "La candidate completa deve entrare come CANDIDATE ma restare non approvabile fuori da Vision.");
+
+    var onlySubject = new[]
+    {
+        new DiezVisionCheckInput(VisionHardGatePolicy.SubjectMatch, VisionHardGatePolicy.Pass, "Soggetto visibile corretto.")
+    };
+    var missing = DiezVisionFrontendBridge.ApproveImageVersion(
+        candidate.ProjectJson,
+        candidate.Version!.VersionId,
+        onlySubject,
+        "Test con gate mancanti");
+    Require(missing.Status == "VISION_FAILED" && !missing.Approved,
+        "Una checklist Vision incompleta deve bloccare l'approvazione.");
+    Require(missing.BlockingKeys.Contains(VisionHardGatePolicy.SingleComposition),
+        "Un gate obbligatorio mancante deve comparire tra i blocchi.");
+    Require(missing.Version?.Status == "INCOMPLETE" && missing.Version.DescriptionStatus == "NEEDS_VERIFICATION",
+        "Un FAIL Vision deve marcare la candidate come da verificare.");
+
+    var failCozyChecks = missing.Requirements
+        .Select(r => new DiezVisionCheckInput(
+            r.Key,
+            r.Key == VisionHardGatePolicy.CozyMatch ? VisionHardGatePolicy.Fail : VisionHardGatePolicy.Pass,
+            r.Key == VisionHardGatePolicy.CozyMatch ? "Mood non conforme." : "Controllo conforme."))
+        .ToList();
+    var failCozy = DiezVisionFrontendBridge.ApproveImageVersion(
+        missing.ProjectJson,
+        candidate.Version.VersionId,
+        failCozyChecks,
+        "Cozy volutamente errato");
+    Require(failCozy.Status == "VISION_FAILED" && failCozy.BlockingKeys.SequenceEqual([VisionHardGatePolicy.CozyMatch]),
+        "Un singolo FAIL HARD Cozy deve essere sufficiente a bloccare.");
+
+    var allPass = failCozy.Requirements
+        .Select(r => new DiezVisionCheckInput(r.Key, VisionHardGatePolicy.Pass, "PASS verificato."))
+        .ToList();
+    var approvedImage = DiezVisionFrontendBridge.ApproveImageVersion(
+        failCozy.ProjectJson,
+        candidate.Version.VersionId,
+        allPass,
+        "Tutti i gate HARD sono PASS",
+        confidence: 0.99);
+    Require(approvedImage.Status == "APPROVED" && approvedImage.Approved,
+        "Una nuova verifica completa PASS deve poter recuperare e approvare una candidate prima fallita.");
+    Require(approvedImage.Version?.Status == "APPROVED", "La versione deve diventare APPROVED nel contratto AI Exchange.");
+    Require(approvedImage.Job?.DisplayStatus == "Approvato", "Lo stato leggibile del job deve diventare Approvato.");
+
+    var approvedRoot = JsonNode.Parse(approvedImage.ProjectJson)!.AsObject();
+    Require(approvedRoot["FutureVisionHostField"]?.GetValue<string>() == "keep-me",
+        "Vision non deve cancellare campi futuri del progetto.");
+    var visionEntity = approvedRoot["Entities"]!.AsArray().OfType<JsonObject>()
+        .Single(e => e["Kind"]?.GetValue<string>() == "DiezVisionValidation");
+    var visionState = JsonNode.Parse(visionEntity["Notes"]!.GetValue<string>())!.AsObject();
+    var records = visionState["Records"]!.AsArray().OfType<JsonObject>().ToList();
+    Require(records.Count == 1, "Le ri-verifiche della stessa candidate devono aggiornare un unico record Vision.");
+    var audit = records[0];
+    Require(audit["OverallStatus"]?.GetValue<string>() == "PASS" && audit["BlocksApproval"]?.GetValue<bool>() == false,
+        "L'audit finale deve registrare PASS senza blocco.");
+    Require(audit["Checks"]!.AsArray().Count == approvedImage.Requirements.Count,
+        "L'audit deve contenere tutti i gate richiesti dal Core.");
+}
+finally
+{
+    try { Directory.Delete(tempDir, true); } catch { }
+}
+
+Console.WriteLine("VISION PIANIST PASS: HARD semantics resisted downgrade, Core-derived requirements blocked missing/failed gates, and a full recheck safely approved the image.");
