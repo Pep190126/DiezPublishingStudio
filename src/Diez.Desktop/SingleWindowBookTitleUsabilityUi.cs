@@ -268,8 +268,10 @@ internal static class SingleWindowBookTitleUsabilityUi
                "[name=" + (control.Name ?? "-") +
                ",bounds=" + control.Bounds +
                ",visible=" + control.IsVisible +
+               ",attached=" + control.IsAttachedToVisualTree +
                ",hit=" + control.IsHitTestVisible +
                ",enabled=" + control.IsEnabled +
+               ",effectiveEnabled=" + control.IsEffectivelyEnabled +
                ",z=" + control.ZIndex +
                ",opacity=" + control.Opacity.ToString("0.##") + "]";
     }
