@@ -26,155 +26,82 @@ internal static class VisualBookDocumentAdapter
     public static DiezVisualSceneStateDto ReadVisualSceneState(this DiezProjectDocument document) =>
         DiezVisualSceneFrontendBridge.Read(document.ExportProjectJson());
 
-    public static DiezVisualSceneMutation ConfigureVisualSubjects(
-        this DiezProjectDocument document,
-        bool enabled,
-        int requestedCount)
+    public static DiezVisualSceneMutation ConfigureVisualSubjects(this DiezProjectDocument document, bool enabled, int requestedCount)
     {
-        var result = DiezVisualSceneFrontendBridge.ConfigureSubjects(
-            document.ExportProjectJson(), enabled, requestedCount);
+        var result = DiezVisualSceneFrontendBridge.ConfigureSubjects(document.ExportProjectJson(), enabled, requestedCount);
         ApplyCoreJson(document, result.ProjectJson);
         return result;
     }
 
-    public static DiezVisualSceneMutation SaveVisualSubject(
-        this DiezProjectDocument document,
-        string subjectId,
-        string? name,
-        string? description)
+    public static DiezVisualSceneMutation SaveVisualSubject(this DiezProjectDocument document, string subjectId, string? name, string? description)
     {
-        var result = DiezVisualSceneFrontendBridge.SaveSubject(
-            document.ExportProjectJson(), subjectId, name, description);
+        var result = DiezVisualSceneFrontendBridge.SaveSubject(document.ExportProjectJson(), subjectId, name, description);
         ApplyCoreJson(document, result.ProjectJson);
         return result;
     }
 
-    public static DiezVisualSceneMutation SaveVisualConsistencyRule(
-        this DiezProjectDocument document,
-        string subjectId,
-        string key,
-        string? level,
-        string? strategy,
-        string? variation)
+    public static DiezVisualSceneMutation SaveVisualConsistencyRule(this DiezProjectDocument document, string subjectId, string key, string? level, string? strategy, string? variation)
     {
-        var result = DiezVisualSceneFrontendBridge.SaveConsistencyRule(
-            document.ExportProjectJson(), subjectId, key, level, strategy, variation);
+        var result = DiezVisualSceneFrontendBridge.SaveConsistencyRule(document.ExportProjectJson(), subjectId, key, level, strategy, variation);
         ApplyCoreJson(document, result.ProjectJson);
         return result;
     }
 
-    public static DiezVisualSceneMutation ConfigureVisualScenes(
-        this DiezProjectDocument document,
-        bool enabled,
-        int requestedCount)
+    public static DiezVisualSceneMutation ConfigureVisualScenes(this DiezProjectDocument document, bool enabled, int requestedCount)
     {
-        var result = DiezVisualSceneFrontendBridge.ConfigureScenes(
-            document.ExportProjectJson(), enabled, requestedCount);
+        var result = DiezVisualSceneFrontendBridge.ConfigureScenes(document.ExportProjectJson(), enabled, requestedCount);
         ApplyCoreJson(document, result.ProjectJson);
         return result;
     }
 
-    public static DiezVisualSceneMutation SaveVisualScene(
-        this DiezProjectDocument document,
-        string sceneId,
-        string? name,
-        string? description)
+    public static DiezVisualSceneMutation SaveVisualScene(this DiezProjectDocument document, string sceneId, string? name, string? description)
     {
-        var result = DiezVisualSceneFrontendBridge.SaveScene(
-            document.ExportProjectJson(), sceneId, name, description);
+        var result = DiezVisualSceneFrontendBridge.SaveScene(document.ExportProjectJson(), sceneId, name, description);
         ApplyCoreJson(document, result.ProjectJson);
         return result;
     }
 
-    public static DiezVisualSceneMutation SetVisualSceneParticipation(
-        this DiezProjectDocument document,
-        string sceneId,
-        string subjectId,
-        bool participates)
+    public static DiezVisualSceneMutation SetVisualSceneParticipation(this DiezProjectDocument document, string sceneId, string subjectId, bool participates)
     {
-        var result = DiezVisualSceneFrontendBridge.SetSceneParticipation(
-            document.ExportProjectJson(), sceneId, subjectId, participates);
+        var result = DiezVisualSceneFrontendBridge.SetSceneParticipation(document.ExportProjectJson(), sceneId, subjectId, participates);
         ApplyCoreJson(document, result.ProjectJson);
         return result;
     }
 
-    public static DiezVisualBookMutation SaveColoringSetup(
-        this DiezProjectDocument document,
-        int imageCount,
-        string? subject,
-        string? environment,
-        bool consistent,
-        string? consistencyRules,
-        DiezColoringProfileDto profile)
+    public static DiezVisualBookMutation SaveColoringSetup(this DiezProjectDocument document, int imageCount, string? subject, string? environment, bool consistent, string? consistencyRules, DiezColoringProfileDto profile)
     {
-        var result = DiezVisualBookFrontendBridge.SaveColoring(
-            document.ExportProjectJson(), imageCount, subject, environment, consistent, consistencyRules, profile);
+        var result = DiezVisualBookFrontendBridge.SaveColoring(document.ExportProjectJson(), imageCount, subject, environment, consistent, consistencyRules, profile);
         ApplyCoreJson(document, result.ProjectJson);
         return result;
     }
 
-    public static DiezVisualBookMutation SaveImageBookSetup(
-        this DiezProjectDocument document,
-        string bookType,
-        int imageCount,
-        string? subject,
-        string? environment,
-        bool consistent,
-        string? consistencyRules,
-        DiezImageProfileDto profile)
+    public static DiezVisualBookMutation SaveImageBookSetup(this DiezProjectDocument document, string bookType, int imageCount, string? subject, string? environment, bool consistent, string? consistencyRules, DiezImageProfileDto profile)
     {
-        var result = DiezVisualBookFrontendBridge.SaveImageBook(
-            document.ExportProjectJson(), bookType, imageCount, subject, environment, consistent, consistencyRules, profile);
+        var result = DiezVisualBookFrontendBridge.SaveImageBook(document.ExportProjectJson(), bookType, imageCount, subject, environment, consistent, consistencyRules, profile);
         ApplyCoreJson(document, result.ProjectJson);
         return result;
     }
 
-    public static DiezVisualPromptPack BuildVisualPromptPack(
-        this DiezProjectDocument document,
-        string? mustDo,
-        string? mustNotDo,
-        string providerId,
-        bool preferAdvanced)
+    public static DiezVisualPromptPack BuildVisualPromptPack(this DiezProjectDocument document, string? mustDo, string? mustNotDo, string providerId, bool preferAdvanced)
     {
-        var result = DiezVisualBookFrontendBridge.BuildPromptPack(
-            document.ExportProjectJson(), mustDo, mustNotDo, providerId, preferAdvanced);
+        var result = DiezVisualBookFrontendBridge.BuildPromptPack(document.ExportProjectJson(), mustDo, mustNotDo, providerId, preferAdvanced);
         ApplyCoreJson(document, result.ProjectJson);
         return result;
     }
 
-    public static VisualJobSyncResult EnsureVisualReadyJobs(
-        this DiezProjectDocument document,
-        string? mustDo,
-        string? mustNotDo,
-        string providerId,
-        bool preferAdvanced)
+    public static VisualJobSyncResult EnsureVisualReadyJobs(this DiezProjectDocument document, string? mustDo, string? mustNotDo, string providerId, bool preferAdvanced)
     {
-        var result = DiezVisualJobFrontendBridge.SyncReadyJobs(
-            document.ExportProjectJson(), mustDo, mustNotDo, providerId, preferAdvanced);
+        var result = DiezVisualJobFrontendBridge.SyncReadyJobs(document.ExportProjectJson(), mustDo, mustNotDo, providerId, preferAdvanced);
         if (result.Success) ApplyCoreJson(document, result.ProjectJson);
-        return new VisualJobSyncResult(
-            result.Success,
-            result.Created,
-            result.Existing,
-            result.Message,
-            result.Jobs);
+        return new VisualJobSyncResult(result.Success, result.Created, result.Existing, result.Message, result.Jobs);
     }
 
-    public static IReadOnlyList<DiezPromptPackItemDto> PromptPackPreview(
-        this DiezProjectDocument document,
-        IEnumerable<Guid>? workUnitIds = null) =>
+    public static IReadOnlyList<DiezPromptPackItemDto> PromptPackPreview(this DiezProjectDocument document, IEnumerable<Guid>? workUnitIds = null) =>
         DiezPromptPackFrontendBridge.Preview(document.ExportProjectJson(), workUnitIds);
 
-    public static async Task<DiezPromptPackBuildResult> CreateManualPromptPackAsync(
-        this DiezProjectDocument document,
-        IEnumerable<Guid>? workUnitIds,
-        string outputPath)
+    public static async Task<DiezPromptPackBuildResult> CreateManualPromptPackAsync(this DiezProjectDocument document, IEnumerable<Guid>? workUnitIds, string outputPath)
     {
-        var result = await DiezPromptPackFrontendBridge.BuildManualAsync(
-            document.ExportProjectJson(),
-            document.SourcePath,
-            workUnitIds,
-            outputPath);
+        var result = await DiezPromptPackBatchFrontendBridge.BuildManualPackageAsync(document.ExportProjectJson(), document.SourcePath, workUnitIds, outputPath);
         if (result.Success) ApplyCoreJson(document, result.ProjectJson);
         return result;
     }
@@ -199,14 +126,9 @@ internal static class VisualBookDocumentAdapter
         return result;
     }
 
-    public static Task<DiezFileExportResult> ExportPublicationPackageAsync(
-        this DiezProjectDocument document,
-        string outputPath) =>
+    public static Task<DiezFileExportResult> ExportPublicationPackageAsync(this DiezProjectDocument document, string outputPath) =>
         DiezPublicationFrontendBridge.ExportPublicationPackageAsync(document.ExportProjectJson(), outputPath);
 
-    public static Task<DiezFileExportResult> ExportFinalVisualImagesAsync(
-        this DiezProjectDocument document,
-        string projectPath,
-        string outputPath) =>
+    public static Task<DiezFileExportResult> ExportFinalVisualImagesAsync(this DiezProjectDocument document, string projectPath, string outputPath) =>
         DiezPublicationFrontendBridge.ExportFinalVisualImagesAsync(document.ExportProjectJson(), projectPath, outputPath);
 }

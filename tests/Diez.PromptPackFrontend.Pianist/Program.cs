@@ -74,12 +74,27 @@ Require(preview.Count == 2 && preview.All(x => x.CandidateVersion == 1),
 Require(preview.Select(x => x.Code).SequenceEqual(new[] { "IMG-001", "IMG-002" }),
     "Le Work Unit devono mantenere ordine e codici stabili.");
 
+var packagePrompt = DiezPromptPackBatchFrontendBridge.BuildPackagePrompt(synced.ProjectJson, selectedIds);
+Require(packagePrompt.Contains("Questo ZIP è il pacchetto completo da eseguire", StringComparison.Ordinal),
+    "PROMPT.md deve descrivere lo ZIP come unità di consegna, non come testo da copiare.");
+Require(packagePrompt.Contains("ESATTAMENTE 2 immagini", StringComparison.Ordinal),
+    "PROMPT.md deve dichiarare l'intero lotto.");
+Require(packagePrompt.Contains("Immagine 001 di 002", StringComparison.Ordinal) &&
+        packagePrompt.Contains("Immagine 002 di 002", StringComparison.Ordinal),
+    "PROMPT.md deve contenere entrambe le posizioni in ordine.");
+foreach (var id in selectedIds)
+    Require(!packagePrompt.Contains(id.ToString(), StringComparison.OrdinalIgnoreCase),
+        "PROMPT.md non deve contenere WorkUnitId tecnici nei prompt visuali umani.");
+foreach (var item in preview)
+    Require(packagePrompt.Contains(item.Prompt.Trim(), StringComparison.Ordinal),
+        "Ogni Prompt provider-facing deve essere incluso integralmente in PROMPT.md.");
+
 var tempRoot = Path.Combine(Path.GetTempPath(), "diez-prompt-pack-pianist-" + Guid.NewGuid().ToString("N"));
 Directory.CreateDirectory(tempRoot);
 try
 {
     var target = Path.Combine(tempRoot, "coloring-manuale");
-    var built = await DiezPromptPackFrontendBridge.BuildManualAsync(
+    var built = await DiezPromptPackBatchFrontendBridge.BuildManualPackageAsync(
         synced.ProjectJson,
         projectPackagePath: null,
         selectedIds,
@@ -91,11 +106,20 @@ try
     Require(built.WorkUnitCount == 2 && built.Transport == "MANUAL",
         "Il Prompt Pack manuale deve contenere esattamente le Work Unit selezionate.");
     Require(File.Exists(built.OutputPath) && built.OutputPath.EndsWith(".zip", StringComparison.OrdinalIgnoreCase),
-        "La creazione deve produrre un vero ZIP sul filesystem.");
+        "La creazione deve produrre un solo vero ZIP sul filesystem.");
 
     using var archive = ZipFile.OpenRead(built.OutputPath);
     Require(archive.GetEntry("prompt-manifest.json") is not null, "prompt-manifest.json mancante.");
     Require(archive.GetEntry("instructions.md") is not null, "instructions.md mancante.");
+    Require(archive.GetEntry(DiezPromptPackBatchFrontendBridge.PromptEntryName) is not null,
+        "Il Prompt Pack deve includere PROMPT.md come ingresso AI.");
+
+    string packedPrompt;
+    await using (var stream = archive.GetEntry(DiezPromptPackBatchFrontendBridge.PromptEntryName)!.Open())
+    using (var reader = new StreamReader(stream))
+        packedPrompt = await reader.ReadToEndAsync();
+    Require(string.Equals(packedPrompt.Trim(), packagePrompt.Trim(), StringComparison.Ordinal),
+        "PROMPT.md nello ZIP deve coincidere con il prompt del lotto costruito dal Core.");
 
     string manifestText;
     await using (var stream = archive.GetEntry("prompt-manifest.json")!.Open())
@@ -106,7 +130,7 @@ try
     Require(manifest["protocol"]?.GetValue<string>() == "diez-prompt-pack", "Protocollo Prompt Pack errato.");
     Require(manifest["transport"]?.GetValue<string>() == "MANUAL", "Il trasporto deve essere dichiarato Manuale.");
     var units = manifest["work_units"]!.AsArray().OfType<JsonObject>().ToList();
-    Require(units.Count == 2, "Il manifest deve contenere due Work Unit.");
+    Require(units.Count == 2, "Il manifest deve contenere due Work Unit dentro lo stesso ZIP.");
 
     foreach (var unit in units)
     {
@@ -117,7 +141,7 @@ try
             Require(!instruction.Contains(forbidden, StringComparison.OrdinalIgnoreCase),
                 "Il Prompt provider-facing è contaminato da metadata interni: " + forbidden);
         Require(Guid.TryParse(unit["id"]?.GetValue<string>(), out _),
-            "L'identità tecnica deve stare nel manifest separata dal Prompt.");
+            "L'identità tecnica deve stare nel manifest separata dal Prompt visuale.");
     }
 
     var returnedRoot = JsonNode.Parse(built.ProjectJson)!.AsObject();
