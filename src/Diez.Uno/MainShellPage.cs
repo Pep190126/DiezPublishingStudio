@@ -1,3 +1,4 @@
+using DiezPublishingStudio;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Windows.ApplicationModel.DataTransfer;
@@ -7,12 +8,7 @@ namespace DiezPublishingStudio.UnoSpike;
 
 public sealed class MainShellPage : Page
 {
-    private static readonly string[] BookTypes =
-    [
-        "Coloring book", "Raccolta immagini", "Libro illustrato", "Saggio / manuale",
-        "Word Search", "Cruciverba", "Quiz / trivia", "Romanzo / racconto",
-        "Catalogo / raccolta dati", "Altro"
-    ];
+    private static readonly string[] BookTypes = BookTypeCatalog.All.ToArray();
 
     private static readonly string[] ColoringStyles =
     [
@@ -171,11 +167,11 @@ public sealed class MainShellPage : Page
             "Titolo e Tipo libro sono salvati nel progetto. La scelta instrada al workspace specializzato senza aprire nuove finestre.");
 
         var title = Editor(_document!.EditionTitle, "Titolo del libro", 44, false);
-        var type = Combo(BookTypes, string.IsNullOrWhiteSpace(_document.BookType) ? "Coloring book" : _document.BookType);
+        var type = Combo(BookTypes, string.IsNullOrWhiteSpace(_document.BookType) ? BookTypeCatalog.ColoringBook : BookTypeCatalog.Normalize(_document.BookType));
         var save = AsyncButton("Salva identità libro", async () =>
         {
             _document.EditionTitle = title.Text?.Trim() ?? string.Empty;
-            _document.BookType = type.SelectedItem?.ToString() ?? "Altro";
+            _document.BookType = BookTypeCatalog.Normalize(type.SelectedItem?.ToString());
             await SaveIfPossibleAsync();
             RefreshHeader();
             Report("Titolo e Tipo libro salvati.");
@@ -183,8 +179,9 @@ public sealed class MainShellPage : Page
         var next = AsyncButton("Continua nel workspace", async () =>
         {
             _document.EditionTitle = title.Text?.Trim() ?? string.Empty;
-            _document.BookType = type.SelectedItem?.ToString() ?? "Altro";
+            _document.BookType = BookTypeCatalog.Normalize(type.SelectedItem?.ToString());
             await SaveIfPossibleAsync();
+            RefreshHeader();
             RouteCurrentBookType();
         });
 
@@ -200,18 +197,45 @@ public sealed class MainShellPage : Page
 
     private void RouteCurrentBookType()
     {
-        var type = _document?.BookType ?? string.Empty;
-        if (IsVisualType(type)) ShowVisualQuantity();
-        else if (type.Equals("Word Search", StringComparison.OrdinalIgnoreCase)) ShowWordSearch();
-        else if (type.Equals("Cruciverba", StringComparison.OrdinalIgnoreCase)) ShowCrossword();
-        else ShowNarrative();
+        var type = BookTypeCatalog.Normalize(_document?.BookType);
+        if (BookTypeCatalog.IsVisual(type)) ShowVisualQuantity();
+        else if (type.Equals(BookTypeCatalog.WordSearch, StringComparison.OrdinalIgnoreCase)) ShowWordSearch();
+        else if (type.Equals(BookTypeCatalog.Crossword, StringComparison.OrdinalIgnoreCase)) ShowCrossword();
+        else if (BookTypeCatalog.IsLongForm(type)) ShowNarrative();
+        else if (type.Equals(BookTypeCatalog.Quiz, StringComparison.OrdinalIgnoreCase) ||
+                 type.Equals(BookTypeCatalog.DataCollection, StringComparison.OrdinalIgnoreCase) ||
+                 type.Equals(BookTypeCatalog.Other, StringComparison.OrdinalIgnoreCase))
+            ShowBookFamilyWorkspace(type);
+        else ShowBookRoute();
+    }
+
+    private void ShowBookFamilyWorkspace(string bookType)
+    {
+        if (!RequireDocument()) return;
+        var normalized = BookTypeCatalog.Normalize(bookType);
+        var current = BookTypeCatalog.Normalize(_document!.BookType);
+        if (!string.Equals(normalized, current, StringComparison.OrdinalIgnoreCase))
+        {
+            Report("Scegli prima questo tipo di libro dal percorso libro.");
+            ShowBookRoute();
+            return;
+        }
+
+        SetContent(BookFamilyWorkspace.Build(
+            _document,
+            normalized,
+            SaveIfPossibleAsync,
+            Report,
+            ShowAiCenter,
+            ShowEditableMaster,
+            ShowExportAndFinalization));
     }
 
     private void ShowVisualQuantity()
     {
         if (!RequireDocument()) return;
-        var type = _document!.BookType;
-        if (!IsVisualType(type))
+        var type = BookTypeCatalog.Normalize(_document!.BookType);
+        if (!BookTypeCatalog.IsVisual(type))
         {
             Report("Il Tipo libro attuale non usa il flusso immagini. Apro la scelta Tipo libro.");
             ShowBookRoute();
@@ -233,7 +257,7 @@ public sealed class MainShellPage : Page
                 Labeled("Ambientazione / scenario", environment),
                 consistent,
                 Labeled("Regole Consistent", rules))));
-        root.Children.Add(type.Equals("Coloring book", StringComparison.OrdinalIgnoreCase) ? BuildColoringProfile() : BuildImageProfile());
+        root.Children.Add(type.Equals(BookTypeCatalog.ColoringBook, StringComparison.OrdinalIgnoreCase) ? BuildColoringProfile() : BuildImageProfile());
 
         root.Children.Add(Horizontal(
             ActionButton("Scene / Soggetti", ShowScenesAndSubjects),
@@ -379,7 +403,7 @@ public sealed class MainShellPage : Page
 
     private string BuildMasterPrompt(string? mustDo, string? mustNot)
     {
-        var type = _document!.BookType;
+        var type = BookTypeCatalog.Normalize(_document!.BookType);
         var count = Math.Max(1, _document.GetUiInt("Visual.ImageCount", 1));
         var lines = new List<string>
         {
@@ -393,7 +417,7 @@ public sealed class MainShellPage : Page
         {
             lines.Add(""); lines.Add("CONSISTENT — HARD:"); lines.Add(_document.GetUiString("Visual.ConsistencyRules"));
         }
-        if (type.Equals("Coloring book", StringComparison.OrdinalIgnoreCase))
+        if (type.Equals(BookTypeCatalog.ColoringBook, StringComparison.OrdinalIgnoreCase))
         {
             lines.Add(""); lines.Add("PROFILO COLORING:");
             lines.Add($"- Stile: {_document.GetUiString("Coloring.Style", "Clean Line Art")}");
@@ -618,20 +642,30 @@ public sealed class MainShellPage : Page
     private void ShowNarrative()
     {
         if (!RequireDocument()) return;
-        var root = PageRoot("Narrativa / Manuale · workspace", "Workspace unificato per struttura, contenuti, note, illustrazioni e handoff editoriale.");
-        var outline = Editor(_document!.GetUiString("Narrative.Outline"), "Scaletta / capitoli / sezioni.", 220);
-        var notes = Editor(_document.GetUiString("Narrative.Notes"), "Note narrative, manualistiche o redazionali.", 160);
-        var illustrationPlan = Editor(_document.GetUiString("Narrative.IllustrationPlan"), "Piano illustrazioni: contenuto, posizione, didascalia.", 150);
+        var type = BookTypeCatalog.Normalize(_document!.BookType);
+        if (!BookTypeCatalog.IsLongForm(type))
+        {
+            Report("Il tipo di libro attuale non usa il workspace long-form. Apro la scelta Tipo libro.");
+            ShowBookRoute();
+            return;
+        }
+
+        var prefix = type.Equals(BookTypeCatalog.EssayManual, StringComparison.OrdinalIgnoreCase) ? "EssayManual" : "Novel";
+        var title = type.Equals(BookTypeCatalog.EssayManual, StringComparison.OrdinalIgnoreCase) ? "Saggio / manuale" : "Romanzo / racconto";
+        var root = PageRoot($"{title} · workspace", "Workspace unificato per struttura, contenuti, note, illustrazioni e handoff editoriale.");
+        var outline = Editor(_document.GetUiString($"{prefix}.Outline", _document.GetUiString("Narrative.Outline")), "Scaletta / capitoli / sezioni.", 220);
+        var notes = Editor(_document.GetUiString($"{prefix}.Notes", _document.GetUiString("Narrative.Notes")), "Note narrative, manualistiche o redazionali.", 160);
+        var illustrationPlan = Editor(_document.GetUiString($"{prefix}.IllustrationPlan", _document.GetUiString("Narrative.IllustrationPlan")), "Piano illustrazioni: contenuto, posizione, didascalia.", 150);
         root.Children.Add(Card("Struttura", Labeled("Outline", outline)));
         root.Children.Add(Card("Note", Labeled("Note editoriali", notes)));
         root.Children.Add(Card("Illustrazioni", Labeled("Piano illustrazioni", illustrationPlan)));
         root.Children.Add(AsyncButton("Salva workspace", async () =>
         {
-            _document.SetUiString("Narrative.Outline", outline.Text);
-            _document.SetUiString("Narrative.Notes", notes.Text);
-            _document.SetUiString("Narrative.IllustrationPlan", illustrationPlan.Text);
+            _document.SetUiString($"{prefix}.Outline", outline.Text);
+            _document.SetUiString($"{prefix}.Notes", notes.Text);
+            _document.SetUiString($"{prefix}.IllustrationPlan", illustrationPlan.Text);
             await SaveIfPossibleAsync();
-            Report("Workspace narrativo salvato.");
+            Report($"Workspace {title} salvato.");
         }));
         SetContent(root);
     }
@@ -962,15 +996,12 @@ public sealed class MainShellPage : Page
 
     private static Button AsyncButton(string text, Func<Task> action) => ActionButton(text, action);
 
-    private static bool IsVisualType(string type) =>
-        type.Equals("Coloring book", StringComparison.OrdinalIgnoreCase) ||
-        type.Equals("Raccolta immagini", StringComparison.OrdinalIgnoreCase) ||
-        type.Equals("Libro illustrato", StringComparison.OrdinalIgnoreCase);
+    private static bool IsVisualType(string type) => BookTypeCatalog.IsVisual(type);
 
-    private static string VisualLabel(string type) => type switch
+    private static string VisualLabel(string type) => BookTypeCatalog.Normalize(type) switch
     {
-        "Raccolta immagini" => "Raccolta immagini",
-        "Libro illustrato" => "Libro illustrato · Illustrazioni",
+        BookTypeCatalog.ImageCollection => "Raccolta immagini",
+        BookTypeCatalog.IllustratedBook => "Libro illustrato · Illustrazioni",
         _ => "Coloring Book"
     };
 
