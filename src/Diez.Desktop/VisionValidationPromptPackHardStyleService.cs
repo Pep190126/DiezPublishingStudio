@@ -6,6 +6,7 @@ namespace DiezPublishingStudio;
 /// <summary>
 /// Compatibility wrapper around the Vision ZIP builder. It upgrades the human execution instructions
 /// so they cannot contradict the canonical expected.hard_criteria added by the semantic specification.
+/// The semantic policy text itself lives in Diez.Core.
 /// </summary>
 internal static class VisionValidationPromptPackHardStyleService
 {
@@ -48,27 +49,7 @@ internal static class VisionValidationPromptPackHardStyleService
             StringComparison.Ordinal);
 
         if (!text.Contains(HardPolicyMarker, StringComparison.Ordinal))
-        {
-            text = text.TrimEnd() + "\n\n" + $"""
-{HardPolicyMarker}
-The real candidate pixels are authoritative. Evaluate the exact Work Unit, not the series as a whole.
-
-Required semantic checks:
-- `subject_match` — HARD: compare the visible primary subject with `expected.item_subject`, the atomic/structured subject for this Work Unit. When structured multi-subject mode is active, `subject_id` is trusted Diez audit metadata and `subject_name` / `expected.item_subject` identify that exact subject profile.
-- `scene_participants_match` — HARD when structured scene participants are declared in the expected specification or consistency rules. Every selected participant must be visibly present in the SAME unified scene, with no substitution by another structured cast member. Return NA only when no structured scene participants are expected.
-- `single_composition` — HARD: exactly one unified primary composition unless this exact Work Unit explicitly requests otherwise.
-- `style_match` — HARD: the visible image must materially match `expected.style`. A polished image in a different style is still FAIL/HARD.
-- For `Kawaii`, realistic natural-history or engraving-like treatment, dense realistic hatching and anatomically literal documentary rendering are a HARD style mismatch when the page does not visibly read as Kawaii.
-- For `Cartoon`, documentary/naturalistic rendering and photographic anatomy are a HARD mismatch when cartoon construction is absent.
-- `bold_easy_match` — HARD in BOTH directions. If `expected.bold_easy=true`, the page must visibly satisfy the Bold & Easy profile. If false, the page must not be automatically simplified, enlarged or thickened into Bold & Easy against the selected style/line weight/complexity/density.
-- `cozy_match` — HARD in BOTH directions. If `expected.cozy=true`, the page must visibly read as warm, comforting, gentle and inviting. If false, do not impose a Cozy mood, homelike staging or comforting decorative treatment unless another explicit requirement independently demands it.
-- `line_weight_match` — HARD. Thin/Fine or Very thin/Extra Fine must remain visibly thin and must not be converted into Bold & Easy-like thick contours.
-- `style_quality` — SOFT/REVIEW only for aesthetic or execution differences AFTER `style_match` has passed.
-- `composition_readability` — SOFT only after `single_composition` has passed.
-
-One HARD failure forces `overall_status = FAIL` and blocks approval in Diez. Use REVIEW only for genuine ambiguity or soft quality judgment, not for a visible subject/scene/style/Bold&Easy/Cozy/line-weight/composition mismatch.
-""".Trim();
-        }
+            text = text.TrimEnd() + "\n\n" + VisionHardGatePolicy.InstructionMarkdown();
 
         entry.Delete();
         var replacement = zip.CreateEntry("instructions.md", CompressionLevel.Optimal);
