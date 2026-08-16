@@ -16,26 +16,28 @@ internal static class SelfPublishingTitansContract
             var project = ProjectFileStore.Create("Self Publishing Titans contract");
             BookTypeProfileService.Set(project, BookTypeProfileService.WordSearch);
             SetOption(project, "PuzzleCount", "2");
-            SetOption(project, "WordsPerPuzzle", "3");
+            SetOption(project, "WordsPerPuzzle", "5");
             SetOption(project, "NoDuplicates", "true");
 
             var first = WordSearchWorkspaceService.AddNew(project);
             first.Title = "Puzzle 1";
             first.Theme = "Tema A";
-            first.Words = ["alpha", "beta", "gamma"];
+            first.Words = ["alpha", "beta", "gamma", "theta", "iota"];
             first.Status = WordSearchWorkspaceService.StatusApproved;
             WordSearchWorkspaceService.SaveRecord(project, first);
 
             var second = WordSearchWorkspaceService.AddNew(project);
             second.Title = "Puzzle 2";
             second.Theme = "Tema B";
-            second.Words = ["delta", "epsilon", "zeta"];
+            second.Words = ["delta", "epsilon", "zeta", "kappa", "lambda"];
             second.Status = WordSearchWorkspaceService.StatusApproved;
             WordSearchWorkspaceService.SaveRecord(project, second);
 
             var json = JsonSerializer.Serialize(project);
             var ready = DiezWordSearchFinalizationBridge.Readiness(json);
-            Require(ready.Ready, "The fixture must be finalizable before testing Self Publishing Titans handoff.");
+            Require(ready.Ready,
+                "The fixture must be finalizable before testing Self Publishing Titans handoff: " +
+                string.Join(" | ", ready.Checks.Where(check => !check.Passed).Select(check => check.Message)));
 
             var csvPath = Path.Combine(tempRoot, "titans.csv");
             var csvResult = DiezWordSearchFinalizationBridge.ExportFinalCsvAsync(json, csvPath).GetAwaiter().GetResult();
@@ -44,7 +46,7 @@ internal static class SelfPublishingTitansContract
             Require(bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF,
                 "Self Publishing Titans CSV must carry an UTF-8 BOM like the supplied sample.");
             var csv = Encoding.UTF8.GetString(bytes[3..]);
-            Require(csv == "puzzle 1,puzzle 2\nalpha,delta\nbeta,epsilon\ngamma,zeta\n",
+            Require(csv == "puzzle 1,puzzle 2\nalpha,delta\nbeta,epsilon\ngamma,zeta\ntheta,kappa\niota,lambda\n",
                 "Final CSV must be a comma-delimited puzzle-column matrix with lower-case puzzle headers and LF endings.");
             Require(!csv.Contains(';') && !csv.Contains('"'),
                 "Simple Self Publishing Titans cells must not use semicolons or unnecessary quotes.");
