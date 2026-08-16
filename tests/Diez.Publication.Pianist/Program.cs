@@ -11,6 +11,9 @@ try
 {
     var sourcePath = Path.Combine(tempRoot, "source.txt");
     await File.WriteAllTextAsync(sourcePath, "Contenuto editoriale di prova per la pubblicazione Diez.");
+    var imagePath = Path.Combine(tempRoot, "visual.png");
+    await File.WriteAllBytesAsync(imagePath, Convert.FromBase64String(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z3L8AAAAASUVORK5CYII="));
 
     foreach (var bookType in BookTypeProfileService.All)
     {
@@ -42,9 +45,43 @@ try
         };
         project.ContentNodes.Add(chapter);
 
+        if (BookTypeCatalog.IsVisual(bookType))
+        {
+            var image = await MaterialImporter.ImportAsync(imagePath);
+            project.Materials.Add(image);
+            VisualBookPlanService.Save(project, 1, consistent: false);
+            project.AiProductionJobs.Add(new AiProductionJob
+            {
+                JobId = Guid.NewGuid(),
+                Code = "IMG-001",
+                OutputType = AiProductionService.TypeImage,
+                Title = "Immagine finale fixture",
+                Status = AiProductionService.StatusApplied,
+                ResultMaterialId = image.MaterialId,
+                TargetContentId = string.Equals(bookType, BookTypeProfileService.IllustratedBook, StringComparison.OrdinalIgnoreCase)
+                    ? chapter.ContentId
+                    : null,
+                CreatedAtLocal = DateTimeOffset.Now.ToString("O"),
+                UpdatedAtLocal = DateTimeOffset.Now.ToString("O")
+            });
+            if (string.Equals(bookType, BookTypeProfileService.IllustratedBook, StringComparison.OrdinalIgnoreCase))
+            {
+                var placement = IllustrationPlanService.Upsert(
+                    project,
+                    null,
+                    image.MaterialId,
+                    chapter.ContentId,
+                    IllustrationPlanService.AfterContent,
+                    80,
+                    "Immagine fixture");
+                Require(placement.Placement is not null, "Illustrated Book fixture must have a valid illustration placement.");
+            }
+        }
+
         var projectPath = Path.Combine(tempRoot, safeType + ".diez");
         await ProjectFileStore.SaveAsync(projectPath, project);
         Require(material.IsEmbedded, $"Source material must be embedded before publication for {bookType}.");
+        Require(project.Materials.All(m => m.IsEmbedded), $"All fixture materials must be embedded before publication for {bookType}.");
 
         var freeze = EditionFreezeService.CreateFreeze(project, "Pianist freeze " + bookType);
         Require(freeze.Freeze is not null, $"Edition Freeze must be creatable for {bookType}.");
@@ -72,7 +109,6 @@ try
         Require(xlsxHandoff.Exported && File.Exists(masterXlsx) && new FileInfo(masterXlsx).Length > 0,
             $"Master XLSX handoff must export for {bookType}.");
 
-        // Pianist behavior: modify the editable master after freeze/candidate creation.
         var edit = EditableMasterService.ApplyManualEdit(
             project,
             chapter.ContentId,
@@ -116,7 +152,7 @@ try
     Require(EditionMetadataService.IsValidIsbn("978-0-306-40615-7"), "Valid ISBN-13 must be accepted.");
     Require(!EditionMetadataService.IsValidIsbn("978-0-306-40615-8"), "Invalid ISBN-13 must be rejected.");
 
-    Console.WriteLine("PUBLICATION PIANIST PASS: all ten book types survived metadata, freeze, preflight, candidate, CSV/XLSX handoff, stale-edit blocking and regeneration.");
+    Console.WriteLine("PUBLICATION PIANIST PASS: all ten book types survived type-valid fixtures, metadata, freeze, preflight, candidate, handoff, stale-edit blocking and regeneration.");
 }
 finally
 {
