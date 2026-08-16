@@ -28,6 +28,7 @@ try
         record.Words = Enumerable.Range(1, 5)
             .Select(word => $"TERMINE{puzzle:D3}{word:D2}")
             .ToList();
+        record.Status = WordSearchWorkspaceService.StatusApproved;
         WordSearchWorkspaceService.SaveRecord(project, record);
         records.Add(record);
     }
@@ -39,12 +40,15 @@ try
         "Le 500 parole dei 100 puzzle devono entrare nello stesso indice globale.");
     Require(complete.DuplicateCheckPassed && complete.Passed && complete.Duplicates.Count == 0,
         "Un libro di 100 puzzle con parole uniche deve superare il controllo globale.");
+    var initialFinal = DiezWordSearchFinalizationBridge.Readiness(project);
+    Require(initialFinal.Ready && initialFinal.ApprovedPuzzles == 100 && initialFinal.InvalidPuzzleCount == 0,
+        "Cento puzzle completi, unici e approvati devono essere pronti per la consegna finale.");
 
     // Duplicate a word between the first and the hundredth puzzle.
     var first = WordSearchWorkspaceService.GetRecords(project).Single(record => record.Id == "PUZ-001");
     var last = WordSearchWorkspaceService.GetRecords(project).Single(record => record.Id == "PUZ-100");
     var originalLastWord = last.Words[4];
-    last.Words[4] = first.Words[0].ToLowerInvariant(); // also verify case-insensitive normalization.
+    last.Words[4] = first.Words[0].ToLowerInvariant();
     WordSearchWorkspaceService.SaveRecord(project, last);
 
     var duplicate = DiezWordSearchBookGuard.Analyze(project);
@@ -57,6 +61,15 @@ try
             group.Locations.Select(location => location.PuzzleId).ToHashSet(StringComparer.OrdinalIgnoreCase)
                 .SetEquals(new[] { "PUZ-001", "PUZ-100" }),
         "Il report deve indicare tutti i puzzle coinvolti, anche se sono agli estremi del libro.");
+
+    var blockedFinal = DiezWordSearchFinalizationBridge.Readiness(project);
+    Require(!blockedFinal.Ready && blockedFinal.DuplicateWords == 1,
+        "Un duplicato globale deve bloccare anche il finalizzatore del libro.");
+    var blockedPath = Path.Combine(tempRoot, "must-not-exist.xlsx");
+    var blockedExport = await DiezWordSearchFinalizationBridge.ExportFinalDatabaseAsync(
+        System.Text.Json.JsonSerializer.Serialize(project), blockedPath);
+    Require(!blockedExport.Exported && !File.Exists(blockedPath),
+        "L'export finale non deve creare un file quando esiste un duplicato globale.");
 
     // Restore uniqueness and verify the gate recovers.
     last = WordSearchWorkspaceService.GetRecords(project).Single(record => record.Id == "PUZ-100");
@@ -89,12 +102,24 @@ try
     Require(first.Words[0] != candidate.Word,
         "Il rifiuto di una sostituzione stale non deve modificare il puzzle bersaglio.");
 
-    // Restore and verify all 100 puzzle still form one clean duplicate domain after package round-trip.
+    // Restore and produce the actual final handoff.
     second = WordSearchWorkspaceService.GetRecords(project).Single(record => record.Id == "PUZ-002");
     second.Words[0] = secondOriginal;
     WordSearchWorkspaceService.SaveRecord(project, second);
     Require(DiezWordSearchBookGuard.Analyze(project).Passed,
         "Il libro deve tornare unico dopo il ripristino della parola usata nel test stale.");
+
+    var finalPath = Path.Combine(tempRoot, "word-search-final.xlsx");
+    var finalExport = await DiezWordSearchFinalizationBridge.ExportFinalDatabaseAsync(
+        System.Text.Json.JsonSerializer.Serialize(project), finalPath);
+    Require(finalExport.Exported && File.Exists(finalPath) && new FileInfo(finalPath).Length > 0,
+        "Il database finale deve essere creato quando tutti i 100 puzzle sono completi, unici e approvati.");
+
+    var fresh = ProjectFileStore.Create("Reimport finale");
+    BookTypeProfileService.Set(fresh, BookTypeProfileService.WordSearch);
+    var reimport = await WordSearchDatabaseService.ImportDatabaseAsync(fresh, finalPath, Guid.Empty, replaceExisting: false);
+    Require(reimport.Recognized && reimport.Added == 100,
+        "Il file finale deve essere realmente reimportabile e contenere tutti i 100 puzzle.");
 
     var package = Path.Combine(tempRoot, "word-search-100.diez");
     await ProjectFileStore.SaveAsync(package, project);
@@ -102,6 +127,8 @@ try
     var afterRoundTrip = DiezWordSearchBookGuard.Analyze(reloaded);
     Require(afterRoundTrip.Passed && afterRoundTrip.PresentPuzzles == 100 && afterRoundTrip.TotalWords == 500,
         "Il controllo globale su 100 puzzle deve sopravvivere al round-trip del pacchetto .diez.");
+    Require(DiezWordSearchFinalizationBridge.Readiness(reloaded).Ready,
+        "La readiness finale deve sopravvivere al round-trip del progetto.");
 
     // Quantity is part of the whole-book guard too: 99/100 is not a complete book.
     var removed = WordSearchWorkspaceService.GetRecords(reloaded).Single(record => record.Id == "PUZ-100");
@@ -109,8 +136,10 @@ try
     var incomplete = DiezWordSearchBookGuard.Analyze(reloaded);
     Require(!incomplete.Passed && !incomplete.PuzzleCountMatches && incomplete.PresentPuzzles == 99,
         "Un libro configurato per 100 puzzle non deve risultare completo con soli 99.");
+    Require(!DiezWordSearchFinalizationBridge.Readiness(reloaded).Ready,
+        "Il finalizzatore deve bloccare anche il libro 99/100, pur se tutte le parole rimaste sono uniche.");
 
-    Console.WriteLine("WORD SEARCH BOOK PIANIST PASS: 100 puzzles shared one global duplicate domain, stale replacement could not create a cross-puzzle duplicate, and quantity/uniqueness survived package round-trip.");
+    Console.WriteLine("WORD SEARCH BOOK PIANIST PASS: 100 puzzles shared one global duplicate domain; stale replacement stayed safe; final handoff was blocked on duplicates/incomplete quantity and reimported all 100 when ready.");
 }
 finally
 {
