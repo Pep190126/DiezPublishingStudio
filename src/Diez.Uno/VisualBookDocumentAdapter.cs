@@ -69,67 +69,20 @@ internal static class VisualBookDocumentAdapter
 
     public static VisualJobSyncResult EnsureVisualReadyJobs(
         this DiezProjectDocument document,
-        DiezVisualPromptPack pack)
+        string? mustDo,
+        string? mustNotDo,
+        string providerId,
+        bool preferAdvanced)
     {
-        var current = DiezAiExchangeBridge.ReadJobs(document.ExportProjectJson())
-            .Where(j => string.Equals(j.OutputType, "Image", StringComparison.OrdinalIgnoreCase))
-            .ToList();
-        var expectedCodes = pack.Items.Select(i => i.Code).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var unexpected = current.Where(j => !expectedCodes.Contains(j.Code)).ToList();
-        if (unexpected.Count > 0)
-        {
-            return new VisualJobSyncResult(
-                false, 0, 0,
-                "Il piano immagini è cambiato ma esistono job immagine fuori dal piano corrente. Nessun job è stato modificato: rivedi il piano o la cronologia AI.",
-                current);
-        }
-
-        var created = 0;
-        var existing = 0;
-        foreach (var item in pack.Items.OrderBy(i => i.Position))
-        {
-            current = DiezAiExchangeBridge.ReadJobs(document.ExportProjectJson())
-                .Where(j => string.Equals(j.OutputType, "Image", StringComparison.OrdinalIgnoreCase))
-                .ToList();
-            var already = current.FirstOrDefault(j => string.Equals(j.Code, item.Code, StringComparison.OrdinalIgnoreCase));
-            if (already is not null)
-            {
-                if (!string.Equals(already.Prompt.Trim(), item.Prompt.Trim(), StringComparison.Ordinal))
-                {
-                    return new VisualJobSyncResult(
-                        false, created, existing,
-                        $"{item.Code} esiste già ma il Prompt del piano corrente è cambiato. Nessun job esistente viene sovrascritto automaticamente.",
-                        current);
-                }
-                existing++;
-                continue;
-            }
-
-            var mutation = DiezAiExchangeBridge.CreateReadyJob(
-                document.ExportProjectJson(), item.Title, "Image", item.Prompt);
-            if (!string.Equals(mutation.Job.Code, item.Code, StringComparison.OrdinalIgnoreCase))
-            {
-                return new VisualJobSyncResult(
-                    false, created, existing,
-                    $"Il Core avrebbe assegnato {mutation.Job.Code} invece di {item.Code}; sincronizzazione annullata prima di applicare il job.",
-                    current);
-            }
-            ApplyCoreJson(document, mutation.ProjectJson);
-            created++;
-        }
-
-        var finalJobs = DiezAiExchangeBridge.ReadJobs(document.ExportProjectJson())
-            .Where(j => string.Equals(j.OutputType, "Image", StringComparison.OrdinalIgnoreCase))
-            .OrderBy(j => j.Code, StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        var result = DiezVisualJobFrontendBridge.SyncReadyJobs(
+            document.ExportProjectJson(), mustDo, mustNotDo, providerId, preferAdvanced);
+        if (result.Success) ApplyCoreJson(document, result.ProjectJson);
         return new VisualJobSyncResult(
-            true,
-            created,
-            existing,
-            created == 0
-                ? $"I {existing} job immagine del piano erano già pronti."
-                : $"Creati {created} job immagine; {existing} erano già pronti.",
-            finalJobs);
+            result.Success,
+            result.Created,
+            result.Existing,
+            result.Message,
+            result.Jobs);
     }
 
     public static DiezVisualBookProgress VisualProgress(this DiezProjectDocument document) =>
