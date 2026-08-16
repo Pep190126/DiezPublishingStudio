@@ -9,30 +9,18 @@ internal static class BookTypeProfileService
     private const string EntityKind = "DiezBookType";
     private const string WordSearchNodeKind = "WordSearchPuzzle";
 
-    public const string WordSearch = "Word Search";
-    public const string Crossword = "Cruciverba";
-    public const string Quiz = "Quiz / trivia";
-    public const string ColoringBook = "Coloring book";
-    public const string ImageCollection = "Raccolta immagini";
-    public const string Novel = "Romanzo / racconto";
-    public const string EssayManual = "Saggio / manuale";
-    public const string IllustratedBook = "Libro illustrato";
-    public const string DataCollection = "Catalogo / raccolta dati";
-    public const string Other = "Altro";
+    public const string WordSearch = BookTypeCatalog.WordSearch;
+    public const string Crossword = BookTypeCatalog.Crossword;
+    public const string Quiz = BookTypeCatalog.Quiz;
+    public const string ColoringBook = BookTypeCatalog.ColoringBook;
+    public const string ImageCollection = BookTypeCatalog.ImageCollection;
+    public const string Novel = BookTypeCatalog.Novel;
+    public const string EssayManual = BookTypeCatalog.EssayManual;
+    public const string IllustratedBook = BookTypeCatalog.IllustratedBook;
+    public const string DataCollection = BookTypeCatalog.DataCollection;
+    public const string Other = BookTypeCatalog.Other;
 
-    public static readonly string[] All =
-    [
-        ColoringBook,
-        ImageCollection,
-        IllustratedBook,
-        EssayManual,
-        WordSearch,
-        Crossword,
-        Quiz,
-        Novel,
-        DataCollection,
-        Other
-    ];
+    public static readonly string[] All = BookTypeCatalog.All.ToArray();
 
     public static string Get(PreviewProject project)
     {
@@ -78,13 +66,8 @@ internal static class BookTypeProfileService
     /// Types that need the common image-series workflow. Illustrated books share
     /// illustration controls with Image Collection while retaining their own book type.
     /// </summary>
-    public static bool IsImageCollection(PreviewProject project)
-    {
-        var type = Get(project);
-        return string.Equals(type, ColoringBook, StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(type, ImageCollection, StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(type, IllustratedBook, StringComparison.OrdinalIgnoreCase);
-    }
+    public static bool IsImageCollection(PreviewProject project) =>
+        BookTypeCatalog.IsVisual(Get(project));
 
     public static bool IsWordSearch(PreviewProject project) =>
         string.Equals(Get(project), WordSearch, StringComparison.OrdinalIgnoreCase);
@@ -92,26 +75,7 @@ internal static class BookTypeProfileService
     public static bool IsCrossword(PreviewProject project) =>
         string.Equals(Get(project), Crossword, StringComparison.OrdinalIgnoreCase);
 
-    public static string Normalize(string? value)
-    {
-        var text = (value ?? string.Empty).Trim();
-        if (text.Length == 0) return string.Empty;
-        if (text.Equals(Crossword, StringComparison.OrdinalIgnoreCase) ||
-            text.Contains("cruciverba", StringComparison.OrdinalIgnoreCase) ||
-            text.Contains("crossword", StringComparison.OrdinalIgnoreCase)) return Crossword;
-        if (text.Equals("Puzzle / giochi di parole", StringComparison.OrdinalIgnoreCase) ||
-            text.Contains("word search", StringComparison.OrdinalIgnoreCase) ||
-            text.Contains("wordsearch", StringComparison.OrdinalIgnoreCase) ||
-            text.Contains("cerca parole", StringComparison.OrdinalIgnoreCase)) return WordSearch;
-        if (text.Equals(ColoringBook, StringComparison.OrdinalIgnoreCase) || text.Contains("coloring", StringComparison.OrdinalIgnoreCase)) return ColoringBook;
-        if (text.Equals(ImageCollection, StringComparison.OrdinalIgnoreCase) || text.Contains("raccolta immagini", StringComparison.OrdinalIgnoreCase) || text.Contains("image collection", StringComparison.OrdinalIgnoreCase)) return ImageCollection;
-        if (text.Equals(EssayManual, StringComparison.OrdinalIgnoreCase) || text.Contains("saggio", StringComparison.OrdinalIgnoreCase) || text.Contains("manuale", StringComparison.OrdinalIgnoreCase) || text.Contains("essay", StringComparison.OrdinalIgnoreCase)) return EssayManual;
-        if (text.Equals(Novel, StringComparison.OrdinalIgnoreCase) || text.Contains("romanzo", StringComparison.OrdinalIgnoreCase) || text.Contains("racconto", StringComparison.OrdinalIgnoreCase)) return Novel;
-        if (text.Equals(IllustratedBook, StringComparison.OrdinalIgnoreCase) || text.Contains("illustrato", StringComparison.OrdinalIgnoreCase)) return IllustratedBook;
-        if (text.Equals(Quiz, StringComparison.OrdinalIgnoreCase) || text.Contains("quiz", StringComparison.OrdinalIgnoreCase) || text.Contains("trivia", StringComparison.OrdinalIgnoreCase)) return Quiz;
-        if (text.Equals(DataCollection, StringComparison.OrdinalIgnoreCase) || text.Contains("raccolta dati", StringComparison.OrdinalIgnoreCase) || text.Contains("catalogo", StringComparison.OrdinalIgnoreCase)) return DataCollection;
-        return Other;
-    }
+    public static string Normalize(string? value) => BookTypeCatalog.Normalize(value);
 
     private static string Infer(PreviewProject project)
     {
