@@ -268,7 +268,7 @@ internal static class SingleWindowBookTitleUsabilityUi
                "[name=" + (control.Name ?? "-") +
                ",bounds=" + control.Bounds +
                ",visible=" + control.IsVisible +
-               ",attached=" + control.IsAttachedToVisualTree +
+               ",attached=" + control.IsAttachedToVisualTree() +
                ",hit=" + control.IsHitTestVisible +
                ",enabled=" + control.IsEnabled +
                ",effectiveEnabled=" + control.IsEffectivelyEnabled +
