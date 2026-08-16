@@ -26,6 +26,7 @@ on:
       - 'tests/Diez.AiImageEditorial.Pianist/**'
       - 'tests/Diez.PuzzleFrontend.Pianist/**'
       - 'tests/Diez.VisualBook.Pianist/**'
+      - 'tests/Diez.PromptPackFrontend.Pianist/**'
       - '.github/workflows/uno-platform-spike.yml'
   workflow_dispatch:
 
@@ -93,6 +94,9 @@ jobs:
 
       - name: Run visual book end-to-end pianist contract
         run: dotnet run --project tests/Diez.VisualBook.Pianist/Diez.VisualBook.Pianist.csproj -c Release
+
+      - name: Run real Prompt Pack frontend pianist contract
+        run: dotnet run --project tests/Diez.PromptPackFrontend.Pianist/Diez.PromptPackFrontend.Pianist.csproj -c Release
 
       - name: Run Prompt Compiler 3.6 pianist contract
         run: dotnet run --project tests/Diez.PromptCompiler.Pianist/Diez.PromptCompiler.Pianist.csproj -c Release
