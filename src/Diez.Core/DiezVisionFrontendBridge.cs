@@ -65,10 +65,15 @@ public static class DiezVisionFrontendBridge
             return BuildResult(root, project, exchange, "INVALID", "La versione selezionata non è un'immagine.", false, [], [], version, unit);
 
         var requirements = BuildRequirements(project, unit);
-        if (version.Status == AiExchangeVersionStatuses.Incomplete ||
+        var recheckAfterVisionFailure =
+            version.Status == AiExchangeVersionStatuses.Incomplete &&
+            string.Equals(version.DescriptionStatus, AiExchangeDescriptionStatuses.NeedsVerification, StringComparison.OrdinalIgnoreCase) &&
+            version.MaterialId.HasValue &&
+            !string.IsNullOrWhiteSpace(version.Description);
+        if ((!recheckAfterVisionFailure && version.Status == AiExchangeVersionStatuses.Incomplete) ||
             !version.MaterialId.HasValue ||
             string.IsNullOrWhiteSpace(version.Description) ||
-            !string.Equals(version.DescriptionStatus, AiExchangeDescriptionStatuses.Valid, StringComparison.OrdinalIgnoreCase))
+            string.Equals(version.DescriptionStatus, AiExchangeDescriptionStatuses.Missing, StringComparison.OrdinalIgnoreCase))
         {
             return BuildResult(
                 root,
