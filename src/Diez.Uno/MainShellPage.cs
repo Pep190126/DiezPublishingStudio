@@ -539,63 +539,23 @@ public sealed class MainShellPage : Page
     private void ShowWordSearch()
     {
         if (!RequireDocument()) return;
-        var root = PageRoot("Word Search · workspace",
-            "Database, colonne-puzzle, lessico, sostituzione contestuale, validazione e destinazioni di export sono raccolti in un’unica superficie.");
-        var database = Editor(_document!.GetUiString("WordSearch.Database"), "Incolla o importa righe/colonne del database Word Search. Ogni colonna può rappresentare un puzzle.", 210);
-        var lexicon = Editor(_document.GetUiString("WordSearch.Lexicon"), "Lessico di riserva / parole non ancora usate.", 140);
-        var expected = Editor(_document.GetUiString("WordSearch.ExpectedCount", "10"), "Numero atteso di parole per puzzle", 42, false);
-        var replacement = Editor(_document.GetUiString("WordSearch.Replacement"), "Parola da sostituire → nuova parola contestuale dal lessico.", 80);
-        var exportMode = Combo(["Locale", "Google Sheets", "Locale + Google Sheets"], _document.GetUiString("WordSearch.ExportMode", "Locale"));
-        var validation = new TextBlock { Text = BuildWordSearchValidation(database.Text, expected.Text), TextWrapping = TextWrapping.Wrap };
-        database.TextChanged += (_, _) => validation.Text = BuildWordSearchValidation(database.Text, expected.Text);
-        expected.TextChanged += (_, _) => validation.Text = BuildWordSearchValidation(database.Text, expected.Text);
-        root.Children.Add(Card("Database / colonne puzzle", Vertical(Labeled("Database", database), Labeled("Parole attese per puzzle", expected), validation)));
-        root.Children.Add(Card("Lessico e sostituzione chirurgica", Vertical(Labeled("Lessico disponibile", lexicon), Labeled("Sostituzione contestuale", replacement))));
-        root.Children.Add(Card("Export", Vertical(Labeled("Destinazione", exportMode), Horizontal(
-            ActionButton("Copia database", () => CopyText(database.Text ?? "")),
-            AsyncButton("Esporta TXT/CSV", async () => await ExportTextAsync("word-search-database.csv", database.Text ?? ""))))));
-        root.Children.Add(AsyncButton("Salva workspace Word Search", async () =>
-        {
-            _document.SetUiString("WordSearch.Database", database.Text);
-            _document.SetUiString("WordSearch.Lexicon", lexicon.Text);
-            _document.SetUiString("WordSearch.ExpectedCount", expected.Text);
-            _document.SetUiString("WordSearch.Replacement", replacement.Text);
-            _document.SetUiString("WordSearch.ExportMode", exportMode.SelectedItem?.ToString());
-            await SaveIfPossibleAsync();
-            Report("Workspace Word Search salvato.");
-        }));
-        SetContent(root);
-    }
-
-    private static string BuildWordSearchValidation(string? text, string? expectedText)
-    {
-        var lines = (text ?? "").Replace("\r\n", "\n").Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        var expected = int.TryParse(expectedText, out var n) && n > 0 ? n : 0;
-        return $"Righe non vuote: {lines.Length}" + (expected > 0 ? $" · target dichiarato: {expected} parole per puzzle. Usa l’export completo per reimportare il DB senza perdita." : "");
+        SetContent(WordSearchWorkspace.Build(
+            _document!,
+            SaveIfPossibleAsync,
+            Report,
+            ShowWordSearch,
+            ExportTextAsync));
     }
 
     private void ShowCrossword()
     {
         if (!RequireDocument()) return;
-        var root = PageRoot("Cruciverba · workspace", "Tema, parole, definizioni editabili, ruoli tematici e handoff Qxw restano nello stesso workspace.");
-        var theme = Editor(_document!.GetUiString("Crossword.Theme"), "Tema del cruciverba", 70);
-        var words = Editor(_document.GetUiString("Crossword.Words"), "Una voce per riga: PAROLA | definizione | ruolo/tema", 250);
-        var qxw = Editor(_document.GetUiString("Crossword.Qxw"), "Lista pronta per Qxw / tool esterno.", 150);
-        var adaptive = Check("Tipo adattivo: adatta definizioni e difficoltà al pubblico", _document.GetUiBool("Crossword.Adaptive", true));
-        root.Children.Add(Card("Tema e definizioni", Vertical(Labeled("Tema", theme), adaptive, Labeled("Griglia parole/definizioni", words))));
-        root.Children.Add(Card("Qxw / handoff", Vertical(Labeled("Lista Qxw", qxw), Horizontal(
-            ActionButton("Copia Qxw", () => CopyText(qxw.Text ?? "")),
-            AsyncButton("Esporta lista", async () => await ExportTextAsync("crossword-qxw.txt", qxw.Text ?? ""))))));
-        root.Children.Add(AsyncButton("Salva workspace Cruciverba", async () =>
-        {
-            _document.SetUiString("Crossword.Theme", theme.Text);
-            _document.SetUiString("Crossword.Words", words.Text);
-            _document.SetUiString("Crossword.Qxw", qxw.Text);
-            _document.SetUiBool("Crossword.Adaptive", adaptive.IsChecked == true);
-            await SaveIfPossibleAsync();
-            Report("Workspace Cruciverba salvato.");
-        }));
-        SetContent(root);
+        SetContent(CrosswordWorkspace.Build(
+            _document!,
+            SaveIfPossibleAsync,
+            Report,
+            ShowCrossword,
+            ExportTextAsync));
     }
 
     private void ShowImageCollection()
@@ -733,7 +693,7 @@ public sealed class MainShellPage : Page
             "Destinazione locale, Google o entrambe; metadata, freeze ed handoff sono raccolti nella stessa pagina.");
         var destination = Combo(["Locale", "Google Drive / Docs / Sheets", "Locale + Google"], _document!.GetUiString("Export.Destination", "Locale"));
         var formats = Editor(_document.GetUiString("Export.Formats", "DOCX\nPDF\nTXT/CSV quando applicabile"), "Un formato per riga.", 100);
-        var metadata = Editor(_document.GetUiString("Export.Metadata"), $"Titolo: {_document.EditionTitle}\nLingua: it\nEditore:\nISBN:", 160);
+        var metadata = Editor(_document.GetUiString("Export.Metadata", $"Titolo: {_document.EditionTitle}\nLingua: it\nEditore:\nISBN:"), "Metadata edizione", 160);
         var freeze = Check("Crea snapshot / freeze dell’edizione prima dell’export", _document.GetUiBool("Export.Freeze", true));
         var handoff = Editor(_document.GetUiString("Export.Handoff"), "Note handoff, link Google, cartella locale, destinatario.", 130);
         root.Children.Add(Card("Destinazione e formati", Vertical(Labeled("Destinazione", destination), Labeled("Formati", formats), freeze)));
