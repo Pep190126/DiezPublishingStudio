@@ -29,7 +29,7 @@ internal static class VisionWorkspace
         });
         root.Children.Add(new TextBlock
         {
-            Text = "Importa la candidate immagine con la sua descrizione, poi verifica tutti i controlli richiesti da Diez. L'immagine viene approvata solo quando ogni controllo HARD applicabile è PASS.",
+            Text = "Importa l'immagine candidata con la sua descrizione, poi verifica tutti i controlli richiesti da Diez. Vision approva la versione; l'applicazione al libro resta una seconda azione esplicita.",
             TextWrapping = TextWrapping.Wrap
         });
         root.Children.Add(new Separator());
@@ -74,7 +74,7 @@ internal static class VisionWorkspace
             {
                 requirementsHost.Children.Add(new TextBlock
                 {
-                    Text = "Seleziona un job Immagine per vedere i controlli richiesti.",
+                    Text = "Seleziona un'attività Immagine per vedere i controlli richiesti.",
                     TextWrapping = TextWrapping.Wrap
                 });
                 return;
@@ -85,7 +85,7 @@ internal static class VisionWorkspace
             {
                 requirementsHost.Children.Add(new TextBlock
                 {
-                    Text = "Non risultano controlli Vision disponibili per questo job.",
+                    Text = "Non risultano controlli Vision disponibili per questa attività.",
                     TextWrapping = TextWrapping.Wrap
                 });
                 return;
@@ -121,8 +121,8 @@ internal static class VisionWorkspace
             if (jobs.SelectedIndex < 0 || jobs.SelectedIndex >= imageJobs.Count)
             {
                 selectedJob.Text = imageJobs.Count == 0
-                    ? "Non ci sono ancora job Immagine. Creane uno dal Prompt Pack o dall'AI Center."
-                    : "Seleziona un job Immagine.";
+                    ? "Non ci sono ancora attività Immagine. Creane una dal Prompt Pack o dalla Produzione con AI."
+                    : "Seleziona un'attività Immagine.";
                 versionModels = [];
                 versions.ItemsSource = Array.Empty<string>();
                 RefreshRequirements(null);
@@ -150,8 +150,8 @@ internal static class VisionWorkspace
         jobs.SelectedIndex = imageJobs.Count > 0 ? 0 : -1;
         RefreshSelection();
 
-        root.Children.Add(Card("Job Immagine", Vertical(jobs, selectedJob)));
-        root.Children.Add(Card("Candidate immagine", Vertical(
+        root.Children.Add(Card("Attività Immagine", Vertical(jobs, selectedJob)));
+        root.Children.Add(Card("Immagine candidata", Vertical(
             Horizontal(
                 AsyncButton("Scegli immagine…", async () =>
                 {
@@ -171,18 +171,18 @@ internal static class VisionWorkspace
                     }
                 }),
                 selectedImage),
-            Labeled("Descrizione della candidate", description),
-            AsyncButton("Importa candidate", async () =>
+            Labeled("Descrizione dell'immagine candidata", description),
+            AsyncButton("Importa immagine candidata", async () =>
             {
                 if (jobs.SelectedIndex < 0 || jobs.SelectedIndex >= imageJobs.Count)
                 {
-                    report("Seleziona prima un job Immagine.");
+                    report("Seleziona prima un'attività Immagine.");
                     return;
                 }
                 var job = imageJobs[jobs.SelectedIndex];
                 if (!job.WorkUnitId.HasValue)
                 {
-                    report("Questo job non ha ancora una Work Unit AI Exchange valida.");
+                    report("Questa attività non ha ancora una Work Unit AI Exchange valida.");
                     return;
                 }
                 if (string.IsNullOrWhiteSpace(selectedImagePath))
@@ -207,13 +207,18 @@ internal static class VisionWorkspace
             versions,
             new TextBlock
             {
-                Text = "Ogni nuova candidate resta separata dalle precedenti. Un file diverso non sovrascrive una versione già esistente.",
+                Text = "Ogni nuova versione candidata resta separata dalle precedenti. Un file diverso non sovrascrive una versione già esistente.",
                 TextWrapping = TextWrapping.Wrap
             })));
 
         root.Children.Add(Card("Controlli Vision richiesti", requirementsHost));
         root.Children.Add(Card("Esito Vision", Vertical(
             Labeled("Note", reviewNotes),
+            new TextBlock
+            {
+                Text = "Verifica e approva non inserisce automaticamente l'immagine nel libro. Dopo il PASS usa “Porta nel libro”.",
+                TextWrapping = TextWrapping.Wrap
+            },
             Horizontal(
                 AsyncButton("Verifica e approva", async () =>
                 {
@@ -244,7 +249,19 @@ internal static class VisionWorkspace
                     showVision();
                     report(result.Message);
                 }),
-                ActionButton("Torna all'AI Center", showAiCenter)))));
+                AsyncButton("Porta nel libro", async () =>
+                {
+                    if (versions.SelectedIndex < 0 || versions.SelectedIndex >= versionModels.Count)
+                    {
+                        report("Seleziona una versione immagine da portare nel libro.");
+                        return;
+                    }
+                    var result = document.PromoteAiVersion(versionModels[versions.SelectedIndex].VersionId);
+                    await save();
+                    showVision();
+                    report(result.Message);
+                }),
+                ActionButton("Torna alla Produzione con AI", showAiCenter)))));
 
         return root;
     }
