@@ -63,6 +63,15 @@ try
         Require(exported.Exported && File.Exists(packagePath) && new FileInfo(packagePath).Length > 0,
             $"Publication ZIP must export for {bookType}.");
 
+        var masterCsv = Path.Combine(tempRoot, safeType + "-master.csv");
+        var csvHandoff = await HandoffExportService.ExportMasterCsvAsync(project, masterCsv);
+        Require(csvHandoff.Exported && File.Exists(masterCsv) && new FileInfo(masterCsv).Length > 0,
+            $"Master CSV handoff must export for {bookType}.");
+        var masterXlsx = Path.Combine(tempRoot, safeType + "-master.xlsx");
+        var xlsxHandoff = await HandoffExportService.ExportMasterXlsxAsync(project, masterXlsx);
+        Require(xlsxHandoff.Exported && File.Exists(masterXlsx) && new FileInfo(masterXlsx).Length > 0,
+            $"Master XLSX handoff must export for {bookType}.");
+
         // Pianist behavior: modify the editable master after freeze/candidate creation.
         var edit = EditableMasterService.ApplyManualEdit(
             project,
@@ -79,6 +88,11 @@ try
             Path.Combine(tempRoot, safeType + "-stale.zip"));
         Require(!blockedExport.Exported,
             $"Publication export must be blocked after a post-freeze edit for {bookType}.");
+        var blockedHandoff = await HandoffExportService.ExportMasterCsvAsync(
+            project,
+            Path.Combine(tempRoot, safeType + "-stale-master.csv"));
+        Require(!blockedHandoff.Exported,
+            $"Master handoff must also be blocked while the edition freeze is stale for {bookType}.");
 
         var newFreeze = EditionFreezeService.CreateFreeze(project, "Pianist freeze after edit");
         Require(newFreeze.Freeze is not null && EditionFreezeService.FreezeCount(project) == 2,
@@ -102,7 +116,7 @@ try
     Require(EditionMetadataService.IsValidIsbn("978-0-306-40615-7"), "Valid ISBN-13 must be accepted.");
     Require(!EditionMetadataService.IsValidIsbn("978-0-306-40615-8"), "Invalid ISBN-13 must be rejected.");
 
-    Console.WriteLine("PUBLICATION PIANIST PASS: all ten book types survived metadata, freeze, preflight, candidate, stale-edit blocking and regeneration.");
+    Console.WriteLine("PUBLICATION PIANIST PASS: all ten book types survived metadata, freeze, preflight, candidate, CSV/XLSX handoff, stale-edit blocking and regeneration.");
 }
 finally
 {
