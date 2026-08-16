@@ -1,3 +1,6 @@
+using System.IO.Compression;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using DiezPublishingStudio;
@@ -50,14 +53,14 @@ static string NewProject(string bookType)
     return root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
 }
 
-static DiezVisualBookMutation SaveSetup(string json, string bookType, int count)
+static DiezVisualBookMutation SaveSetup(string json, string bookType, int count, string subject = "gattino sorridente")
 {
     if (bookType == BookTypeCatalog.ColoringBook)
     {
         return DiezVisualBookFrontendBridge.SaveColoring(
             json,
             count,
-            "gattino sorridente",
+            subject,
             "giardino semplice",
             consistent: true,
             "Stesso personaggio, proporzioni e stile in tutta la serie.",
@@ -84,7 +87,7 @@ static DiezVisualBookMutation SaveSetup(string json, string bookType, int count)
         json,
         bookType,
         count,
-        "gattino sorridente",
+        subject,
         "giardino semplice",
         consistent: true,
         "Stesso soggetto e resa lungo tutta la serie.",
@@ -105,7 +108,6 @@ static DiezVisualBookMutation SaveSetup(string json, string bookType, int count)
 
 static byte[] PngBytes(int variant)
 {
-    // Minimal PNG-like asset: the ingest contract hashes and packages bytes; Vision is semantic/manual.
     var bytes = Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z3L8AAAAASUVORK5CYII=");
     return bytes.Concat(new byte[] { (byte)variant }).ToArray();
 }
@@ -147,6 +149,62 @@ static async Task<(string Json, DiezEditorialPromotionResult Promotion)> Complet
     Require(again.Status == "ALREADY_APPLIED" && !again.Changed,
         "Porta nel libro deve essere idempotente sulla stessa versione.");
     return (again.ProjectJson, promotion);
+}
+
+static string MarkEmbeddedAndAddDecoy(string json, string decoyPath)
+{
+    var root = JsonNode.Parse(json)!.AsObject();
+    var materials = root["Materials"]!.AsArray();
+    foreach (var material in materials.OfType<JsonObject>())
+    {
+        var id = Guid.Parse(material["MaterialId"]!.GetValue<string>());
+        var fileName = material["FileName"]?.GetValue<string>() ?? "image.png";
+        material["EmbeddedPath"] = $"materials/{id:N}/{fileName}";
+        material["IsEmbedded"] = true;
+    }
+
+    var decoyBytes = File.ReadAllBytes(decoyPath);
+    var decoyId = Guid.NewGuid();
+    materials.Add(new JsonObject
+    {
+        ["MaterialId"] = decoyId.ToString(),
+        ["FileName"] = "NON-APPROVATA.png",
+        ["SourcePath"] = decoyPath,
+        ["Kind"] = "Immagine PNG",
+        ["ImportedAtLocal"] = DateTimeOffset.Now.ToString("O"),
+        ["SizeBytes"] = decoyBytes.LongLength,
+        ["Sha256"] = Convert.ToHexString(SHA256.HashData(decoyBytes)),
+        ["Summary"] = "Immagine esca non approvata",
+        ["Preview"] = "",
+        ["ExtractedText"] = "",
+        ["Columns"] = new JsonArray(),
+        ["EmbeddedPath"] = $"materials/{decoyId:N}/NON-APPROVATA.png",
+        ["IsEmbedded"] = true
+    });
+    return root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+}
+
+static async Task WritePackageAsync(string json, string path)
+{
+    var root = JsonNode.Parse(json)!.AsObject();
+    if (File.Exists(path)) File.Delete(path);
+    await using var stream = new FileStream(path, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None);
+    using var archive = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: false);
+    var manifest = archive.CreateEntry("project.json", CompressionLevel.Optimal);
+    await using (var manifestStream = manifest.Open())
+    await using (var writer = new StreamWriter(manifestStream, new UTF8Encoding(false)))
+        await writer.WriteAsync(json);
+
+    foreach (var material in root["Materials"]!.AsArray().OfType<JsonObject>())
+    {
+        var embedded = material["EmbeddedPath"]?.GetValue<string>() ?? string.Empty;
+        var source = material["SourcePath"]?.GetValue<string>() ?? string.Empty;
+        if (embedded.Length == 0 || !File.Exists(source)) continue;
+        var entry = archive.CreateEntry(embedded, CompressionLevel.Optimal);
+        await using var input = File.OpenRead(source);
+        await using var output = entry.Open();
+        await input.CopyToAsync(output);
+    }
 }
 
 var tempRoot = Path.Combine(Path.GetTempPath(), "diez-visual-book-pianist-" + Guid.NewGuid().ToString("N"));
@@ -195,9 +253,14 @@ try
                      "DIEZ ITEM EXECUTION CONTRACT", "Work-unit code", "Series position", "DIEZ RENDER REQUEST ID",
                      "FAILED/INCOMPLETE", "FRESH GENERATION"
                  })
-        {
             Require(!prompt.Contains(forbidden, StringComparison.OrdinalIgnoreCase),
                 $"{bookType}: il Prompt visuale è contaminato da metadati/orchestrazione interna: {forbidden}.");
+
+        if (bookType != BookTypeCatalog.ColoringBook)
+        {
+            foreach (var italianProviderTerm in new[] { "Colore limitato", "Contorno medio", "Illustrativo chiaro", "Semplice / funzionale", "Tre quarti" })
+                Require(!prompt.Contains(italianProviderTerm, StringComparison.OrdinalIgnoreCase),
+                    $"{bookType}: il Prompt provider-facing contiene ancora vocabolario UI italiano: {italianProviderTerm}.");
         }
 
         var imagePath = Path.Combine(tempRoot, bookType.Replace(' ', '-') + ".png");
@@ -217,9 +280,45 @@ try
         var progress = DiezVisualBookFrontendBridge.Progress(completed.Json);
         Require(progress.ReadyForPublication && progress.ExpectedImages == 1 && progress.AppliedImages == 1 && progress.DistinctAppliedMaterials == 1,
             $"{bookType}: il percorso visuale completo deve risultare pronto solo con quantità esatta e materiale applicato.");
+
+        var decoyPath = Path.Combine(tempRoot, "decoy-" + bookType.Replace(' ', '-') + ".png");
+        await File.WriteAllBytesAsync(decoyPath, PngBytes(bookType.GetHashCode() + 31));
+        var embeddedJson = MarkEmbeddedAndAddDecoy(completed.Json, decoyPath);
+        var beforeFreeze = DiezPublicationFrontendBridge.Read(embeddedJson);
+        Require(!beforeFreeze.PreflightReady && !beforeFreeze.HasFreeze,
+            $"{bookType}: il preflight non deve essere READY prima dell'Edition Freeze.");
+
+        var frozen = DiezPublicationFrontendBridge.CreateFreeze(embeddedJson, "Pianista visuale");
+        Require(frozen.Status == "FROZEN" && frozen.State.HasFreeze && frozen.State.FreezeCurrent && frozen.State.PreflightReady,
+            $"{bookType}: il libro completo deve poter creare un Edition Freeze corrente e passare il preflight.");
+        var candidate = DiezPublicationFrontendBridge.CreatePublicationCandidate(frozen.ProjectJson);
+        Require(candidate.Status == "CREATED" && candidate.State.PublicationCandidateCurrent,
+            $"{bookType}: il Publication Candidate deve derivare dal freeze visuale corrente.");
+
+        var projectPath = Path.Combine(tempRoot, "final-" + bookType.Replace(' ', '-') + ".diez");
+        await WritePackageAsync(candidate.ProjectJson, projectPath);
+        var finalZip = Path.Combine(tempRoot, "final-" + bookType.Replace(' ', '-') + ".zip");
+        var visualExport = await DiezPublicationFrontendBridge.ExportFinalVisualImagesAsync(candidate.ProjectJson, projectPath, finalZip);
+        Require(visualExport.Success && visualExport.ItemCount == 1 && File.Exists(finalZip),
+            $"{bookType}: lo ZIP finale deve contenere esattamente l'immagine approvata e applicata.");
+        using (var exported = ZipFile.OpenRead(finalZip))
+        {
+            Require(exported.Entries.Count == 1, $"{bookType}: lo ZIP visuale non deve includere asset estranei.");
+            Require(!exported.Entries.Any(e => e.Name.Contains("NON-APPROVATA", StringComparison.OrdinalIgnoreCase)),
+                $"{bookType}: un'immagine non approvata non deve mai finire nello ZIP finale.");
+        }
+
+        var publicationZip = Path.Combine(tempRoot, "publication-" + bookType.Replace(' ', '-') + ".zip");
+        var publication = await DiezPublicationFrontendBridge.ExportPublicationPackageAsync(candidate.ProjectJson, publicationZip);
+        Require(publication.Success && File.Exists(publicationZip),
+            $"{bookType}: il pacchetto di pubblicazione deve essere esportabile dal Publication Candidate corrente.");
+
+        var changedAfterFreeze = SaveSetup(candidate.ProjectJson, bookType, 1, "gattino sorridente aggiornato");
+        var staleState = DiezPublicationFrontendBridge.Read(changedAfterFreeze.ProjectJson);
+        Require(!staleState.FreezeCurrent && !staleState.PreflightReady && !staleState.PublicationCandidateCurrent,
+            $"{bookType}: cambiare il profilo visuale dopo il freeze deve rendere freeze/candidate obsoleti.");
     }
 
-    // Global visual duplicate guard: two planned pages may not resolve to the same exact image bytes.
     var duplicateJson = NewProject(BookTypeCatalog.ColoringBook);
     var duplicateSetup = SaveSetup(duplicateJson, BookTypeCatalog.ColoringBook, 2);
     var duplicatePack = DiezVisualBookFrontendBridge.BuildPromptPack(duplicateSetup.ProjectJson);
@@ -229,10 +328,10 @@ try
     var d1 = await CompleteOneAsync(duplicatePack.ProjectJson, duplicatePack.Items[0], sameImage);
     var d2 = await CompleteOneAsync(d1.Json, duplicatePack.Items[1], sameImage);
     var duplicateProgress = DiezVisualBookFrontendBridge.Progress(d2.Json);
-    Require(!duplicateProgress.ReadyForPublication && duplicateProgress.Problems.Any(p => p.Contains("duplicate", StringComparison.OrdinalIgnoreCase)),
+    Require(!duplicateProgress.ReadyForPublication && duplicateProgress.Problems.Any(p => p.Contains("duplicat", StringComparison.OrdinalIgnoreCase)),
         "Due pagine diverse che usano lo stesso identico file devono bloccare la readiness del libro visuale.");
 
-    Console.WriteLine("VISUAL BOOK PIANIST PASS: Coloring, Raccolta immagini and Libro illustrato preserve canonical setup, clean atomic prompts, Vision-only approval, explicit promotion, idempotence and whole-book duplicate guards.");
+    Console.WriteLine("VISUAL BOOK PIANIST PASS: three visual families survived canonical setup, atomic prompts, Vision-only approval, explicit promotion, whole-book duplicates, freeze/preflight, publication candidate and final approved-asset export.");
 }
 finally
 {
