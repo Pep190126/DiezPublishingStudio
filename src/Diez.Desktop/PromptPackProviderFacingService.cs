@@ -108,7 +108,7 @@ internal static class PromptPackProviderFacingService
         if (multi.Enabled && MultiSubjectProfileService.ActiveSubjects(multi).Count > 0)
             structuredSubject = MultiSubjectProfileService.SubjectForItem(project, stableIndex);
 
-        var structuredScene = StructuredSceneProfileService.SceneForWorkUnit(project, unit);
+        var structuredScene = StructuredSceneProfileService.SceneForPosition(project, unit.Position);
         var sceneParticipants = structuredScene is null
             ? Array.Empty<MultiSubjectDefinition>()
             : StructuredSceneProfileService.Participants(project, structuredScene).ToArray();
