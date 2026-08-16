@@ -15,9 +15,9 @@ public partial class App : Application
     {
         MainWindow = new Window
         {
-            Title = "Diez Publishing Studio — Uno Platform"
+            Title = "Diez Publishing Studio"
         };
-        MainWindow.Content = new MainShellPage();
+        MainWindow.Content = new DiezUiPolishHost(new MainShellPage());
         MainWindow.Activate();
     }
 }
