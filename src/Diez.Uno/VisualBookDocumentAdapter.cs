@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Runtime.CompilerServices;
 using DiezPublishingStudio;
 
@@ -9,6 +10,14 @@ internal sealed record VisualJobSyncResult(
     int Existing,
     string Message,
     IReadOnlyList<DiezAiFrontendJob> Jobs);
+
+internal sealed record VisualResponseImportResult(
+    bool Success,
+    int Candidates,
+    int ProviderFailed,
+    int Duplicates,
+    string Message,
+    string RecoveryPath);
 
 /// <summary>
 /// Temporary migration adapter: DiezProjectDocument still owns ZIP preservation while the
@@ -106,6 +115,98 @@ internal static class VisualBookDocumentAdapter
         return result;
     }
 
+    /// <summary>
+    /// Imports one audited Response ZIP as a batch. Assets are extracted and ingested one at a time,
+    /// then immediately embedded by SaveAsync before temporary files are removed.
+    /// </summary>
+    public static async Task<VisualResponseImportResult> ImportManualVisualResponsePackAsync(
+        this DiezProjectDocument document,
+        string zipPath)
+    {
+        if (string.IsNullOrWhiteSpace(document.SourcePath) || !File.Exists(document.SourcePath))
+            return new(false, 0, 0, 0, "Salva prima il progetto .diez: il Response Pack deve poter incorporare subito gli asset importati.", string.Empty);
+
+        var audit = await DiezVisualResponsePackFrontendBridge.ReadAsync(document.ExportProjectJson(), zipPath);
+        if (!audit.Success)
+            return new(false, 0, 0, 0, audit.Message, string.Empty);
+
+        var tempRoot = Path.Combine(Path.GetTempPath(), "DiezVisualResponse-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRoot);
+        var candidates = 0;
+        var providerFailed = 0;
+        var duplicates = 0;
+        try
+        {
+            using var archive = ZipFile.OpenRead(zipPath);
+            foreach (var item in audit.Items)
+            {
+                if (string.Equals(item.Status, "FAILED", StringComparison.OrdinalIgnoreCase))
+                {
+                    var failed = DiezVisualResponsePackFrontendBridge.RecordProviderFailure(
+                        document.ExportProjectJson(), audit.PackageId, audit.PromptPackId,
+                        audit.RequestSnapshotId, item);
+                    if (!failed.Success)
+                        return new(false, candidates, providerFailed, duplicates, failed.Message, tempRoot);
+                    ApplyCoreJson(document, failed.ProjectJson);
+                    providerFailed++;
+                    continue;
+                }
+
+                var entry = archive.Entries.FirstOrDefault(x =>
+                    string.Equals(NormalizeZipPath(x.FullName), item.AssetEntryPath, StringComparison.Ordinal));
+                if (entry is null)
+                    return new(false, candidates, providerFailed, duplicates,
+                        $"{item.Code}: l'asset verificato non è più presente nel Response ZIP.", tempRoot);
+
+                var safeName = SafeAssetName(item.AssetFileName, item.Code);
+                var localPath = Path.Combine(tempRoot, Guid.NewGuid().ToString("N") + "-" + safeName);
+                await using (var source = entry.Open())
+                await using (var destination = File.Create(localPath))
+                    await source.CopyToAsync(destination);
+
+                var ingest = await document.IngestAiImageResultAsync(
+                    item.WorkUnitId,
+                    localPath,
+                    item.Description,
+                    item.CandidateVersion,
+                    item.Status);
+
+                if (ingest.Status is not ("IMPORTED" or "UPDATED" or "DUPLICATE" or "INCOMPLETE"))
+                    return new(false, candidates, providerFailed, duplicates,
+                        $"{item.Code}: import interrotto — {ingest.Message}", tempRoot);
+
+                if (ingest.Status == "DUPLICATE") duplicates++;
+                else candidates++;
+
+                if (ingest.Version is not null)
+                {
+                    var withSnapshot = DiezAiSnapshotFrontendBridge.AttachVersion(
+                        document.ExportProjectJson(), ingest.Version.VersionId, audit.RequestSnapshotId);
+                    ApplyCoreJson(document, withSnapshot);
+                }
+            }
+
+            var marked = DiezVisualResponsePackFrontendBridge.MarkPackageImported(
+                document.ExportProjectJson(), audit.PackageId);
+            if (!marked.Success)
+                return new(false, candidates, providerFailed, duplicates, marked.Message, tempRoot);
+            ApplyCoreJson(document, marked.ProjectJson);
+
+            await document.SaveAsync(document.SourcePath);
+            try { Directory.Delete(tempRoot, true); } catch { }
+            var total = candidates + providerFailed + duplicates;
+            return new(true, candidates, providerFailed, duplicates,
+                $"Response ZIP importato: {total} risultati · {candidates} Candidate · {providerFailed} FAILED provider · {duplicates} duplicati. Apri Vision per la review delle immagini.",
+                string.Empty);
+        }
+        catch (Exception ex)
+        {
+            return new(false, candidates, providerFailed, duplicates,
+                "Import Response ZIP non riuscito: " + ex.GetBaseException().Message + $" · file temporanei conservati in {tempRoot}",
+                tempRoot);
+        }
+    }
+
     public static DiezVisualBookProgress VisualProgress(this DiezProjectDocument document) =>
         DiezVisualBookFrontendBridge.Progress(document.ExportProjectJson());
 
@@ -131,4 +232,13 @@ internal static class VisualBookDocumentAdapter
 
     public static Task<DiezFileExportResult> ExportFinalVisualImagesAsync(this DiezProjectDocument document, string projectPath, string outputPath) =>
         DiezPublicationFrontendBridge.ExportFinalVisualImagesAsync(document.ExportProjectJson(), projectPath, outputPath);
+
+    private static string NormalizeZipPath(string value) => value.Replace('\\', '/').Trim().TrimStart('/');
+
+    private static string SafeAssetName(string? fileName, string code)
+    {
+        var name = string.IsNullOrWhiteSpace(fileName) ? code + ".bin" : Path.GetFileName(fileName);
+        foreach (var invalid in Path.GetInvalidFileNameChars()) name = name.Replace(invalid, '_');
+        return string.IsNullOrWhiteSpace(name) ? code + ".bin" : name;
+    }
 }

@@ -77,7 +77,7 @@ internal static class AiCenterWorkspace
             var image = string.Equals(job.OutputType, "Image", StringComparison.OrdinalIgnoreCase);
             response.IsEnabled = !image;
             response.PlaceholderText = image
-                ? "Per le immagini importa e approva la versione nell’area Vision."
+                ? "Per le immagini importa il Response ZIP e usa Vision per l'approvazione HARD."
                 : "Incolla qui la risposta ricevuta dall’AI.";
 
             versionModels = job.WorkUnitId.HasValue
@@ -181,10 +181,33 @@ internal static class AiCenterWorkspace
                         }
                     }),
                     apiButton),
+                AsyncButton("Importa Response ZIP · Manuale", async () =>
+                {
+                    if (string.IsNullOrWhiteSpace(document.SourcePath))
+                    {
+                        report("Salva prima il progetto .diez: le immagini del Response devono essere incorporate subito nel progetto.");
+                        return;
+                    }
+                    try
+                    {
+                        var picker = new FileOpenPicker { SuggestedStartLocation = PickerLocationId.DocumentsLibrary };
+                        picker.FileTypeFilter.Add(".zip");
+                        var file = await picker.PickSingleFileAsync();
+                        if (file is null) return;
+
+                        var result = await document.ImportManualVisualResponsePackAsync(file.Path);
+                        report(result.Message);
+                        if (result.Success) showVision();
+                    }
+                    catch (Exception ex)
+                    {
+                        report("Import Response ZIP non riuscito: " + ex.GetBaseException().Message);
+                    }
+                }),
                 apiInfo,
                 new TextBlock
                 {
-                    Text = "Copia Prompt resta una utility di emergenza. Il percorso Manuale normale è il file ZIP unico, non N copie/incolla e non N chat obbligatorie.",
+                    Text = "Percorso Manuale: 1 Prompt Pack ZIP → consegna all’AI → 1 Response ZIP quando il provider lo consente → Candidate separate → Vision. Copia Prompt resta una utility di emergenza, non il flusso normale.",
                     TextWrapping = TextWrapping.Wrap
                 })));
         }
@@ -194,7 +217,7 @@ internal static class AiCenterWorkspace
         root.Children.Add(Card("Risposta e versioni", Vertical(
             new TextBlock
             {
-                Text = "Testo e Dati possono essere importati qui come versioni candidate. Le immagini passano da Vision per l'approvazione HARD.",
+                Text = "Testo e Dati possono essere importati qui come versioni candidate. Le immagini rientrano dal Response ZIP e passano da Vision per l'approvazione HARD.",
                 TextWrapping = TextWrapping.Wrap
             },
             Labeled("Risposta ricevuta", response),
@@ -210,7 +233,7 @@ internal static class AiCenterWorkspace
                     }
                     if (string.Equals(job.OutputType, "Image", StringComparison.OrdinalIgnoreCase))
                     {
-                        report("Per un risultato Immagine usa Vision: descrizione e controlli obbligatori non possono essere saltati.");
+                        report("Per un risultato Immagine usa il Response ZIP e Vision: descrizione e controlli obbligatori non possono essere saltati.");
                         return;
                     }
 
