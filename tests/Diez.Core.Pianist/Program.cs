@@ -47,6 +47,59 @@ try
     Require(!project.ConsistencyIssues.Any(i => i.Code == "FACT_CONTRADICTION" && i.Status == "Open"),
         "Corrected contradiction must not remain open.");
 
+    // Pianist across the whole framework: every current book family must be a first-class,
+    // stable routing identity rather than an incidental UI string.
+    Require(BookTypeProfileService.All.Length == 10, "The canonical framework must expose all ten book types.");
+    Require(BookTypeProfileService.All.Distinct(StringComparer.OrdinalIgnoreCase).Count() == 10,
+        "Canonical book types must be unique.");
+
+    var identityBeforeBookTypeHammer = project.ProjectId;
+    var materialCountBeforeBookTypeHammer = project.Materials.Count;
+    var contentIdsBeforeBookTypeHammer = project.ContentNodes.Select(n => n.ContentId).Order().ToArray();
+    var revisionCountBeforeBookTypeHammer = EditableMasterService.ManualRevisionCount(project, secondChapter.ContentId);
+
+    for (var round = 0; round < 4; round++)
+    {
+        foreach (var bookType in BookTypeProfileService.All)
+        {
+            BookTypeProfileService.Set(project, bookType);
+            Require(string.Equals(BookTypeProfileService.Get(project), bookType, StringComparison.Ordinal),
+                $"Book type must round-trip exactly: {bookType}.");
+        }
+    }
+
+    Require(project.ProjectId == identityBeforeBookTypeHammer, "Book-type hammering must not change project identity.");
+    Require(project.Materials.Count == materialCountBeforeBookTypeHammer, "Book-type hammering must not duplicate/remove materials.");
+    Require(project.ContentNodes.Select(n => n.ContentId).Order().SequenceEqual(contentIdsBeforeBookTypeHammer),
+        "Book-type hammering must not change shared content identity.");
+    Require(EditableMasterService.ManualRevisionCount(project, secondChapter.ContentId) == revisionCountBeforeBookTypeHammer,
+        "Book-type hammering must not lose revision history.");
+
+    // A visual job belongs to its active visual session. Frantic switching to another
+    // family must archive it instead of leaking it into the next book-type workflow.
+    BookTypeProfileService.Set(project, BookTypeProfileService.ColoringBook);
+    var visualJob = AiProductionService.CreateJob(
+        project,
+        AiProductionService.TypeImage,
+        "Pianist visual job",
+        "Generate a stress-test illustration.");
+    Require(project.AiProductionJobs.Any(j => j.JobId == visualJob.JobId), "Visual job should start in the active session.");
+
+    BookTypeProfileService.Set(project, BookTypeProfileService.Novel);
+    Require(!project.AiProductionJobs.Any(j => j.JobId == visualJob.JobId),
+        "Visual job from Coloring must not leak into Novel after a book-type switch.");
+    Require(VisualPromptSessionService.ArchivedJobCount(project) >= 1,
+        "Visual job must be retained in archived session history rather than discarded.");
+
+    // Hammer the type switch again after archival. The archived job must never reappear
+    // in the operational list even if the user bounces back and forth rapidly.
+    for (var i = 0; i < 20; i++)
+    {
+        BookTypeProfileService.Set(project, i % 2 == 0 ? BookTypeProfileService.ColoringBook : BookTypeProfileService.Novel);
+        Require(!project.AiProductionJobs.Any(j => j.JobId == visualJob.JobId),
+            "Archived visual job must not resurrect during frantic routing.");
+    }
+
     // Stale/invalid selections are expected during frantic interaction and must be harmless.
     for (var i = 0; i < 100; i++)
     {
@@ -73,11 +126,15 @@ try
     Require(reloaded.ContentNodes.Count == project.ContentNodes.Count, "Content structure must survive stress saves.");
     Require(EditableMasterService.ManualRevisionCount(reloaded, secondChapter.ContentId) == 1,
         "Manual revision history must survive save/reload.");
+    Require(string.Equals(BookTypeProfileService.Get(reloaded), BookTypeProfileService.Get(project), StringComparison.Ordinal),
+        "Active book type must survive stress save/reload.");
+    Require(VisualPromptSessionService.ArchivedJobCount(reloaded) >= 1,
+        "Archived visual session history must survive stress save/reload.");
 
     var embedded = await ProjectFileStore.ReadEmbeddedMaterialAsync(packagePath, reloaded.Materials[0]);
     Require(embedded is { Length: > 0 }, "Embedded source must survive repeated package rewrites.");
 
-    Console.WriteLine("PIANIST CORE PASS: repeated, stale and concurrent framework actions preserved project integrity.");
+    Console.WriteLine("PIANIST CORE PASS: all book families plus repeated, stale and concurrent actions preserved project integrity.");
 }
 finally
 {
