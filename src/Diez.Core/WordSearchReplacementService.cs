@@ -55,6 +55,7 @@ internal static class WordSearchReplacementService
             if (currentPuzzleWords.Contains(candidateKey)) continue;
 
             // Il controllo storico richiedeva alternative non ancora usate nei puzzle generati.
+            // Il dominio di unicità è l'intero libro, non soltanto il puzzle aperto.
             if (allPuzzleWords.Contains(candidateKey)) continue;
 
             // Se il database espone KDPSAFE, NO è sempre escluso. Il valore assente resta utilizzabile
@@ -103,6 +104,11 @@ internal static class WordSearchReplacementService
         if (puzzle.Words.Where((_, index) => index != wordPosition - 1).Any(w => Key(w) == replacementKey))
             return new(false, $"“{candidate.Word}” è già presente nello stesso puzzle.");
 
+        // Recheck at apply time as well as suggestion time. A stale suggestion must never create
+        // a duplicate if another puzzle used the candidate after the suggestion list was built.
+        if (DiezWordSearchBookGuard.IsWordUsedOutside(project, puzzle.ContentId, wordPosition, candidate.Word))
+            return new(false, $"“{candidate.Word}” nel frattempo è stata usata in un altro puzzle. Scegli una nuova alternativa.");
+
         var old = puzzle.Words[wordPosition - 1];
         puzzle.Words[wordPosition - 1] = candidate.Word.Trim();
         puzzle.Status = WordSearchWorkspaceService.StatusToReview;
@@ -132,20 +138,14 @@ internal static class WordSearchReplacementService
         var sameDecade = MatchKnown(original.Decade, candidate.Decade);
         var sameYear = MatchKnown(original.Year, candidate.Year);
 
-        // Più specifico della vecchia logica: una serie corrispondente sale in cima.
         if (sameSeries && sameSubcategory && sameCategory && (sameYear || sameDecade)) return 600;
-        // Ordine storico: stessa decade + categoria + sottocategoria.
         if (sameSubcategory && sameCategory && sameDecade) return 500;
         if (sameSubcategory && sameCategory && sameYear) return 490;
-        // Poi stessa decade + categoria.
         if (sameCategory && sameDecade) return 400;
         if (sameCategory && sameYear) return 390;
-        // Poi stessa decade.
         if (sameDecade) return 300;
         if (sameYear) return 290;
-        // Ultimo livello: periodo compatibile quando il database usa anno/decade in modo non uniforme.
         if (TemporalCompatible(original, candidate)) return 200;
-        // Per database senza tempo ma con tassonomia, manteniamo la coerenza semantica.
         if (sameSeries && sameCategory) return 180;
         if (sameSubcategory && sameCategory) return 170;
         if (sameCategory) return 100;
