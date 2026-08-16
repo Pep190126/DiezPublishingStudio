@@ -142,13 +142,31 @@ public static class DiezAiExchangeBridge
         var versionNumber = candidateVersion.GetValueOrDefault();
         if (versionNumber <= 0) versionNumber = AiExchangeStateStore.NextVersionNumber(exchange, unit.WorkUnitId);
 
+        var incomingText = textContent ?? string.Empty;
+        var existing = exchange.Versions.FirstOrDefault(v =>
+            v.WorkUnitId == unit.WorkUnitId && v.VersionNumber == versionNumber);
+        if (existing is not null &&
+            !string.IsNullOrWhiteSpace(existing.TextContent) &&
+            !string.IsNullOrWhiteSpace(incomingText) &&
+            !string.Equals(existing.TextContent, incomingText, StringComparison.Ordinal))
+        {
+            return Result(
+                root,
+                project,
+                exchange,
+                "CONFLICT",
+                "Stessa Work Unit e stessa versione, ma il testo ricevuto è differente.",
+                existing,
+                unit);
+        }
+
         var ingest = await AiExchangeResultIngestor.IngestAsync(project, exchange, new AiExchangeNormalizedResultItem
         {
             WorkUnitId = unit.WorkUnitId,
             CandidateVersion = versionNumber,
             ContentType = unit.ContentType,
             ResultStatus = resultStatus,
-            TextContent = textContent ?? string.Empty,
+            TextContent = incomingText,
             Origin = AiExchangeOrigins.Import
         });
 
