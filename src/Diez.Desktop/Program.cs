@@ -31,6 +31,28 @@ internal static class Program
                 ProductionPackageSelfTest.RunAsync().GetAwaiter().GetResult();
                 AiProductionSelfTest.RunAsync().GetAwaiter().GetResult();
                 AiImageBatchSelfTest.RunAsync().GetAwaiter().GetResult();
+                HumanAiPromptEditingSelfTest.Run();
+                ColoringAiCreationSelfTest.Run();
+                AiExchangeSelfTest.RunAsync().GetAwaiter().GetResult();
+                AiExchangeApiSelfTest.RunAsync().GetAwaiter().GetResult();
+                AiExchangeImageContextSelfTest.RunAsync().GetAwaiter().GetResult();
+                PromptEngineeringSelfTest.Run();
+                MultiSubjectProfileSelfTest.Run();
+                StructuredSceneProfileSelfTest.Run();
+                PromptPackRendererVisualBriefSelfTest.Run();
+                PromptPackRegressionSelfTest.RunAsync().GetAwaiter().GetResult();
+                PromptPackExecutionPlanSelfTest.RunAsync().GetAwaiter().GetResult();
+                PromptPackCleanRoomQueueSelfTest.RunAsync().GetAwaiter().GetResult();
+                PromptPackLocalImageHandoffSelfTest.RunAsync().GetAwaiter().GetResult();
+                PromptManualReconciliationSelfTest.Run();
+                VisualPromptIsolationSelfTest.RunAsync().GetAwaiter().GetResult();
+                AiExchangeThreeImageImportSelfTest.RunAsync().GetAwaiter().GetResult();
+                AiExchangeResponseBundleSelfTest.RunAsync().GetAwaiter().GetResult();
+                AiExchangeFailedResponseImportSelfTest.RunAsync().GetAwaiter().GetResult();
+                VisualAssetValidationSelfTest.RunAsync().GetAwaiter().GetResult();
+                VisionValidationSelfTest.RunAsync().GetAwaiter().GetResult();
+                VisionStyleHardGateSelfTest.Run();
+                VisionProviderAdapterSelfTest.RunAsync().GetAwaiter().GetResult();
                 ImageCollectionLayoutSelfTest.RunAsync().GetAwaiter().GetResult();
                 WordSearchWorkspaceSelfTest.RunAsync().GetAwaiter().GetResult();
                 WordSearchReplacementSelfTest.Run();
@@ -45,17 +67,40 @@ internal static class Program
             }
         }
 
-        using var mutex = new Mutex(true, AppMutexName, out var createdNew);
-        if (!createdNew) return 0;
+        if (args.Any(a => string.Equals(a, "--ui-headless-ci", StringComparison.OrdinalIgnoreCase)))
+            return HeadlessCiHarness.RunAsync(args).GetAwaiter().GetResult();
 
-        var exitCode = BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
-        GC.KeepAlive(mutex);
-        return exitCode;
+        CrashDiagnostics.Attach();
+
+        try
+        {
+            using var mutex = new Mutex(true, AppMutexName, out var createdNew);
+            if (!createdNew) return 0;
+
+            SafeStartupTrace.Write("rendering-policy | preferred=AngleEgl | fallback=Software");
+
+            // Start the desktop lifetime in explicit mode from the very beginning. The normal application switches
+            // to OnMainWindowClose only after the real MainWindow is shown and its startup modules are attached.
+            var exitCode = BuildAvaloniaApp().StartWithClassicDesktopLifetime(
+                args,
+                Avalonia.Controls.ShutdownMode.OnExplicitShutdown);
+            GC.KeepAlive(mutex);
+            return exitCode;
+        }
+        catch (Exception ex)
+        {
+            CrashDiagnostics.Error("desktop-startup", ex);
+            return 1;
+        }
     }
 
     public static AppBuilder BuildAvaloniaApp() =>
         AppBuilder.Configure<App>()
             .UsePlatformDetect()
+            .With(new Win32PlatformOptions
+            {
+                RenderingMode = new[] { Win32RenderingMode.AngleEgl, Win32RenderingMode.Software }
+            })
             .WithInterFont()
             .LogToTrace();
 }

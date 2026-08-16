@@ -1,111 +1,11 @@
-name: Windows Installer
+name: Legacy Windows Installer Diagnostic
 
 on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
   workflow_dispatch:
 
 jobs:
-  build-installer:
-    runs-on: windows-latest
+  retired:
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '8.0.x'
-
-      - name: Restore
-        run: dotnet restore src/Diez.Desktop/Diez.Desktop.csproj
-
-      - name: Build
-        run: dotnet build src/Diez.Desktop/Diez.Desktop.csproj -c Release --no-restore
-
-      - name: Publish self-contained Windows x64
-        run: dotnet publish src/Diez.Desktop/Diez.Desktop.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -o artifacts/publish
-
-      - name: Smoke launch real GUI startup
-        shell: powershell
-        run: |
-          $exe = (Resolve-Path "artifacts\publish\DiezPublishingStudio.exe").Path
-          $startupLog = Join-Path $env:LOCALAPPDATA "Diez Publishing Studio\logs\startup-errors.log"
-          if (Test-Path $startupLog) { Remove-Item $startupLog -Force }
-
-          $process = Start-Process -FilePath $exe -PassThru
-          Start-Sleep -Seconds 4
-          if ($process.HasExited) {
-            throw "Diez exited during normal GUI startup with code $($process.ExitCode)"
-          }
-          if (Test-Path $startupLog) {
-            Get-Content $startupLog
-            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
-            throw "Diez entered startup diagnostic mode; one or more UI modules failed to attach"
-          }
-          Stop-Process -Id $process.Id -Force
-
-      - name: Self-test lifecycle AI batch reconstruction and handoff
-        shell: powershell
-        run: |
-          $exe = (Resolve-Path "artifacts\publish\DiezPublishingStudio.exe").Path
-          $test = Start-Process -FilePath $exe -ArgumentList "--self-test" -Wait -PassThru
-          if ($test.ExitCode -ne 0) {
-            $errorFile = "artifacts\publish\self-test-error.txt"
-            if (Test-Path $errorFile) { Get-Content $errorFile }
-            throw "Diez self-test failed with exit code $($test.ExitCode)"
-          }
-
-      - name: Install Inno Setup
-        shell: powershell
-        run: choco install innosetup -y --no-progress
-
-      - name: Build setup EXE
-        shell: powershell
-        run: |
-          New-Item -ItemType Directory -Force artifacts/installer | Out-Null
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\DiezPublishingStudio.iss
-
-      - name: Verify setup exists
-        shell: powershell
-        run: |
-          $setup = "artifacts\installer\DiezPublishingStudio-Setup.exe"
-          if (!(Test-Path $setup)) { throw "Installer not generated: $setup" }
-          Get-FileHash $setup -Algorithm SHA256
-
-      - name: Smoke test install upgrade clean-removal and uninstall
-        shell: powershell
-        run: |
-          $setup = (Resolve-Path "artifacts\installer\DiezPublishingStudio-Setup.exe").Path
-          $installDir = Join-Path $env:RUNNER_TEMP "DiezPublishingStudio-Smoke"
-          $dirArg = "/DIR=`"$installDir`""
-          $uninstallKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{E6BE35BE-1F4B-4A3D-8CEB-27D970D85911}_is1"
-
-          $first = Start-Process -FilePath $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", $dirArg -Wait -PassThru
-          if ($first.ExitCode -ne 0) { throw "First install failed with exit code $($first.ExitCode)" }
-          $exe = Join-Path $installDir "DiezPublishingStudio.exe"
-          if (!(Test-Path $exe)) { throw "Installed executable missing after first install" }
-
-          $upgrade = Start-Process -FilePath $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLEANOLD=1", $dirArg -Wait -PassThru
-          if ($upgrade.ExitCode -ne 0) { throw "Clean upgrade failed with exit code $($upgrade.ExitCode)" }
-          if (!(Test-Path $exe)) { throw "Installed executable missing after clean upgrade" }
-          if (!(Test-Path $uninstallKey)) { throw "Uninstall registry entry missing after clean upgrade" }
-
-          $uninstallString = (Get-ItemProperty -Path $uninstallKey).UninstallString
-          if ([string]::IsNullOrWhiteSpace($uninstallString)) { throw "UninstallString missing" }
-          $uninstaller = $uninstallString.Trim('"')
-          if (!(Test-Path $uninstaller)) { throw "Registered uninstaller missing: $uninstaller" }
-
-          $remove = Start-Process -FilePath $uninstaller -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait -PassThru
-          if ($remove.ExitCode -ne 0) { throw "Uninstall failed with exit code $($remove.ExitCode)" }
-          if (Test-Path $exe) { throw "Executable still present after uninstall" }
-
-      - name: Upload installer
-        uses: actions/upload-artifact@v4
-        with:
-          name: DiezPublishingStudio-Setup-1.0.0-rc7
-          path: artifacts/installer/DiezPublishingStudio-Setup.exe
-          if-no-files-found: error
-          retention-days: 90
+      - name: Legacy workflow notice
+        run: echo "Automatic installer validation moved to Windows Installer Deterministic. This legacy workflow is manual-only and retained only for historical diagnostics."

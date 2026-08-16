@@ -1,0 +1,27 @@
+name: Core Headless Dotnet
+
+on:
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - run: dotnet restore src/Diez.Desktop/Diez.Desktop.csproj
+      - run: dotnet build src/Diez.Desktop/Diez.Desktop.csproj -c Release --no-restore
+      - run: dotnet publish src/Diez.Desktop/Diez.Desktop.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -o artifacts/publish
+      - name: Core self-test
+        run: dotnet artifacts/publish/DiezPublishingStudio.dll --self-test
+      - name: Headless UI startup
+        run: dotnet artifacts/publish/DiezPublishingStudio.dll --ui-headless-ci
+
+      # The complete historical UI flow remains a separate gate in UI Contract Diagnostic.
+      # The new structured Scene behavior has its own deterministic synchronous gate in
+      # Structured Scene Contract. Do not duplicate the async historical flow here: doing so
+      # made this core gate nondeterministic without adding behavioral coverage.

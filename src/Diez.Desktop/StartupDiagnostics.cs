@@ -24,6 +24,8 @@ internal static class StartupDiagnostics
         }
     }
 
+    public static string WriteUnhandled(string moduleName, Exception ex) => Write(moduleName, ex);
+
     public static void ShowWarning(MainWindow window, IReadOnlyList<string> failures)
     {
         if (failures.Count == 0) return;
