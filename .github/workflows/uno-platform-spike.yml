@@ -6,7 +6,9 @@ on:
       - spike/uno-platform-ui
     paths:
       - 'src/Diez.Core/**'
+      - 'src/Diez.Desktop/**'
       - 'src/Diez.Uno/**'
+      - 'tests/Diez.Core.Pianist/**'
       - '.github/workflows/uno-platform-spike.yml'
   workflow_dispatch:
 
@@ -35,6 +37,15 @@ jobs:
 
       - name: Build shared core
         run: dotnet build src/Diez.Core/Diez.Core.csproj -c Release --no-restore
+
+      - name: Restore legacy Avalonia desktop
+        run: dotnet restore src/Diez.Desktop/Diez.Desktop.csproj
+
+      - name: Build legacy Avalonia desktop
+        run: dotnet build src/Diez.Desktop/Diez.Desktop.csproj -c Release --no-restore
+
+      - name: Run pianist core stress harness
+        run: dotnet run --project tests/Diez.Core.Pianist/Diez.Core.Pianist.csproj -c Release
 
       - name: Restore Uno desktop spike
         run: dotnet restore src/Diez.Uno/Diez.Uno.csproj
