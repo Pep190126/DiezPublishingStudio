@@ -464,27 +464,12 @@ public sealed class MainShellPage : Page
     private void ShowVisionReview()
     {
         if (!RequireDocument()) return;
-        var root = PageRoot($"{VisualLabel(_document!.BookType)} · 4/4 Response Review / Vision",
-            "La UI mantiene visibili i gate HARD: stile, Bold & Easy, Cozy, line weight, singola composizione e scene_participants_match.");
-        var jobs = new ListView { Height = 210, ItemsSource = _document.AiJobDisplayItems() };
-        var hardChecklist = Vertical(
-            Check("style_match — HARD", true),
-            Check("bold_easy_match — HARD quando attivo", true),
-            Check("cozy_match — HARD quando attivo", true),
-            Check("line_weight_match — HARD", true),
-            Check("single_composition — HARD", true),
-            Check("scene_participants_match — HARD", true));
-        var reviewNotes = Editor(_document.GetUiString("Vision.ReviewNotes"), "Esito Vision, correzioni richieste, motivi di rifiuto.", 150);
-        root.Children.Add(Card("Candidati / job AI", jobs));
-        root.Children.Add(Card("Vision HARD gates", hardChecklist));
-        root.Children.Add(Card("Revisione", Vertical(reviewNotes,
-            AsyncButton("Salva revisione", async () =>
-            {
-                _document.SetUiString("Vision.ReviewNotes", reviewNotes.Text);
-                await SaveIfPossibleAsync();
-                Report("Revisione Vision salvata.");
-            }))));
-        SetContent(root);
+        SetContent(VisionWorkspace.Build(
+            _document!,
+            SaveIfPossibleAsync,
+            Report,
+            ShowVisionReview,
+            ShowAiCenter));
     }
 
     private void ShowScenesAndSubjects()
