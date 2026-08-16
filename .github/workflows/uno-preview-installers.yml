@@ -1,0 +1,240 @@
+name: Uno Preview Installers
+
+on:
+  push:
+    branches:
+      - spike/uno-platform-ui
+    paths:
+      - 'src/Diez.Core/**'
+      - 'src/Diez.Uno/**'
+      - 'tests/Diez.VisualBook.Pianist/**'
+      - 'installer/DiezPublishingStudio-UnoPreview.iss'
+      - '.github/workflows/uno-preview-installers.yml'
+  workflow_dispatch:
+
+jobs:
+  windows-installer:
+    name: Windows x64 Setup Preview
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - name: Visual book gate
+        run: dotnet run --project tests/Diez.VisualBook.Pianist/Diez.VisualBook.Pianist.csproj -c Release
+
+      - name: Restore Windows runtime
+        run: dotnet restore src/Diez.Uno/Diez.Uno.csproj -r win-x64
+
+      - name: Publish Uno Windows x64
+        run: dotnet publish src/Diez.Uno/Diez.Uno.csproj -c Release -f net10.0-desktop -r win-x64 -p:SelfContained=true --no-restore -o artifacts/uno-preview-win-x64
+
+      - name: Verify published executable
+        shell: powershell
+        run: |
+          $exe = 'artifacts\uno-preview-win-x64\Diez.Uno.exe'
+          if (!(Test-Path $exe)) { throw "Published Uno executable missing: $exe" }
+          if ((Get-Item $exe).Length -lt 100000) { throw "Published executable unexpectedly small" }
+
+      - name: Install Inno Setup
+        shell: powershell
+        run: choco install innosetup -y --no-progress
+
+      - name: Build side-by-side Setup EXE
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force artifacts/installers | Out-Null
+          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' installer\DiezPublishingStudio-UnoPreview.iss
+          $setup = 'artifacts\installers\DiezPublishingStudio-UnoPreview-Setup.exe'
+          if (!(Test-Path $setup)) { throw "Preview Setup not generated" }
+          Get-FileHash $setup -Algorithm SHA256
+
+      - name: Smoke install launch uninstall
+        shell: powershell
+        run: |
+          $setup = (Resolve-Path 'artifacts\installers\DiezPublishingStudio-UnoPreview-Setup.exe').Path
+          $installDir = Join-Path $env:RUNNER_TEMP 'Diez-Uno-Preview-Smoke'
+          $dirArg = "/DIR=`"$installDir`""
+          $install = Start-Process -FilePath $setup -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',$dirArg -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "Preview install failed: $($install.ExitCode)" }
+          $exe = Join-Path $installDir 'Diez.Uno.exe'
+          if (!(Test-Path $exe)) { throw 'Installed Uno executable missing' }
+          $app = Start-Process -FilePath $exe -PassThru
+          Start-Sleep -Seconds 5
+          if ($app.HasExited) { throw "Installed Uno app exited during smoke startup with code $($app.ExitCode)" }
+          Stop-Process -Id $app.Id -Force
+          $uninstaller = Join-Path $installDir 'unins000.exe'
+          if (!(Test-Path $uninstaller)) { throw 'Preview uninstaller missing' }
+          $remove = Start-Process -FilePath $uninstaller -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait -PassThru
+          if ($remove.ExitCode -ne 0) { throw "Preview uninstall failed: $($remove.ExitCode)" }
+          if (Test-Path $exe) { throw 'Preview executable remained after uninstall' }
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: DiezPublishingStudio-UnoPreview-Windows-x64
+          path: artifacts/installers/DiezPublishingStudio-UnoPreview-Setup.exe
+          if-no-files-found: error
+          retention-days: 90
+
+  macos-installer:
+    name: macOS DMG Preview (${{ matrix.rid }})
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        rid: [osx-arm64, osx-x64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - name: Visual book gate
+        run: dotnet run --project tests/Diez.VisualBook.Pianist/Diez.VisualBook.Pianist.csproj -c Release
+
+      - name: Restore macOS runtime
+        run: dotnet restore src/Diez.Uno/Diez.Uno.csproj -r ${{ matrix.rid }}
+
+      - name: Publish macOS app bundle
+        run: dotnet publish src/Diez.Uno/Diez.Uno.csproj -c Release -f net10.0-desktop -r ${{ matrix.rid }} -p:PackageFormat=app --no-restore -o artifacts/macos-${{ matrix.rid }}
+
+      - name: Locate and smoke app bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="$(find artifacts/macos-${{ matrix.rid }} -type d -name '*.app' -maxdepth 3 | head -1)"
+          test -n "$APP"
+          test -f "$APP/Contents/Info.plist"
+          EXEC=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Contents/Info.plist")
+          test -x "$APP/Contents/MacOS/$EXEC"
+          "$APP/Contents/MacOS/$EXEC" >/tmp/diez-preview-mac.log 2>&1 &
+          PID=$!
+          sleep 5
+          if ! kill -0 "$PID" 2>/dev/null; then
+            cat /tmp/diez-preview-mac.log || true
+            wait "$PID" || true
+            exit 1
+          fi
+          kill "$PID" || true
+          wait "$PID" || true
+          echo "$APP" > /tmp/diez-app-path
+
+      - name: Build and verify DMG
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="$(cat /tmp/diez-app-path)"
+          rm -rf artifacts/dmg-stage
+          mkdir -p artifacts/dmg-stage artifacts/installers
+          cp -R "$APP" artifacts/dmg-stage/
+          DMG="artifacts/installers/DiezPublishingStudio-UnoPreview-${{ matrix.rid }}.dmg"
+          hdiutil create -volname 'Diez Publishing Studio Preview' -srcfolder artifacts/dmg-stage -ov -format UDZO "$DMG"
+          hdiutil verify "$DMG"
+          test -s "$DMG"
+          shasum -a 256 "$DMG"
+
+      - name: Upload macOS DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: DiezPublishingStudio-UnoPreview-${{ matrix.rid }}
+          path: artifacts/installers/DiezPublishingStudio-UnoPreview-${{ matrix.rid }}.dmg
+          if-no-files-found: error
+          retention-days: 90
+
+  linux-installer:
+    name: Linux x64 DEB Preview
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - name: Visual book gate
+        run: dotnet run --project tests/Diez.VisualBook.Pianist/Diez.VisualBook.Pianist.csproj -c Release
+
+      - name: Restore Linux runtime
+        run: dotnet restore src/Diez.Uno/Diez.Uno.csproj -r linux-x64
+
+      - name: Publish Uno Linux x64
+        run: dotnet publish src/Diez.Uno/Diez.Uno.csproj -c Release -f net10.0-desktop -r linux-x64 -p:SelfContained=true --no-restore -o artifacts/uno-preview-linux-x64
+
+      - name: Build DEB
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f artifacts/uno-preview-linux-x64/Diez.Uno
+          chmod +x artifacts/uno-preview-linux-x64/Diez.Uno
+          ROOT=artifacts/deb-root
+          APPDIR="$ROOT/opt/diez-publishing-studio-preview"
+          rm -rf "$ROOT"
+          mkdir -p "$APPDIR" "$ROOT/DEBIAN" "$ROOT/usr/share/applications" "$ROOT/usr/share/icons/hicolor/scalable/apps" artifacts/installers
+          cp -a artifacts/uno-preview-linux-x64/. "$APPDIR/"
+          cat > "$ROOT/DEBIAN/control" <<'EOF'
+          Package: diez-publishing-studio-preview
+          Version: 0.2.0
+          Section: graphics
+          Priority: optional
+          Architecture: amd64
+          Maintainer: Diez Publishing Studio
+          Depends: libfontconfig1, libfreetype6, libx11-6, libxrandr2, libgl1
+          Description: Diez Publishing Studio Uno Platform Preview
+           Side-by-side preview build of the cross-platform Diez Publishing Studio frontend.
+          EOF
+          sed -i 's/^          //' "$ROOT/DEBIAN/control"
+          cat > "$ROOT/usr/share/applications/diez-publishing-studio-preview.desktop" <<'EOF'
+          [Desktop Entry]
+          Type=Application
+          Name=Diez Publishing Studio Preview
+          Exec=/opt/diez-publishing-studio-preview/Diez.Uno
+          Icon=diez-publishing-studio-preview
+          Categories=Graphics;Office;
+          Terminal=false
+          EOF
+          sed -i 's/^          //' "$ROOT/usr/share/applications/diez-publishing-studio-preview.desktop"
+          cat > "$ROOT/usr/share/icons/hicolor/scalable/apps/diez-publishing-studio-preview.svg" <<'EOF'
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+            <rect width="512" height="512" rx="96" fill="#007FFF"/>
+            <path d="M88 256 C88 174 178 166 256 238 C334 310 424 338 424 256 C424 174 334 202 256 274 C178 346 88 338 88 256 Z" fill="none" stroke="#FFFFFF" stroke-width="44" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          EOF
+          sed -i 's/^          //' "$ROOT/usr/share/icons/hicolor/scalable/apps/diez-publishing-studio-preview.svg"
+          dpkg-deb --build "$ROOT" artifacts/installers/DiezPublishingStudio-UnoPreview-linux-x64.deb
+          dpkg-deb --info artifacts/installers/DiezPublishingStudio-UnoPreview-linux-x64.deb
+          sha256sum artifacts/installers/DiezPublishingStudio-UnoPreview-linux-x64.deb
+
+      - name: Extract and smoke packaged app
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf artifacts/deb-extracted
+          dpkg-deb -x artifacts/installers/DiezPublishingStudio-UnoPreview-linux-x64.deb artifacts/deb-extracted
+          EXE=artifacts/deb-extracted/opt/diez-publishing-studio-preview/Diez.Uno
+          test -x "$EXE"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb libfontconfig1 libfreetype6 libx11-6 libxrandr2 libgl1 >/dev/null
+          set +e
+          xvfb-run -a timeout 10s "$EXE" >/tmp/diez-preview-linux.log 2>&1
+          CODE=$?
+          set -e
+          if [ "$CODE" -ne 0 ] && [ "$CODE" -ne 124 ]; then
+            cat /tmp/diez-preview-linux.log || true
+            exit "$CODE"
+          fi
+
+      - name: Upload Linux DEB
+        uses: actions/upload-artifact@v4
+        with:
+          name: DiezPublishingStudio-UnoPreview-Linux-x64
+          path: artifacts/installers/DiezPublishingStudio-UnoPreview-linux-x64.deb
+          if-no-files-found: error
+          retention-days: 90
