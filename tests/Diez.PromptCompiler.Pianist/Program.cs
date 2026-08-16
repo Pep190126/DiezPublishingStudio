@@ -39,13 +39,13 @@ cast[1].Name = "Tucano";
 cast[1].Description = "tucano con grande becco";
 MultiSubjectProfileService.Save(project, subjects);
 
-StructuredSceneEnvironmentStore.Save(project, "giungla generica con vegetazione fitta");
+StructuredSceneEnvironmentStore.Save(project, "generic jungle with dense vegetation");
 var scenes = StructuredSceneProfileService.Load(project);
 scenes.Enabled = true;
 StructuredSceneProfileService.SetCount(scenes, 1);
 var scene = StructuredSceneProfileService.ActiveScenes(scenes).Single();
-scene.Name = "Cascata";
-scene.Description = "la scimmia su una liana vicino a una cascata";
+scene.Name = "Waterfall";
+scene.Description = "one monkey on a vine near a waterfall";
 StructuredSceneProfileService.SetSubjectParticipation(scenes, scene.SceneId, cast[0].SubjectId, true);
 StructuredSceneProfileService.SetSubjectParticipation(scenes, scene.SceneId, cast[1].SubjectId, true);
 StructuredSceneProfileService.Save(project, scenes);
@@ -55,7 +55,7 @@ var request = new PromptEngineeringRequest
     BookType = BookTypeProfileService.ColoringBook,
     SeriesCount = 3,
     Subject = "3 immagini separate di animali della giungla",
-    Environment = "giungla generica con vegetazione fitta",
+    Environment = "generic jungle with dense vegetation",
     Audience = coloring.TargetAudience,
     Difficulty = coloring.Difficulty,
     LineWeight = coloring.LineWeight,
@@ -74,11 +74,11 @@ var workDirection = VisualPromptIntentSynthesizer.BuildWorkUnitDirection(
     StructuredSceneProfileService.Participants(project, scene));
 Require(workDirection.StartsWith("ART DIRECTION — SYNTHESIZED:", StringComparison.Ordinal),
     "Prompt Compiler 3.6 must synthesize an explicit provider-facing art direction.");
-Require(workDirection.Contains("monkey on a vine near a waterfall", StringComparison.OrdinalIgnoreCase),
+Require(workDirection.Contains("one monkey on a vine near a waterfall", StringComparison.OrdinalIgnoreCase),
     "Scene-local intent must appear in the synthesized direction.");
 Require(workDirection.Contains("generic jungle", StringComparison.OrdinalIgnoreCase),
     "Generic environment may remain as supporting context.");
-Require(workDirection.IndexOf("monkey on a vine", StringComparison.OrdinalIgnoreCase) <
+Require(workDirection.IndexOf("one monkey on a vine", StringComparison.OrdinalIgnoreCase) <
         workDirection.IndexOf("generic jungle", StringComparison.OrdinalIgnoreCase),
     "Scene-local environment/action must precede generic environment context.");
 Require(workDirection.Contains("current scene action determine the local staging", StringComparison.OrdinalIgnoreCase),
