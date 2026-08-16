@@ -27,7 +27,18 @@ public sealed record DiezAiFrontendVersion(
     string DisplayStatus,
     string TextContent,
     string Description,
+    Guid? MaterialId,
+    string ContentSha256,
+    string DescriptionStatus,
     bool CanApprove);
+
+public sealed record DiezAiFrontendMaterial(
+    Guid MaterialId,
+    string FileName,
+    string SourcePath,
+    string EmbeddedPath,
+    string Sha256,
+    bool NeedsPackageStaging);
 
 public sealed record DiezAiFrontendMutation(
     string ProjectJson,
@@ -41,10 +52,18 @@ public sealed record DiezAiFrontendResultMutation(
     DiezAiFrontendVersion? Version,
     DiezAiFrontendJob? Job);
 
+public sealed record DiezAiFrontendImageMutation(
+    string ProjectJson,
+    string Status,
+    string Message,
+    DiezAiFrontendVersion? Version,
+    DiezAiFrontendJob? Job,
+    DiezAiFrontendMaterial? Material);
+
 /// <summary>
 /// Compatibility bridge used while Uno still owns the ZIP/package shell.
 /// It mutates only the AI sections of the supplied project JSON, preserving unknown
-/// root/entity/job properties that a typed round-trip could otherwise discard.
+/// root/entity/job/material properties that a typed round-trip could otherwise discard.
 /// </summary>
 public static class DiezAiExchangeBridge
 {
@@ -188,6 +207,75 @@ public static class DiezAiExchangeBridge
     }
 
     /// <summary>
+    /// Imports an image candidate and its required description through the canonical AI Exchange
+    /// ingest logic. This method never approves the image. The returned material tells a package
+    /// frontend whether it must physically stage the accepted file into the .diez archive.
+    /// </summary>
+    public static async Task<DiezAiFrontendImageMutation> IngestImageResultAsync(
+        string projectJson,
+        Guid workUnitId,
+        string? imagePath,
+        string? description,
+        int? candidateVersion = null,
+        string resultStatus = "COMPLETE")
+    {
+        var (root, project) = Parse(projectJson);
+        var exchange = AiExchangeStateStore.Load(project);
+        var unit = exchange.WorkUnits.FirstOrDefault(w => w.WorkUnitId == workUnitId);
+        if (unit is null)
+            return ImageResult(root, project, exchange, "INVALID", "Contenuto AI non trovato.", null, null, null, false);
+        if (!string.Equals(unit.ContentType, AiExchangeContentTypes.Image, StringComparison.OrdinalIgnoreCase))
+            return ImageResult(root, project, exchange, "INVALID", "Il job selezionato non richiede un'immagine.", null, unit, null, false);
+
+        var versionNumber = candidateVersion.GetValueOrDefault();
+        if (versionNumber <= 0) versionNumber = AiExchangeStateStore.NextVersionNumber(exchange, unit.WorkUnitId);
+        var validPath = !string.IsNullOrWhiteSpace(imagePath) && File.Exists(imagePath) ? imagePath : null;
+        var materialIdsBefore = project.Materials.Select(m => m.MaterialId).ToHashSet();
+
+        var ingest = await AiExchangeResultIngestor.IngestAsync(project, exchange, new AiExchangeNormalizedResultItem
+        {
+            WorkUnitId = unit.WorkUnitId,
+            CandidateVersion = versionNumber,
+            ContentType = AiExchangeContentTypes.Image,
+            ResultStatus = resultStatus,
+            PrimaryAssetPath = validPath,
+            Description = description ?? string.Empty,
+            Origin = AiExchangeOrigins.Import
+        });
+
+        var version = ingest.VersionId.HasValue
+            ? exchange.Versions.FirstOrDefault(v => v.VersionId == ingest.VersionId.Value)
+            : null;
+        var material = version?.MaterialId is Guid materialId
+            ? project.Materials.FirstOrDefault(m => m.MaterialId == materialId)
+            : null;
+        var newMaterial = material is not null && !materialIdsBefore.Contains(material.MaterialId);
+        if (material is not null && string.IsNullOrWhiteSpace(material.EmbeddedPath))
+            material.EmbeddedPath = BuildEmbeddedPath(material);
+
+        AiExchangeStateStore.Save(project, exchange);
+        MergeAiProductionJobs(root, project);
+        if (material is not null) MergeMaterial(root, material);
+        MergeExchangeEntity(root, project);
+
+        var legacy = unit.LegacyAiJobId.HasValue
+            ? project.AiProductionJobs.FirstOrDefault(j => j.JobId == unit.LegacyAiJobId.Value)
+            : null;
+        var needsStaging = material is not null &&
+            validPath is not null &&
+            (!material.IsEmbedded || newMaterial) &&
+            string.Equals(material.SourcePath, validPath, StringComparison.OrdinalIgnoreCase);
+
+        return new DiezAiFrontendImageMutation(
+            Write(root),
+            ingest.Status,
+            ingest.Message,
+            version is null ? null : ToVersionDto(unit, version),
+            legacy is null ? null : ToDto(legacy, unit),
+            material is null ? null : ToMaterialDto(material, needsStaging));
+    }
+
+    /// <summary>
     /// Generic approval is deliberately limited to non-image results. Image approval is a
     /// separate Vision-gated operation so no frontend can bypass the HARD semantic checks.
     /// </summary>
@@ -254,6 +342,32 @@ public static class DiezAiExchangeBridge
             legacy is null ? null : ToDto(legacy, unit));
     }
 
+    private static DiezAiFrontendImageMutation ImageResult(
+        JsonObject root,
+        PreviewProject project,
+        AiExchangeState exchange,
+        string status,
+        string message,
+        AiExchangeVersion? version,
+        AiExchangeWorkUnit? unit,
+        MaterialEntry? material,
+        bool needsStaging)
+    {
+        MergeAiProductionJobs(root, project);
+        if (material is not null) MergeMaterial(root, material);
+        MergeExchangeEntity(root, project);
+        var legacy = unit?.LegacyAiJobId is Guid id
+            ? project.AiProductionJobs.FirstOrDefault(j => j.JobId == id)
+            : null;
+        return new DiezAiFrontendImageMutation(
+            Write(root),
+            status,
+            message,
+            version is null || unit is null ? null : ToVersionDto(unit, version),
+            legacy is null ? null : ToDto(legacy, unit),
+            material is null ? null : ToMaterialDto(material, needsStaging));
+    }
+
     private static DiezAiFrontendJob ToDto(AiProductionJob job, AiExchangeWorkUnit? workUnit)
     {
         var outputType = job.OutputType ?? string.Empty;
@@ -282,8 +396,20 @@ public static class DiezAiExchangeBridge
             DisplayVersionStatus(version.Status),
             version.TextContent ?? string.Empty,
             version.Description ?? string.Empty,
+            version.MaterialId,
+            version.ContentSha256 ?? string.Empty,
+            version.DescriptionStatus ?? string.Empty,
             canApprove);
     }
+
+    private static DiezAiFrontendMaterial ToMaterialDto(MaterialEntry material, bool needsStaging) =>
+        new(
+            material.MaterialId,
+            material.FileName ?? string.Empty,
+            material.SourcePath ?? string.Empty,
+            material.EmbeddedPath ?? string.Empty,
+            material.Sha256 ?? string.Empty,
+            needsStaging);
 
     private static string DisplayVersionStatus(string? status) => status switch
     {
@@ -360,6 +486,34 @@ public static class DiezAiExchangeBridge
         }
     }
 
+    private static void MergeMaterial(JsonObject root, MaterialEntry material)
+    {
+        var materials = root["Materials"] as JsonArray ?? new JsonArray();
+        root["Materials"] = materials;
+        var raw = materials.OfType<JsonObject>().FirstOrDefault(x =>
+            Guid.TryParse(ReadString(x, "MaterialId"), out var id) && id == material.MaterialId);
+        if (raw is null)
+        {
+            raw = new JsonObject();
+            materials.Add(raw);
+        }
+
+        raw["MaterialId"] = material.MaterialId.ToString();
+        raw["FileName"] = material.FileName;
+        raw["SourcePath"] = material.SourcePath;
+        raw["Kind"] = material.Kind;
+        raw["ImportedAtLocal"] = material.ImportedAtLocal;
+        raw["SizeBytes"] = material.SizeBytes;
+        raw["Sha256"] = material.Sha256;
+        raw["Summary"] = material.Summary;
+        raw["Preview"] = material.Preview;
+        raw["ExtractedText"] = material.ExtractedText;
+        raw["EmbeddedPath"] = material.EmbeddedPath;
+        raw["IsEmbedded"] = material.IsEmbedded;
+        if (raw["Columns"] is null)
+            raw["Columns"] = JsonSerializer.SerializeToNode(material.Columns ?? [], JsonOptions);
+    }
+
     private static void MergeExchangeEntity(JsonObject root, PreviewProject project)
     {
         var typed = project.Entities.FirstOrDefault(e =>
@@ -384,6 +538,14 @@ public static class DiezAiExchangeBridge
         raw["Notes"] = typed.Notes;
         if (typed.SourceMaterialId.HasValue) raw["SourceMaterialId"] = typed.SourceMaterialId.Value.ToString();
         if (typed.FirstSourceContentId.HasValue) raw["FirstSourceContentId"] = typed.FirstSourceContentId.Value.ToString();
+    }
+
+    private static string BuildEmbeddedPath(MaterialEntry material)
+    {
+        var safeName = string.Concat((material.FileName ?? string.Empty)
+            .Select(ch => Path.GetInvalidFileNameChars().Contains(ch) ? '_' : ch));
+        if (string.IsNullOrWhiteSpace(safeName)) safeName = "materiale.bin";
+        return $"materials/{material.MaterialId:N}/{safeName}";
     }
 
     private static string Write(JsonObject root) =>
