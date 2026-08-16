@@ -20,6 +20,7 @@ on:
       - 'tests/Diez.AiExchange.Pianist/**'
       - 'tests/Diez.AiEditorial.Pianist/**'
       - 'tests/Diez.AiImageEditorial.Pianist/**'
+      - 'tests/Diez.PuzzleFrontend.Pianist/**'
       - '.github/workflows/uno-platform-spike.yml'
   workflow_dispatch:
 
@@ -69,6 +70,9 @@ jobs:
 
       - name: Run Word Search pianist contract
         run: dotnet run --project tests/Diez.WordSearch.Pianist/Diez.WordSearch.Pianist.csproj -c Release
+
+      - name: Run puzzle frontend bridge pianist contract
+        run: dotnet run --project tests/Diez.PuzzleFrontend.Pianist/Diez.PuzzleFrontend.Pianist.csproj -c Release
 
       - name: Run Prompt Compiler 3.6 pianist contract
         run: dotnet run --project tests/Diez.PromptCompiler.Pianist/Diez.PromptCompiler.Pianist.csproj -c Release
