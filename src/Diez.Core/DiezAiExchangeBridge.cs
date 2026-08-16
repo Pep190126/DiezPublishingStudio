@@ -19,15 +19,32 @@ public sealed record DiezAiFrontendJob(
     string Title,
     string Prompt);
 
+public sealed record DiezAiFrontendVersion(
+    Guid VersionId,
+    Guid WorkUnitId,
+    int VersionNumber,
+    string Status,
+    string DisplayStatus,
+    string TextContent,
+    string Description,
+    bool CanApprove);
+
 public sealed record DiezAiFrontendMutation(
     string ProjectJson,
     DiezAiFrontendJob Job,
     int ExchangeWorkUnitCount);
 
+public sealed record DiezAiFrontendResultMutation(
+    string ProjectJson,
+    string Status,
+    string Message,
+    DiezAiFrontendVersion? Version,
+    DiezAiFrontendJob? Job);
+
 /// <summary>
 /// Compatibility bridge used while Uno still owns the ZIP/package shell.
 /// It mutates only the AI sections of the supplied project JSON, preserving unknown
-/// root/entity properties that a typed round-trip could otherwise discard.
+/// root/entity/job properties that a typed round-trip could otherwise discard.
 /// </summary>
 public static class DiezAiExchangeBridge
 {
@@ -74,7 +91,7 @@ public static class DiezAiExchangeBridge
         var workUnit = exchange.WorkUnits.FirstOrDefault(w => w.LegacyAiJobId == job.JobId);
         var dto = ToDto(job, workUnit);
         return new DiezAiFrontendMutation(
-            root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }),
+            Write(root),
             dto,
             exchange.WorkUnits.Count);
     }
@@ -89,12 +106,121 @@ public static class DiezAiExchangeBridge
             .ToList();
     }
 
+    public static IReadOnlyList<DiezAiFrontendVersion> ReadVersions(string projectJson, Guid workUnitId)
+    {
+        var (_, project) = Parse(projectJson);
+        var exchange = AiExchangeStateStore.Load(project);
+        var unit = exchange.WorkUnits.FirstOrDefault(w => w.WorkUnitId == workUnitId);
+        if (unit is null) return [];
+        return exchange.Versions
+            .Where(v => v.WorkUnitId == workUnitId)
+            .OrderByDescending(v => v.VersionNumber)
+            .Select(v => ToVersionDto(unit, v))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Imports a pasted text/data response as an AI Exchange candidate. Supplying candidateVersion
+    /// is useful for Prompt Pack responses and for duplicate/conflict detection; when omitted the
+    /// next version number is assigned by the Core.
+    /// </summary>
+    public static async Task<DiezAiFrontendResultMutation> IngestTextResultAsync(
+        string projectJson,
+        Guid workUnitId,
+        string? textContent,
+        int? candidateVersion = null,
+        string resultStatus = "COMPLETE")
+    {
+        var (root, project) = Parse(projectJson);
+        var exchange = AiExchangeStateStore.Load(project);
+        var unit = exchange.WorkUnits.FirstOrDefault(w => w.WorkUnitId == workUnitId);
+        if (unit is null)
+            return Result(root, project, exchange, "INVALID", "Contenuto AI non trovato.", null, null);
+        if (string.Equals(unit.ContentType, AiExchangeContentTypes.Image, StringComparison.OrdinalIgnoreCase))
+            return Result(root, project, exchange, "INVALID", "Per un risultato immagine usa il flusso immagini e Vision.", null, unit);
+
+        var versionNumber = candidateVersion.GetValueOrDefault();
+        if (versionNumber <= 0) versionNumber = AiExchangeStateStore.NextVersionNumber(exchange, unit.WorkUnitId);
+
+        var ingest = await AiExchangeResultIngestor.IngestAsync(project, exchange, new AiExchangeNormalizedResultItem
+        {
+            WorkUnitId = unit.WorkUnitId,
+            CandidateVersion = versionNumber,
+            ContentType = unit.ContentType,
+            ResultStatus = resultStatus,
+            TextContent = textContent ?? string.Empty,
+            Origin = AiExchangeOrigins.Import
+        });
+
+        AiExchangeStateStore.Save(project, exchange);
+        MergeAiProductionJobs(root, project);
+        MergeExchangeEntity(root, project);
+        var version = ingest.VersionId.HasValue
+            ? exchange.Versions.FirstOrDefault(v => v.VersionId == ingest.VersionId.Value)
+            : null;
+        var legacy = unit.LegacyAiJobId.HasValue
+            ? project.AiProductionJobs.FirstOrDefault(j => j.JobId == unit.LegacyAiJobId.Value)
+            : null;
+        return new DiezAiFrontendResultMutation(
+            Write(root),
+            ingest.Status,
+            ingest.Message,
+            version is null ? null : ToVersionDto(unit, version),
+            legacy is null ? null : ToDto(legacy, unit));
+    }
+
+    public static DiezAiFrontendResultMutation ApproveVersion(string projectJson, Guid versionId)
+    {
+        var (root, project) = Parse(projectJson);
+        var exchange = AiExchangeStateStore.Load(project);
+        var version = exchange.Versions.FirstOrDefault(v => v.VersionId == versionId);
+        var unit = version is null ? null : exchange.WorkUnits.FirstOrDefault(w => w.WorkUnitId == version.WorkUnitId);
+        if (version is null || unit is null)
+            return Result(root, project, exchange, "INVALID", "Versione AI non trovata.", version, unit);
+
+        var approved = AiExchangeResultIngestor.Approve(project, exchange, versionId, out var message);
+        if (approved) AiExchangeStateStore.Save(project, exchange);
+        MergeAiProductionJobs(root, project);
+        MergeExchangeEntity(root, project);
+        var legacy = unit.LegacyAiJobId.HasValue
+            ? project.AiProductionJobs.FirstOrDefault(j => j.JobId == unit.LegacyAiJobId.Value)
+            : null;
+        return new DiezAiFrontendResultMutation(
+            Write(root),
+            approved ? "APPROVED" : "BLOCKED",
+            message,
+            ToVersionDto(unit, version),
+            legacy is null ? null : ToDto(legacy, unit));
+    }
+
     public static string SetProjectBrief(string projectJson, string? projectBrief)
     {
         var (root, project) = Parse(projectJson);
         AiProductionService.SetProjectBrief(project, projectBrief);
         MergeAiProduction(root, project);
-        return root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+        return Write(root);
+    }
+
+    private static DiezAiFrontendResultMutation Result(
+        JsonObject root,
+        PreviewProject project,
+        AiExchangeState exchange,
+        string status,
+        string message,
+        AiExchangeVersion? version,
+        AiExchangeWorkUnit? unit)
+    {
+        MergeAiProductionJobs(root, project);
+        MergeExchangeEntity(root, project);
+        var legacy = unit?.LegacyAiJobId is Guid id
+            ? project.AiProductionJobs.FirstOrDefault(j => j.JobId == id)
+            : null;
+        return new DiezAiFrontendResultMutation(
+            Write(root),
+            status,
+            message,
+            version is null || unit is null ? null : ToVersionDto(unit, version),
+            legacy is null ? null : ToDto(legacy, unit));
     }
 
     private static DiezAiFrontendJob ToDto(AiProductionJob job, AiExchangeWorkUnit? workUnit) =>
@@ -108,6 +234,32 @@ public static class DiezAiExchangeBridge
             AiProductionService.DisplayStatus(job.Status),
             job.Title ?? string.Empty,
             job.Prompt ?? string.Empty);
+
+    private static DiezAiFrontendVersion ToVersionDto(AiExchangeWorkUnit unit, AiExchangeVersion version)
+    {
+        var canApprove = version.Status != AiExchangeVersionStatuses.Incomplete &&
+            (!string.Equals(unit.ContentType, AiExchangeContentTypes.Image, StringComparison.OrdinalIgnoreCase) ||
+             version.DescriptionStatus == AiExchangeDescriptionStatuses.Valid);
+        return new DiezAiFrontendVersion(
+            version.VersionId,
+            version.WorkUnitId,
+            version.VersionNumber,
+            version.Status ?? string.Empty,
+            DisplayVersionStatus(version.Status),
+            version.TextContent ?? string.Empty,
+            version.Description ?? string.Empty,
+            canApprove);
+    }
+
+    private static string DisplayVersionStatus(string? status) => status switch
+    {
+        AiExchangeVersionStatuses.Candidate => "Candidato da controllare",
+        AiExchangeVersionStatuses.Approved => "Approvato",
+        AiExchangeVersionStatuses.Incomplete => "Incompleto",
+        AiExchangeVersionStatuses.Rejected => "Scartato",
+        AiExchangeVersionStatuses.Stale => "Superato da una versione più recente",
+        _ => status ?? string.Empty
+    };
 
     private static (JsonObject Root, PreviewProject Project) Parse(string projectJson)
     {
@@ -146,6 +298,34 @@ public static class DiezAiExchangeBridge
         jobs.Add(JsonSerializer.SerializeToNode(job, JsonOptions));
     }
 
+    private static void MergeAiProductionJobs(JsonObject root, PreviewProject project)
+    {
+        var jobs = root["AiProductionJobs"] as JsonArray ?? new JsonArray();
+        root["AiProductionJobs"] = jobs;
+        foreach (var typed in project.AiProductionJobs)
+        {
+            var raw = jobs.OfType<JsonObject>().FirstOrDefault(x =>
+                Guid.TryParse(ReadString(x, "JobId"), out var id) && id == typed.JobId);
+            if (raw is null)
+            {
+                raw = new JsonObject();
+                jobs.Add(raw);
+            }
+            raw["JobId"] = typed.JobId.ToString();
+            raw["Code"] = typed.Code;
+            raw["OutputType"] = typed.OutputType;
+            raw["Title"] = typed.Title;
+            raw["Request"] = typed.Request;
+            raw["Prompt"] = typed.Prompt;
+            raw["Status"] = typed.Status;
+            raw["ResultText"] = typed.ResultText;
+            raw["ResultMaterialId"] = typed.ResultMaterialId?.ToString();
+            raw["TargetContentId"] = typed.TargetContentId?.ToString();
+            raw["CreatedAtLocal"] = typed.CreatedAtLocal;
+            raw["UpdatedAtLocal"] = typed.UpdatedAtLocal;
+        }
+    }
+
     private static void MergeExchangeEntity(JsonObject root, PreviewProject project)
     {
         var typed = project.Entities.FirstOrDefault(e =>
@@ -171,6 +351,9 @@ public static class DiezAiExchangeBridge
         if (typed.SourceMaterialId.HasValue) raw["SourceMaterialId"] = typed.SourceMaterialId.Value.ToString();
         if (typed.FirstSourceContentId.HasValue) raw["FirstSourceContentId"] = typed.FirstSourceContentId.Value.ToString();
     }
+
+    private static string Write(JsonObject root) =>
+        root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
 
     private static string ReadString(JsonObject obj, string name)
     {
