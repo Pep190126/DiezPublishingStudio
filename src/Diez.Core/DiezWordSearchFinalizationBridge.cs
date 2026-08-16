@@ -24,10 +24,13 @@ public sealed record DiezWordSearchFinalExportResult(
 
 /// <summary>
 /// Final handoff gate for Word Search. Working exports may be produced at any time,
-/// but final XLSX/CSV handoffs are released only when the whole configured book is
-/// complete, globally unique (when NoDuplicates is enabled), individually valid and approved.
-/// The final matrix follows the Self Publishing Titans sample contract: one puzzle per
-/// column and one word position per row, without Diez metadata rows.
+/// but final outputs are released only when the whole configured book is complete,
+/// globally unique (when NoDuplicates is enabled), individually valid and approved.
+///
+/// Two distinct outputs are deliberately preserved:
+/// - Diez final database XLSX: rich and reimportable, for project continuity;
+/// - Self Publishing Titans handoff XLSX/CSV: one puzzle per column, one word position
+///   per row, without Diez metadata rows, for downstream production tools.
 /// </summary>
 public static class DiezWordSearchFinalizationBridge
 {
@@ -38,12 +41,29 @@ public static class DiezWordSearchFinalizationBridge
     }
 
     /// <summary>
-    /// Backward-compatible alias for the final XLSX handoff.
+    /// Rich final database retained for backward compatibility and Diez round-trip.
     /// </summary>
-    public static Task<DiezWordSearchFinalExportResult> ExportFinalDatabaseAsync(
+    public static async Task<DiezWordSearchFinalExportResult> ExportFinalDatabaseAsync(
         string projectJson,
-        string outputPath) => ExportFinalXlsxAsync(projectJson, outputPath);
+        string outputPath)
+    {
+        var project = Parse(projectJson);
+        var blocked = BlockedIfNotReady(project);
+        if (blocked is not null) return blocked;
+        if (string.IsNullOrWhiteSpace(outputPath))
+            return new DiezWordSearchFinalExportResult(false, "Percorso di esportazione non valido.", null);
 
+        var fullPath = Path.GetFullPath(outputPath);
+        var result = await WordSearchFullDatabaseExportService.ExportAsync(project, fullPath);
+        return new DiezWordSearchFinalExportResult(
+            result.Success,
+            result.Message,
+            result.Success ? EnsureExtension(fullPath, ".xlsx") : null);
+    }
+
+    /// <summary>
+    /// Final production XLSX matching the Self Publishing Titans puzzle-column matrix.
+    /// </summary>
     public static async Task<DiezWordSearchFinalExportResult> ExportFinalXlsxAsync(
         string projectJson,
         string outputPath)
@@ -62,6 +82,9 @@ public static class DiezWordSearchFinalizationBridge
             result.Success ? EnsureExtension(fullPath, ".xlsx") : null);
     }
 
+    /// <summary>
+    /// Final production CSV matching the supplied Self Publishing Titans sample.
+    /// </summary>
     public static async Task<DiezWordSearchFinalExportResult> ExportFinalCsvAsync(
         string projectJson,
         string outputPath)
