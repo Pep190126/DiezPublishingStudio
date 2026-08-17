@@ -211,9 +211,9 @@ internal static class AiCenterWorkspace
                         var file = await picker.PickSingleFileAsync();
                         if (file is null) return;
 
-                        responseImportInfo.Text = $"Response ZIP: verifica in corso · {Path.GetFileName(file.Path)}…";
+                        responseImportInfo.Text = $"Response ZIP: copia byte-per-byte e verifica in corso · {file.Name}…";
                         report(responseImportInfo.Text);
-                        var result = await document.ImportManualVisualResponsePackAsync(file.Path);
+                        var result = await document.ImportManualVisualResponsePackAsync(file);
                         await SetResponseImportStatusAsync(result.Message);
                         if (result.Success) showVision();
                     }
