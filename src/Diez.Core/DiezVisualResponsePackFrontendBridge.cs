@@ -73,7 +73,8 @@ public static class DiezVisualResponsePackFrontendBridge
             if (manifestEntry is null)
                 return Failure(
                     "MANIFEST_MISSING",
-                    $"Il Response ZIP non contiene {CanonicalManifestName} né {CompatibilityManifestName}.");
+                    $"Il Response ZIP non contiene {CanonicalManifestName} né {CompatibilityManifestName}. " +
+                    $"Voci viste nello ZIP: {DescribeEntries(archive)}");
 
             var dialect = canonicalEntry is not null ? "canonical" : "provider-compat";
             JsonObject manifestRoot;
@@ -335,8 +336,19 @@ public static class DiezVisualResponsePackFrontendBridge
     private static ZipArchiveEntry? FindEntry(ZipArchive archive, string path)
     {
         var normalized = Normalize(path);
-        return archive.Entries.FirstOrDefault(e => string.Equals(Normalize(e.FullName), normalized, StringComparison.Ordinal))
-               ?? archive.Entries.FirstOrDefault(e => string.Equals(Normalize(e.FullName), normalized, StringComparison.OrdinalIgnoreCase));
+        var exact = archive.Entries.FirstOrDefault(e => string.Equals(Normalize(e.FullName), normalized, StringComparison.Ordinal))
+                    ?? archive.Entries.FirstOrDefault(e => string.Equals(Normalize(e.FullName), normalized, StringComparison.OrdinalIgnoreCase));
+        if (exact is not null) return exact;
+
+        // Browser/provider ZIP tooling sometimes wraps all files in one directory. Accept only an
+        // unambiguous manifest with the exact allowed basename; never scan arbitrary JSON files.
+        var wantedName = Path.GetFileName(normalized.Replace('/', Path.DirectorySeparatorChar));
+        var byBasename = archive.Entries.Where(e =>
+                !string.IsNullOrWhiteSpace(e.Name) &&
+                IsSafe(Normalize(e.FullName)) &&
+                string.Equals(e.Name, wantedName, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        return byBasename.Count == 1 ? byBasename[0] : null;
     }
 
     private static ZipArchiveEntry? ResolveAsset(ZipArchive archive, string requested)
@@ -352,12 +364,30 @@ public static class DiezVisualResponsePackFrontendBridge
 
         var name = Path.GetFileName(normalized.Replace('/', Path.DirectorySeparatorChar));
         var byName = archive.Entries.Where(e =>
-                (Normalize(e.FullName).StartsWith("content/", StringComparison.OrdinalIgnoreCase) ||
-                 Normalize(e.FullName).StartsWith("assets/", StringComparison.OrdinalIgnoreCase)) &&
-                IsSafe(Normalize(e.FullName)) &&
-                string.Equals(e.Name, name, StringComparison.OrdinalIgnoreCase))
+            {
+                var fullName = Normalize(e.FullName);
+                var inAssetFolder = fullName.StartsWith("content/", StringComparison.OrdinalIgnoreCase) ||
+                                    fullName.StartsWith("assets/", StringComparison.OrdinalIgnoreCase) ||
+                                    fullName.Contains("/content/", StringComparison.OrdinalIgnoreCase) ||
+                                    fullName.Contains("/assets/", StringComparison.OrdinalIgnoreCase);
+                return inAssetFolder &&
+                       IsSafe(fullName) &&
+                       string.Equals(e.Name, name, StringComparison.OrdinalIgnoreCase);
+            })
             .ToList();
         return byName.Count == 1 ? byName[0] : null;
+    }
+
+    private static string DescribeEntries(ZipArchive archive)
+    {
+        var entries = archive.Entries
+            .Select(e => Normalize(e.FullName))
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Take(12)
+            .ToList();
+        if (entries.Count == 0) return "(ZIP vuoto)";
+        var suffix = archive.Entries.Count > entries.Count ? $" … (+{archive.Entries.Count - entries.Count})" : string.Empty;
+        return string.Join(", ", entries) + suffix;
     }
 
     private static string Normalize(string value) => value.Replace('\\', '/').Trim().TrimStart('/');
