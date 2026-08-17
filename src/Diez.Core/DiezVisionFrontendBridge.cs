@@ -118,15 +118,17 @@ public static class DiezVisionFrontendBridge
                 blocking.Add(requirement.Key);
         }
 
+        // Defense in depth: a frontend may submit a known HARD check that is not part of the current
+        // requirement projection. Such a failed HARD check must still never be silently ignored.
         foreach (var optional in submitted.Values.Where(x => requirements.All(r => !string.Equals(r.Key, x.Key, StringComparison.OrdinalIgnoreCase))))
         {
             var pseudo = new DiezVisionRequirement(optional.Key, optional.Key, string.Empty, false);
-            normalizedChecks.Add((
-                pseudo,
-                VisionHardGatePolicy.Enforce(optional.Key, optional.Status, VisionHardGatePolicy.Soft, selectedStyle),
-                optional.Evidence ?? string.Empty));
+            var enforced = VisionHardGatePolicy.Enforce(optional.Key, optional.Status, VisionHardGatePolicy.Soft, selectedStyle);
+            normalizedChecks.Add((pseudo, enforced, optional.Evidence ?? string.Empty));
+            if (enforced.BlocksApproval) blocking.Add(optional.Key);
         }
 
+        blocking = blocking.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         var approved = blocking.Count == 0;
         if (!approved)
         {
@@ -184,31 +186,98 @@ public static class DiezVisionFrontendBridge
         var result = new List<DiezVisionRequirement>
         {
             new(VisionHardGatePolicy.SubjectMatch, "Soggetto corretto", "Il soggetto visibile deve corrispondere a quello previsto per questa immagine.", true),
-            new(VisionHardGatePolicy.SingleComposition, "Una sola composizione", "Una sola scena/composizione principale, non collage o layout multipli.", true)
+            new(VisionHardGatePolicy.SingleComposition, "Una sola composizione", "Una sola scena/composizione principale, non collage, griglia, contact sheet o layout multipli.", true)
         };
 
         var type = BookTypeProfileService.Get(project);
+        var scene = StructuredSceneProfileService.SceneForPosition(project, unit.Position);
+        string genericEnvironment = string.Empty;
+
         if (string.Equals(type, BookTypeProfileService.ColoringBook, StringComparison.OrdinalIgnoreCase))
         {
+            var profile = BookTypePromptProfileService.LoadColoring(project);
             var hard = ColoringIndependentHardProfileService.Resolve(project);
+            genericEnvironment = VisualPromptIntentSynthesizer.SeriesEnvironment(project, profile.EnvironmentDescription);
+
+            result.Add(new(VisionHardGatePolicy.BookTypeFit,
+                "Vera pagina da coloring",
+                "Pagina professionalmente colorabile; non diagramma, logo, icon sheet, bozza geometrica, placeholder o immagine estranea.", true));
             result.Add(new(VisionHardGatePolicy.StyleMatch, "Stile", hard.Style, true));
-            result.Add(new(VisionHardGatePolicy.BoldEasyMatch, "Bold & Easy", hard.BoldEasy ? "ON" : "OFF", true));
-            result.Add(new(VisionHardGatePolicy.CozyMatch, "Cozy", hard.Cozy ? "ON" : "OFF", true));
+            result.Add(new(VisionHardGatePolicy.BoldEasyMatch,
+                "Bold & Easy",
+                hard.BoldEasy
+                    ? "ON — forme grandi e semplici, regioni ampie da colorare, poco clutter e dettaglio interno ridotto; non basta avere contorni spessi."
+                    : "OFF — non imporre automaticamente semplificazione/ingrandimento/contorni Bold & Easy.", true));
+            result.Add(new(VisionHardGatePolicy.CozyMatch,
+                "Cozy",
+                hard.Cozy
+                    ? "ON — atmosfera visibilmente calda, rassicurante, gentile e invitante; una pagina fredda/vuota/schematica non passa."
+                    : "OFF — non imporre automaticamente un trattamento Cozy.", true));
             result.Add(new(VisionHardGatePolicy.LineWeightMatch, "Spessore linee", hard.LineWeight, true));
+
+            if (profile.BlackAndWhiteOnly || profile.NoGray || profile.NoShadows)
+                result.Add(new(VisionHardGatePolicy.ColorOutputMatch,
+                    "Bianco/nero di stampa",
+                    "Solo nero puro #000000 e bianco puro #FFFFFF; niente grigi, ombre, gradienti o texture tonali.", true));
+
+            result.Add(new(VisionHardGatePolicy.DrawingCraft,
+                "Qualità del disegno",
+                "Anatomia/struttura coerente nello stile scelto, contorni intenzionali e organici, silhouette leggibile; niente primitive geometriche rozze, arti/forme malformati, duplicazioni o filler senza senso.", true));
+
+            if (profile.ClosedAreas)
+                result.Add(new(VisionHardGatePolicy.ColorableRegions,
+                    "Aree realmente colorabili",
+                    "Regioni chiaramente delimitate e comodamente riempibili, senza sovrapposizioni ambigue o celle aperte/confuse.", true));
+            if (profile.CleanContours)
+                result.Add(new(VisionHardGatePolicy.CleanContours,
+                    "Contorni puliti",
+                    "Linee continue, deliberate e stampabili; niente contorni rotti, doppi, sporchi, pendenti o collisioni accidentali.", true));
+            if (profile.AvoidTinyAreas)
+                result.Add(new(VisionHardGatePolicy.MicroDetailFit,
+                    "Dettaglio adatto",
+                    "Niente micro-celle o dettagli inutilizzabili per audience e difficoltà selezionate.", true));
+            if (profile.SubjectClearlySeparated)
+                result.Add(new(VisionHardGatePolicy.SubjectReadability,
+                    "Soggetto leggibile",
+                    "Soggetto e partecipanti richiesti chiaramente separati dallo sfondo e riconoscibili anche a dimensione ridotta.", true));
+            if (profile.NoTextInsideImage)
+                result.Add(new(VisionHardGatePolicy.VisibleTextOrWatermark,
+                    "Nessun testo / watermark",
+                    "PASS significa assenza totale di testo, pseudo-testo, lettere, numeri, logo, firma, watermark, ID, filename o frammenti UI.", true));
         }
         else if (string.Equals(type, BookTypeProfileService.ImageCollection, StringComparison.OrdinalIgnoreCase) ||
                  string.Equals(type, BookTypeProfileService.IllustratedBook, StringComparison.OrdinalIgnoreCase))
         {
             var profile = ImageCollectionPromptProfileService.Load(project);
+            genericEnvironment = VisualPromptIntentSynthesizer.SeriesEnvironment(project, profile.EnvironmentDescription);
+            result.Add(new(VisionHardGatePolicy.BookTypeFit,
+                "Coerenza con il tipo libro",
+                string.Equals(type, BookTypeProfileService.IllustratedBook, StringComparison.OrdinalIgnoreCase)
+                    ? "Illustrazione editoriale/narrativa coerente con il contenuto e non immagine stock estranea."
+                    : "Immagine coerente con l'uso editoriale scelto e semanticamente utile alla raccolta.", true));
             if (!string.IsNullOrWhiteSpace(profile.RenderingStyle))
                 result.Add(new(VisionHardGatePolicy.StyleMatch, "Stile di resa", profile.RenderingStyle, true));
             if (!string.IsNullOrWhiteSpace(profile.LineTreatment))
                 result.Add(new(VisionHardGatePolicy.LineWeightMatch, "Trattamento linee", profile.LineTreatment, true));
+            if (profile.KeepSubjectReadable)
+                result.Add(new(VisionHardGatePolicy.SubjectReadability,
+                    "Soggetto leggibile",
+                    "Il soggetto principale deve essere immediatamente distinguibile dallo sfondo.", true));
+            if (profile.AvoidTextInsideImage)
+                result.Add(new(VisionHardGatePolicy.VisibleTextOrWatermark,
+                    "Nessun testo / watermark",
+                    "Nessun testo, caption, ID o watermark salvo richiesta esplicita della Work Unit.", true));
         }
 
-        var scene = StructuredSceneProfileService.SceneForPosition(project, unit.Position);
         if (scene is not null)
         {
+            var local = (scene.Description ?? string.Empty).Trim();
+            if (!string.IsNullOrWhiteSpace(local))
+                result.Add(new(VisionHardGatePolicy.EnvironmentMatch,
+                    "Scena / ambientazione",
+                    local,
+                    true));
+
             var participants = StructuredSceneProfileService.Participants(project, scene);
             if (participants.Count > 0)
             {
@@ -219,8 +288,30 @@ public static class DiezVisionFrontendBridge
                     true));
             }
         }
+        else if (!string.IsNullOrWhiteSpace(genericEnvironment))
+        {
+            result.Add(new(VisionHardGatePolicy.EnvironmentMatch,
+                "Ambientazione",
+                genericEnvironment.Trim(),
+                true));
+        }
 
-        return result;
+        var master = PromptMasterStateStore.LoadForCurrentBook(project);
+        if (!string.IsNullOrWhiteSpace(master?.MustDo))
+            result.Add(new(VisionHardGatePolicy.MustDo,
+                "Vincoli MUST DO",
+                master!.MustDo.Trim(),
+                true));
+        if (!string.IsNullOrWhiteSpace(master?.MustNotDo))
+            result.Add(new(VisionHardGatePolicy.MustNotDo,
+                "Vincoli MUST NOT DO",
+                master!.MustNotDo.Trim(),
+                true));
+
+        return result
+            .GroupBy(x => x.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(x => x.First())
+            .ToList();
     }
 
     private static string SelectedStyle(PreviewProject project)
@@ -296,7 +387,7 @@ public static class DiezVisionFrontendBridge
             {
                 ["Key"] = item.Requirement.Key,
                 ["Status"] = item.Check.Status,
-                ["Severity"] = item.Requirement.Required ? VisionHardGatePolicy.Hard : item.Check.Severity,
+                ["Severity"] = item.Check.Severity,
                 ["Confidence"] = Math.Clamp(confidence, 0, 1),
                 ["Evidence"] = item.Evidence
             });
@@ -375,6 +466,7 @@ public static class DiezVisionFrontendBridge
             ?? throw new InvalidDataException("Il JSON del progetto Diez non è valido.");
         var project = JsonSerializer.Deserialize<PreviewProject>(projectJson, JsonOptions)
             ?? throw new InvalidDataException("Il progetto Diez non può essere letto dal Core.");
+        project.EditionMetadata ??= new EditionMetadata();
         project.AiProduction ??= new AiProductionSettings();
         project.AiProductionJobs ??= [];
         project.Materials ??= [];
@@ -437,6 +529,8 @@ public static class DiezVisionFrontendBridge
         raw["Name"] = typed.Name;
         raw["IsCandidate"] = typed.IsCandidate;
         raw["Notes"] = typed.Notes;
+        if (typed.SourceMaterialId.HasValue) raw["SourceMaterialId"] = typed.SourceMaterialId.Value.ToString();
+        if (typed.FirstSourceContentId.HasValue) raw["FirstSourceContentId"] = typed.FirstSourceContentId.Value.ToString();
     }
 
     private static string Write(JsonObject root) =>
