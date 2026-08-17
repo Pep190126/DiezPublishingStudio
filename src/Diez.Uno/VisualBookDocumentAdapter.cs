@@ -110,6 +110,15 @@ internal static class VisualBookDocumentAdapter
 
     public static async Task<DiezPromptPackBuildResult> CreateManualPromptPackAsync(this DiezProjectDocument document, IEnumerable<Guid>? workUnitIds, string outputPath)
     {
+        // Freeze the latest visual semantics, not the possibly older UI/job draft. Scene participation,
+        // Subject identity and all independent Coloring HARD choices are authoritative at package time.
+        var hard = DiezVisualHardPromptFrontendBridge.Recompile(document.ExportProjectJson(), workUnitIds);
+        if (!hard.Success)
+            return new DiezPromptPackBuildResult(
+                document.ExportProjectJson(), false, hard.Status, hard.Message,
+                Guid.Empty, Guid.Empty, 0, string.Empty, "MANUAL");
+        ApplyCoreJson(document, hard.ProjectJson);
+
         var result = await DiezPromptPackBatchFrontendBridge.BuildManualPackageAsync(document.ExportProjectJson(), document.SourcePath, workUnitIds, outputPath);
         if (result.Success) ApplyCoreJson(document, result.ProjectJson);
         return result;
@@ -128,7 +137,7 @@ internal static class VisualBookDocumentAdapter
 
         var audit = await DiezVisualResponsePackFrontendBridge.ReadAsync(document.ExportProjectJson(), zipPath);
         if (!audit.Success)
-            return new(false, 0, 0, 0, audit.Message, string.Empty);
+            return new(false, 0, 0, 0, $"Response non importato [{audit.Status}]: {audit.Message}", string.Empty);
 
         var tempRoot = Path.Combine(Path.GetTempPath(), "DiezVisualResponse-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRoot);
@@ -196,7 +205,7 @@ internal static class VisualBookDocumentAdapter
             try { Directory.Delete(tempRoot, true); } catch { }
             var total = candidates + providerFailed + duplicates;
             return new(true, candidates, providerFailed, duplicates,
-                $"Response ZIP importato: {total} risultati · {candidates} Candidate · {providerFailed} FAILED provider · {duplicates} duplicati. Apri Vision per la review delle immagini.",
+                $"IMPORT RIUSCITO: {total} risultati dal Response ZIP · {candidates} Candidate · {providerFailed} FAILED provider · {duplicates} duplicati. Vision viene aperto con le Candidate importate.",
                 string.Empty);
         }
         catch (Exception ex)
