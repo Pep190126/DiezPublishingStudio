@@ -135,6 +135,19 @@ static async Task WritePhysicalProviderResponseAsync(
     await writer.WriteAsync(manifest.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
 }
 
+static async Task WrapZipAsync(string sourcePath, string targetPath, string wrapper)
+{
+    using var source = ZipFile.OpenRead(sourcePath);
+    using var target = ZipFile.Open(targetPath, ZipArchiveMode.Create);
+    foreach (var sourceEntry in source.Entries)
+    {
+        var targetEntry = target.CreateEntry(wrapper.TrimEnd('/') + "/" + sourceEntry.FullName);
+        await using var input = sourceEntry.Open();
+        await using var output = targetEntry.Open();
+        await input.CopyToAsync(output);
+    }
+}
+
 var setup = DiezVisualBookFrontendBridge.SaveColoring(
     NewProject(), 2, "animali della giungla", "giungla", true,
     "Identità dei personaggi stabile fra le Scene.",
@@ -269,6 +282,26 @@ try
             physical.Items.All(x => x.Status == "COMPLETE") &&
             physical.Items.All(x => x.AssetEntryPath.StartsWith("assets/", StringComparison.Ordinal)),
         "diez-response.json/results/COMPLETED senza package_id deve normalizzarsi in modo sicuro e idempotente.");
+
+    var wrappedPath = Path.Combine(tempRoot, "diez-response-wrapped.zip");
+    await WrapZipAsync(physicalPath, wrappedPath, "provider-output");
+    var wrapped = await DiezVisualResponsePackFrontendBridge.ReadAsync(built.ProjectJson, wrappedPath);
+    Require(wrapped.Success && wrapped.Items.Count == 2 &&
+            wrapped.Items.All(x => x.AssetEntryPath.StartsWith("provider-output/assets/", StringComparison.Ordinal)),
+        "Un wrapper di cartella del provider non deve nascondere manifest e asset validi.");
+
+    var noManifestPath = Path.Combine(tempRoot, "response-no-manifest.zip");
+    using (var noManifest = ZipFile.Open(noManifestPath, ZipArchiveMode.Create))
+    {
+        var note = noManifest.CreateEntry("provider-output/readme.txt");
+        await using var noteStream = new StreamWriter(note.Open());
+        await noteStream.WriteAsync("not a response manifest");
+    }
+    var missingManifest = await DiezVisualResponsePackFrontendBridge.ReadAsync(built.ProjectJson, noManifestPath);
+    Require(!missingManifest.Success && missingManifest.Status == "MANIFEST_MISSING" &&
+            missingManifest.Message.Contains("provider-output/readme.txt", StringComparison.Ordinal),
+        "MANIFEST_MISSING deve elencare le voci realmente viste nello ZIP.");
+
     var marked = DiezVisualResponsePackFrontendBridge.MarkPackageImported(built.ProjectJson, physical.PackageId);
     var duplicate = await DiezVisualResponsePackFrontendBridge.ReadAsync(marked.ProjectJson, physicalPath);
     Require(!duplicate.Success && duplicate.Status == "PACKAGE_ALREADY_IMPORTED",
