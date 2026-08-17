@@ -102,6 +102,13 @@ internal static class AiCenterWorkspace
         if (BookTypeCatalog.IsVisual(document.BookType))
         {
             var apiInfo = new TextBlock { TextWrapping = TextWrapping.Wrap };
+            var responseImportInfo = new TextBlock
+            {
+                Text = document.GetUiString(
+                    "AI.ResponseImportLastStatus",
+                    "Response ZIP: nessun import eseguito in questa versione del progetto."),
+                TextWrapping = TextWrapping.Wrap
+            };
             var apiButton = new Button
             {
                 Content = "Via API · non configurata",
@@ -119,6 +126,15 @@ internal static class AiCenterWorkspace
                     ? "Via API · executor da collegare"
                     : "Via API · non configurata";
                 apiButton.IsEnabled = false;
+            }
+
+            async Task SetResponseImportStatusAsync(string message)
+            {
+                var clean = string.IsNullOrWhiteSpace(message) ? "Response ZIP: esito non disponibile." : message.Trim();
+                responseImportInfo.Text = clean;
+                document.SetUiString("AI.ResponseImportLastStatus", clean);
+                await save();
+                report(clean);
             }
 
             provider.SelectionChanged += (_, _) => RefreshApiCapability();
@@ -185,7 +201,7 @@ internal static class AiCenterWorkspace
                 {
                     if (string.IsNullOrWhiteSpace(document.SourcePath))
                     {
-                        report("Salva prima il progetto .diez: le immagini del Response devono essere incorporate subito nel progetto.");
+                        await SetResponseImportStatusAsync("Response non importato [PROJECT_NOT_SAVED]: salva prima il progetto .diez; gli asset devono essere incorporati subito.");
                         return;
                     }
                     try
@@ -195,15 +211,18 @@ internal static class AiCenterWorkspace
                         var file = await picker.PickSingleFileAsync();
                         if (file is null) return;
 
+                        responseImportInfo.Text = $"Response ZIP: verifica in corso · {Path.GetFileName(file.Path)}…";
+                        report(responseImportInfo.Text);
                         var result = await document.ImportManualVisualResponsePackAsync(file.Path);
-                        report(result.Message);
+                        await SetResponseImportStatusAsync(result.Message);
                         if (result.Success) showVision();
                     }
                     catch (Exception ex)
                     {
-                        report("Import Response ZIP non riuscito: " + ex.GetBaseException().Message);
+                        await SetResponseImportStatusAsync("Import Response ZIP non riuscito [UNEXPECTED]: " + ex.GetBaseException().Message);
                     }
                 }),
+                Labeled("Esito ultimo Response ZIP", responseImportInfo),
                 apiInfo,
                 new TextBlock
                 {
