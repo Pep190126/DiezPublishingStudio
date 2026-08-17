@@ -47,6 +47,25 @@ Gli ID tecnici servono a Diez ma non devono contaminare il renderer. In particol
 
 Restano autoritativi gli invarianti del Prompt Compiler corrente: ART DIRECTION sintetizzata, HARD locks, Scene locale prioritaria rispetto all'ambiente generico e partecipazione dei soggetti risolta semanticamente.
 
+## Esito del primo test fisico Windows — 17 agosto 2026
+
+Il primo giro installato realmente sul PC ha validato la creazione del Prompt Pack, ma ha individuato due problemi **NON CONSOLIDATI**:
+
+1. Il Response ZIP realmente prodotto da ChatGPT non usava esattamente il dialetto sintetico della CI. Conteneva `diez-response.json`, `source_prompt_pack_id`, `results`, status `COMPLETED` e nessun `package_id`. La prima build Uno accettava soltanto `response-manifest.json`, `prompt_pack_id`, `items`, `COMPLETE` e `package_id`, quindi la selezione del Response non produceva Candidate visibili.
+2. I prompt del lotto Coloring conservavano Kawaii / Cozy / Bold & Easy, ma erano troppo generici per singola immagine e non trasportavano in modo sufficientemente esplicito Scene, partecipanti e alcuni vincoli HARD della pipeline Avalonia. Gli output risultavano tecnicamente B/W e colorabili ma semanticamente troppo geometrici/schematici e non affidabili come Kawaii + Cozy.
+
+Il contratto corretto da verificare nella prossima installazione è quindi:
+
+- l'importer accetta sia il dialetto canonico sia il dialetto provider osservato, **senza** allentare ProjectId, JobId, PromptPackId, WorkUnitId e candidate version;
+- se `package_id` manca, Diez usa l'hash SHA-256 dell'intero ZIP come identità idempotente del package;
+- `COMPLETED` viene normalizzato a `COMPLETE`;
+- asset sotto `assets/` e `content/` vengono risolti in modo sicuro;
+- il Prompt Pack viene ricompilato immediatamente prima del freeze ZIP usando lo stato corrente di Subject, Scene, partecipazione e Consistent;
+- per Coloring tornano autoritativi i vincoli Avalonia su stile semantico, Bold & Easy, Cozy, line weight, qualità del disegno/anatomia, pure black/white, aree colorabili, contorni, micro-dettaglio, leggibilità, niente testo/watermark, una sola composizione e cast della Scena;
+- gli stessi vincoli applicabili devono ricomparire nella checklist Vision e ogni HARD non-PASS deve bloccare l'approvazione.
+
+Queste correzioni restano **PENDING PHYSICAL RETEST**. Anche una CI completamente verde non le promuove a CONSOLIDATE.
+
 ## Fallback clean-room
 
 La modalità storica "una chat/render context pulito per Work Unit" resta disponibile come **fallback di sicurezza** quando una piattaforma dimostra contaminazione fra rendering successivi o non riesce a mantenere separati i risultati.
