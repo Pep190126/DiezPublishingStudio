@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -35,13 +36,17 @@ public sealed record DiezVisualResponsePackMutation(
 
 /// <summary>
 /// Audited, UI-neutral boundary for one manual visual Response ZIP.
-/// The bridge validates identities and ZIP entry paths but intentionally does not load image bytes:
-/// the package frontend extracts one accepted asset at a time, keeping large books memory-safe.
+/// It accepts the canonical Diez response-manifest.json dialect and the provider-produced
+/// diez-response.json compatibility dialect observed in physical testing. Field aliases are
+/// normalized, but Project/Job/PromptPack/WorkUnit/version identity checks are never relaxed.
+/// Image bytes are not loaded by this bridge; the package frontend extracts one accepted asset
+/// at a time so large books remain memory-safe.
 /// </summary>
 public static class DiezVisualResponsePackFrontendBridge
 {
     private const string ExchangeEntityKind = "DiezAiExchangeState";
-    private const string ManifestName = "response-manifest.json";
+    private const string CanonicalManifestName = "response-manifest.json";
+    private const string CompatibilityManifestName = "diez-response.json";
     private const string ProviderFailedMarker = "DIEZ_PROVIDER_FAILED_V1:";
     private const long MaxAssetBytes = 150L * 1024L * 1024L;
 
@@ -49,12 +54,6 @@ public static class DiezVisualResponsePackFrontendBridge
     {
         PropertyNameCaseInsensitive = true,
         WriteIndented = false
-    };
-
-    private static readonly JsonSerializerOptions ManifestJsonOptions = new()
-    {
-        PropertyNameCaseInsensitive = true,
-        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
     };
 
     public static async Task<DiezVisualResponsePackReadResult> ReadAsync(string projectJson, string zipPath)
@@ -68,25 +67,37 @@ public static class DiezVisualResponsePackFrontendBridge
         try
         {
             using var archive = ZipFile.OpenRead(zipPath);
-            var manifestEntry = FindEntry(archive, ManifestName);
+            var canonicalEntry = FindEntry(archive, CanonicalManifestName);
+            var compatibilityEntry = FindEntry(archive, CompatibilityManifestName);
+            var manifestEntry = canonicalEntry ?? compatibilityEntry;
             if (manifestEntry is null)
-                return Failure("MANIFEST_MISSING", "Il Response ZIP non contiene response-manifest.json.");
+                return Failure(
+                    "MANIFEST_MISSING",
+                    $"Il Response ZIP non contiene {CanonicalManifestName} né {CompatibilityManifestName}.");
 
-            ResponseManifest? manifest;
+            var dialect = canonicalEntry is not null ? "canonical" : "provider-compat";
+            JsonObject manifestRoot;
             await using (var stream = manifestEntry.Open())
-                manifest = await JsonSerializer.DeserializeAsync<ResponseManifest>(stream, ManifestJsonOptions);
+            {
+                manifestRoot = await JsonNode.ParseAsync(stream) as JsonObject
+                    ?? throw new InvalidDataException("Il manifest Response non contiene un oggetto JSON valido.");
+            }
 
-            if (manifest is null ||
-                !string.Equals(manifest.Protocol, "diez-response", StringComparison.OrdinalIgnoreCase) ||
+            var manifest = NormalizeManifest(manifestRoot);
+            if (!string.Equals(manifest.Protocol, "diez-response", StringComparison.OrdinalIgnoreCase) ||
                 manifest.ProtocolVersion != 1)
                 return Failure("INVALID_PROTOCOL", "Protocollo Response non valido: atteso diez-response v1.");
-            if (manifest.ProjectId != project.ProjectId)
+            if (manifest.ProjectId == Guid.Empty || manifest.ProjectId != project.ProjectId)
                 return Failure("PROJECT_MISMATCH", "Il Response ZIP appartiene a un altro progetto Diez.");
-            if (string.IsNullOrWhiteSpace(manifest.PackageId))
-                return Failure("PACKAGE_ID_MISSING", "package_id mancante nel Response ZIP.");
-            if (state.ImportedPackageIds.Contains(manifest.PackageId, StringComparer.OrdinalIgnoreCase))
+            if (manifest.JobId == Guid.Empty || manifest.PromptPackId == Guid.Empty)
+                return Failure("HEADER_INCOMPLETE", "Job o Prompt Pack non identificabili nel Response ZIP.");
+
+            var packageId = manifest.PackageId;
+            if (string.IsNullOrWhiteSpace(packageId))
+                packageId = await DerivePackageIdAsync(zipPath);
+            if (state.ImportedPackageIds.Contains(packageId, StringComparer.OrdinalIgnoreCase))
                 return new(false, "PACKAGE_ALREADY_IMPORTED", "Questo Response ZIP è già stato importato.",
-                    manifest.PackageId, manifest.PromptPackId, Guid.Empty, manifest.Partial, []);
+                    packageId, manifest.PromptPackId, Guid.Empty, manifest.Partial, []);
 
             var pack = state.PromptPacks.FirstOrDefault(p => p.PromptPackId == manifest.PromptPackId);
             var snapshot = pack is null
@@ -97,10 +108,10 @@ public static class DiezVisualResponsePackFrontendBridge
 
             var result = new List<DiezVisualResponsePackItem>();
             var seen = new HashSet<Guid>();
-            foreach (var item in manifest.Items ?? [])
+            foreach (var item in manifest.Items)
             {
-                if (!seen.Add(item.WorkUnitId))
-                    return Failure("DUPLICATE_WORK_UNIT", "Una Work Unit compare più volte nello stesso response-manifest.");
+                if (item.WorkUnitId == Guid.Empty || !seen.Add(item.WorkUnitId))
+                    return Failure("DUPLICATE_WORK_UNIT", "Una Work Unit è mancante o compare più volte nello stesso Response.");
 
                 var unit = state.WorkUnits.FirstOrDefault(w => w.WorkUnitId == item.WorkUnitId);
                 var requested = snapshot.Items.FirstOrDefault(x => x.WorkUnitId == item.WorkUnitId);
@@ -110,12 +121,15 @@ public static class DiezVisualResponsePackFrontendBridge
                     return Failure("NON_IMAGE_WORK_UNIT", $"{unit.Code} non è una Work Unit immagine.");
                 if (!string.IsNullOrWhiteSpace(item.ContentType) &&
                     !string.Equals(item.ContentType, AiExchangeContentTypes.Image, StringComparison.OrdinalIgnoreCase))
-                    return Failure("CONTENT_TYPE_MISMATCH", $"{unit.Code}: content_type del Response non corrisponde a Image.");
+                    return Failure("CONTENT_TYPE_MISMATCH", $"{unit.Code}: content_type del Response non corrisponde a IMAGE.");
                 if (requested.TargetCandidateVersion != item.CandidateVersion)
                     return Failure("CANDIDATE_VERSION_MISMATCH",
                         $"{unit.Code}: Candidate attesa v{requested.TargetCandidateVersion}, ricevuta v{item.CandidateVersion}.");
 
-                var failed = string.Equals(item.Status, "FAILED", StringComparison.OrdinalIgnoreCase);
+                var normalizedStatus = NormalizeResultStatus(item.Status);
+                if (normalizedStatus.Length == 0)
+                    return Failure("RESULT_STATUS_INVALID", $"{unit.Code}: status '{item.Status}' non riconosciuto.");
+                var failed = string.Equals(normalizedStatus, "FAILED", StringComparison.Ordinal);
                 var entryPath = string.Empty;
                 var fileName = string.Empty;
                 var length = 0L;
@@ -125,7 +139,7 @@ public static class DiezVisualResponsePackFrontendBridge
                         return Failure("ASSET_MISSING", $"{unit.Code}: primary_asset mancante.");
                     var entry = ResolveAsset(archive, item.PrimaryAsset);
                     if (entry is null)
-                        return Failure("ASSET_NOT_FOUND", $"{unit.Code}: asset '{item.PrimaryAsset}' non trovato o ambiguo nel Response ZIP.");
+                        return Failure("ASSET_NOT_FOUND", $"{unit.Code}: asset '{item.PrimaryAsset}' non trovato o non sicuro nel Response ZIP.");
                     if (entry.Length <= 0)
                         return Failure("ASSET_EMPTY", $"{unit.Code}: asset vuoto.");
                     if (entry.Length > MaxAssetBytes)
@@ -139,14 +153,14 @@ public static class DiezVisualResponsePackFrontendBridge
                     item.WorkUnitId,
                     unit.Code,
                     item.CandidateVersion,
-                    string.IsNullOrWhiteSpace(item.Status) ? "COMPLETE" : item.Status,
-                    item.Description ?? string.Empty,
-                    item.FailureReason ?? string.Empty,
+                    normalizedStatus,
+                    item.Description,
+                    item.FailureReason,
                     entryPath,
                     fileName,
                     length,
-                    item.RenderRequestId ?? string.Empty,
-                    item.RenderPromptSha256 ?? string.Empty));
+                    item.RenderRequestId,
+                    item.RenderPromptSha256));
             }
 
             if (result.Count == 0)
@@ -167,8 +181,8 @@ public static class DiezVisualResponsePackFrontendBridge
             return new(
                 true,
                 "READY",
-                $"Response ZIP verificato: {result.Count} risultati collegati al Prompt Pack.",
-                manifest.PackageId,
+                $"Response ZIP verificato ({dialect}): {result.Count} risultati collegati al Prompt Pack.",
+                packageId,
                 manifest.PromptPackId,
                 snapshot.SnapshotId,
                 manifest.Partial,
@@ -177,6 +191,10 @@ public static class DiezVisualResponsePackFrontendBridge
         catch (InvalidDataException ex)
         {
             return Failure("INVALID_ZIP", "Response ZIP non valido: " + ex.Message);
+        }
+        catch (JsonException ex)
+        {
+            return Failure("INVALID_JSON", "Manifest Response JSON non valido: " + ex.Message);
         }
         catch (Exception ex)
         {
@@ -260,6 +278,57 @@ public static class DiezVisualResponsePackFrontendBridge
         return new(Write(root), true, "RECORDED", "Response Package registrato come importato.");
     }
 
+    private static NormalizedManifest NormalizeManifest(JsonObject root)
+    {
+        var itemsNode = root["items"] as JsonArray ?? root["results"] as JsonArray ?? new JsonArray();
+        var items = new List<NormalizedItem>();
+        foreach (var node in itemsNode.OfType<JsonObject>())
+        {
+            items.Add(new NormalizedItem(
+                ReadGuid(node, "work_unit_id"),
+                ReadInt(node, "candidate_version"),
+                ReadString(node, "content_type"),
+                ReadString(node, "status"),
+                ReadString(node, "primary_asset"),
+                ReadString(node, "description"),
+                ReadString(node, "render_request_id"),
+                ReadString(node, "render_prompt_sha256"),
+                ReadString(node, "failure_reason")));
+        }
+
+        var promptPackId = ReadGuid(root, "prompt_pack_id");
+        if (promptPackId == Guid.Empty) promptPackId = ReadGuid(root, "source_prompt_pack_id");
+        return new NormalizedManifest(
+            ReadString(root, "protocol"),
+            ReadInt(root, "protocol_version"),
+            ReadGuid(root, "project_id"),
+            ReadGuid(root, "job_id"),
+            promptPackId,
+            ReadString(root, "package_id"),
+            ReadBool(root, "partial"),
+            items);
+    }
+
+    private static string NormalizeResultStatus(string? value) => (value ?? string.Empty).Trim().ToUpperInvariant() switch
+    {
+        "" => "COMPLETE",
+        "COMPLETE" => "COMPLETE",
+        "COMPLETED" => "COMPLETE",
+        "SUCCESS" => "COMPLETE",
+        "SUCCEEDED" => "COMPLETE",
+        "FAILED" => "FAILED",
+        "FAIL" => "FAILED",
+        _ => string.Empty
+    };
+
+    private static async Task<string> DerivePackageIdAsync(string zipPath)
+    {
+        await using var source = File.OpenRead(zipPath);
+        using var sha = SHA256.Create();
+        var hash = await sha.ComputeHashAsync(source);
+        return "sha256:" + Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
     private static DiezVisualResponsePackReadResult Failure(string status, string message) =>
         new(false, status, message, string.Empty, Guid.Empty, Guid.Empty, false, []);
 
@@ -283,7 +352,8 @@ public static class DiezVisualResponsePackFrontendBridge
 
         var name = Path.GetFileName(normalized.Replace('/', Path.DirectorySeparatorChar));
         var byName = archive.Entries.Where(e =>
-                Normalize(e.FullName).StartsWith("content/", StringComparison.OrdinalIgnoreCase) &&
+                (Normalize(e.FullName).StartsWith("content/", StringComparison.OrdinalIgnoreCase) ||
+                 Normalize(e.FullName).StartsWith("assets/", StringComparison.OrdinalIgnoreCase)) &&
                 IsSafe(Normalize(e.FullName)) &&
                 string.Equals(e.Name, name, StringComparison.OrdinalIgnoreCase))
             .ToList();
@@ -346,36 +416,50 @@ public static class DiezVisualResponsePackFrontendBridge
     private static string ReadString(JsonObject obj, string name)
     {
         var node = obj[name];
-        return node is JsonValue value && value.TryGetValue<string>(out var result)
-            ? result ?? string.Empty
-            : string.Empty;
+        if (node is JsonValue value && value.TryGetValue<string>(out var result)) return result ?? string.Empty;
+        return node?.ToString() ?? string.Empty;
+    }
+
+    private static Guid ReadGuid(JsonObject obj, string name) =>
+        Guid.TryParse(ReadString(obj, name), out var value) ? value : Guid.Empty;
+
+    private static int ReadInt(JsonObject obj, string name)
+    {
+        if (obj[name] is JsonValue value)
+        {
+            if (value.TryGetValue<int>(out var number)) return number;
+            if (value.TryGetValue<long>(out var longNumber)) return checked((int)longNumber);
+        }
+        return int.TryParse(ReadString(obj, name), out var parsed) ? parsed : 0;
+    }
+
+    private static bool ReadBool(JsonObject obj, string name)
+    {
+        if (obj[name] is JsonValue value && value.TryGetValue<bool>(out var result)) return result;
+        return bool.TryParse(ReadString(obj, name), out var parsed) && parsed;
     }
 
     private static string Write(JsonObject root) =>
         root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
 
-    private sealed class ResponseManifest
-    {
-        public string Protocol { get; set; } = string.Empty;
-        public int ProtocolVersion { get; set; }
-        public Guid ProjectId { get; set; }
-        public Guid JobId { get; set; }
-        public Guid PromptPackId { get; set; }
-        public string PackageId { get; set; } = string.Empty;
-        public bool Partial { get; set; }
-        public List<ResponseItem> Items { get; set; } = [];
-    }
+    private sealed record NormalizedManifest(
+        string Protocol,
+        int ProtocolVersion,
+        Guid ProjectId,
+        Guid JobId,
+        Guid PromptPackId,
+        string PackageId,
+        bool Partial,
+        IReadOnlyList<NormalizedItem> Items);
 
-    private sealed class ResponseItem
-    {
-        public Guid WorkUnitId { get; set; }
-        public int CandidateVersion { get; set; }
-        public string ContentType { get; set; } = string.Empty;
-        public string Status { get; set; } = "COMPLETE";
-        public string PrimaryAsset { get; set; } = string.Empty;
-        public string Description { get; set; } = string.Empty;
-        public string RenderRequestId { get; set; } = string.Empty;
-        public string RenderPromptSha256 { get; set; } = string.Empty;
-        public string FailureReason { get; set; } = string.Empty;
-    }
+    private sealed record NormalizedItem(
+        Guid WorkUnitId,
+        int CandidateVersion,
+        string ContentType,
+        string Status,
+        string PrimaryAsset,
+        string Description,
+        string RenderRequestId,
+        string RenderPromptSha256,
+        string FailureReason);
 }
