@@ -74,7 +74,7 @@ static async Task WriteCanonicalResponseAsync(
         {
             var asset = zip.CreateEntry(item.Asset);
             await using var assetStream = asset.Open();
-            await assetStream.WriteAsync([0x89, 0x50, 0x4E, 0x47, 0x01, 0x02, 0x03, 0x04]);
+            await assetStream.WriteAsync(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x01, 0x02, 0x03, 0x04 });
         }
     }
 
@@ -117,7 +117,7 @@ static async Task WritePhysicalProviderResponseAsync(
         });
         var asset = zip.CreateEntry(item.Asset);
         await using var assetStream = asset.Open();
-        await assetStream.WriteAsync([0x89, 0x50, 0x4E, 0x47, 0x11, 0x22, 0x33, 0x44]);
+        await assetStream.WriteAsync(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x11, 0x22, 0x33, 0x44 });
     }
 
     var manifest = new JsonObject
@@ -177,7 +177,7 @@ var recompiled = DiezVisualHardPromptFrontendBridge.Recompile(synced.ProjectJson
 Require(recompiled.Success && recompiled.Recompiled == 2,
     "Le Work Unit devono essere ricompilate al freeze del Prompt Pack.");
 var preview = DiezPromptPackFrontendBridge.Preview(recompiled.ProjectJson, selectedIds);
-Require(preview.Count == 2 && preview.Select(x => x.Code).SequenceEqual(["IMG-001", "IMG-002"]),
+Require(preview.Count == 2 && preview.Select(x => x.Code).SequenceEqual(new[] { "IMG-001", "IMG-002" }),
     "Il Prompt Pack deve mantenere le due Work Unit ordinate.");
 
 foreach (var item in preview)
