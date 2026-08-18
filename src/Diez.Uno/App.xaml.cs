@@ -17,7 +17,9 @@ public partial class App : Application
         {
             Title = "Diez Publishing Studio"
         };
-        MainWindow.Content = new DiezUiPolishHost(new MainShellPage());
+
+        var shell = new MainShellPage();
+        MainWindow.Content = new DiezRound2PolishHost(new DiezUiPolishHost(shell));
         MainWindow.Activate();
     }
 }
