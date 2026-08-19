@@ -1,0 +1,150 @@
+name: Uno Windows Consolidation Candidate
+
+on:
+  push:
+    branches:
+      - spike/uno-platform-ui
+    paths:
+      - 'src/Diez.Core/**'
+      - 'src/Diez.Uno/**'
+      - 'tests/Diez.VisualBook.Pianist/**'
+      - 'installer/DiezPublishingStudio-UnoPreview.iss'
+      - '.github/workflows/uno-windows-candidate-trace.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows-candidate:
+    name: Windows x64 physical-test candidate
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - name: Visual book gate
+        id: gate
+        run: dotnet run --project tests/Diez.VisualBook.Pianist/Diez.VisualBook.Pianist.csproj -c Release
+
+      - name: Restore Windows runtime
+        id: restore
+        run: dotnet restore src/Diez.Uno/Diez.Uno.csproj -r win-x64
+
+      - name: Publish Uno Windows x64
+        id: publish
+        run: dotnet publish src/Diez.Uno/Diez.Uno.csproj -c Release -f net10.0-desktop -r win-x64 -p:SelfContained=true --no-restore -o artifacts/uno-preview-win-x64
+
+      - name: Verify published executable
+        id: verify
+        shell: powershell
+        run: |
+          $exe = 'artifacts\uno-preview-win-x64\Diez.Uno.exe'
+          if (!(Test-Path $exe)) { throw "Published Uno executable missing: $exe" }
+          if ((Get-Item $exe).Length -lt 100000) { throw "Published executable unexpectedly small" }
+
+      - name: Install Inno Setup
+        id: inno
+        shell: powershell
+        run: choco install innosetup -y --no-progress
+
+      - name: Build side-by-side Setup EXE
+        id: package
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force artifacts/installers | Out-Null
+          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' installer\DiezPublishingStudio-UnoPreview.iss
+          $setup = 'artifacts\installers\DiezPublishingStudio-UnoPreview-Setup.exe'
+          if (!(Test-Path $setup)) { throw "Preview Setup not generated" }
+          Get-FileHash $setup -Algorithm SHA256
+
+      - name: Smoke install launch uninstall
+        id: smoke
+        shell: powershell
+        run: |
+          $setup = (Resolve-Path 'artifacts\installers\DiezPublishingStudio-UnoPreview-Setup.exe').Path
+          $installDir = Join-Path $env:RUNNER_TEMP 'Diez-Uno-Consolidation-Candidate-Smoke'
+          $dirArg = "/DIR=`"$installDir`""
+          $install = Start-Process -FilePath $setup -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',$dirArg -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "Preview install failed: $($install.ExitCode)" }
+          $exe = Join-Path $installDir 'Diez.Uno.exe'
+          if (!(Test-Path $exe)) { throw 'Installed Uno executable missing' }
+          $app = Start-Process -FilePath $exe -PassThru
+          Start-Sleep -Seconds 5
+          if ($app.HasExited) { throw "Installed Uno app exited during smoke startup with code $($app.ExitCode)" }
+          Stop-Process -Id $app.Id -Force
+          $uninstaller = Join-Path $installDir 'unins000.exe'
+          if (!(Test-Path $uninstaller)) { throw 'Preview uninstaller missing' }
+          $remove = Start-Process -FilePath $uninstaller -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait -PassThru
+          if ($remove.ExitCode -ne 0) { throw "Preview uninstall failed: $($remove.ExitCode)" }
+          if (Test-Path $exe) { throw 'Preview executable remained after uninstall' }
+
+      - name: Upload Windows installer
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: DiezPublishingStudio-UnoPreview-Windows-x64
+          path: artifacts/installers/DiezPublishingStudio-UnoPreview-Setup.exe
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Record candidate run manifest
+        if: always()
+        shell: powershell
+        env:
+          GATE_OUTCOME: ${{ steps.gate.outcome }}
+          RESTORE_OUTCOME: ${{ steps.restore.outcome }}
+          PUBLISH_OUTCOME: ${{ steps.publish.outcome }}
+          VERIFY_OUTCOME: ${{ steps.verify.outcome }}
+          PACKAGE_OUTCOME: ${{ steps.package.outcome }}
+          SMOKE_OUTCOME: ${{ steps.smoke.outcome }}
+          UPLOAD_OUTCOME: ${{ steps.upload.outcome }}
+        run: |
+          $setup = Join-Path $PWD 'artifacts\installers\DiezPublishingStudio-UnoPreview-Setup.exe'
+          $setupExists = Test-Path $setup
+          $hash = if ($setupExists) { (Get-FileHash $setup -Algorithm SHA256).Hash.ToLowerInvariant() } else { '' }
+          $size = if ($setupExists) { (Get-Item $setup).Length } else { 0 }
+          $candidateStatus = if ($env:SMOKE_OUTCOME -eq 'success' -and $env:UPLOAD_OUTCOME -eq 'success') { 'TECHNICALLY_VERIFIED' } else { 'FAILED_OR_INCOMPLETE' }
+
+          New-Item -ItemType Directory -Force docs/builds | Out-Null
+          $lines = @(
+            '# Latest Uno Windows installer candidate',
+            '',
+            "- Source SHA: ``$env:GITHUB_SHA``",
+            "- Workflow: ``$env:GITHUB_WORKFLOW``",
+            "- Run number: ``$env:GITHUB_RUN_NUMBER``",
+            "- Run ID: ``$env:GITHUB_RUN_ID``",
+            "- Candidate status: ``$candidateStatus``",
+            "- Gate: ``$env:GATE_OUTCOME``",
+            "- Restore: ``$env:RESTORE_OUTCOME``",
+            "- Publish: ``$env:PUBLISH_OUTCOME``",
+            "- Verify executable: ``$env:VERIFY_OUTCOME``",
+            "- Package: ``$env:PACKAGE_OUTCOME``",
+            "- Smoke install/launch/uninstall: ``$env:SMOKE_OUTCOME``",
+            "- Artifact upload: ``$env:UPLOAD_OUTCOME``",
+            "- Artifact: ``DiezPublishingStudio-UnoPreview-Windows-x64``",
+            "- Setup file: ``DiezPublishingStudio-UnoPreview-Setup.exe``",
+            "- Setup present: ``$setupExists``",
+            "- Setup bytes: ``$size``",
+            "- Setup SHA-256: ``$hash``",
+            "- Run URL: ``$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID``",
+            '',
+            'Status note: TECHNICALLY_VERIFIED means CI build + package + smoke succeeded. Physical installed-app validation is still required before consolidation.'
+          )
+          [System.IO.File]::WriteAllLines((Join-Path $PWD 'docs/builds/LATEST_UNO_WINDOWS_INSTALLER.md'), $lines, [System.Text.UTF8Encoding]::new($false))
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/builds/LATEST_UNO_WINDOWS_INSTALLER.md
+          if (git diff --cached --quiet) {
+            Write-Host 'Candidate manifest unchanged.'
+          } else {
+            git commit -m "Record Uno Windows candidate run $env:GITHUB_RUN_NUMBER [skip ci]"
+            git pull --rebase origin spike/uno-platform-ui
+            git push origin HEAD:spike/uno-platform-ui
+          }
