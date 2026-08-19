@@ -282,7 +282,7 @@ internal static class VisionWorkspace
                         chosen.VersionId,
                         checks,
                         reviewNotes.Text);
-                    if (result.Changed)
+                    if (result.Status is "APPROVED" or "VISION_FAILED")
                         PublisherProjectState.CreateCheckpoint(document, "VISION_REVIEW", "Vision completata", $"v{chosen.VersionNumber} · {result.Status}");
                     await save();
                     showVision();
