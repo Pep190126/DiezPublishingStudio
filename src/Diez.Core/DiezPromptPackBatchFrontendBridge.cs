@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using System.Text;
+using System.Text.Json.Nodes;
 
 namespace DiezPublishingStudio;
 
@@ -22,11 +23,14 @@ public static class DiezPromptPackBatchFrontendBridge
         if (items.Count == 0)
             throw new InvalidOperationException("Non ci sono Prompt immagine pronti per il Prompt Pack.");
 
+        var expectedResponse = ExpectedResponseFileName(projectJson);
         var sb = new StringBuilder();
         sb.AppendLine("# DIEZ ∞ PUBLISHING STUDIO — PROMPT PACK IMMAGINI");
         sb.AppendLine();
         sb.AppendLine("Questo ZIP è il pacchetto completo da eseguire. Non chiedere all'utente di copiare i singoli prompt e non richiedere una nuova chat per ogni immagine.");
         sb.AppendLine($"Il lotto contiene ESATTAMENTE {items.Count} immagini da generare come asset separati, nell'ordine indicato qui sotto.");
+        if (!string.IsNullOrWhiteSpace(expectedResponse))
+            sb.AppendLine($"Nome canonico richiesto per il Response ZIP finale: `{expectedResponse}`.");
         sb.AppendLine();
         sb.AppendLine("## Regole di esecuzione del lotto");
         sb.AppendLine("1. Tratta ogni blocco DIEZ VISUAL PROMPT come una richiesta di rendering indipendente, ma gestisci l'intero lotto all'interno di questa consegna ZIP.");
@@ -35,7 +39,9 @@ public static class DiezPromptPackBatchFrontendBridge
         sb.AppendLine("4. `prompt-manifest.json` contiene gli identificatori tecnici necessari a Diez per ricomporre i risultati. Usali soltanto nel Response Pack e non inserirli nelle immagini né nei prompt del renderer.");
         sb.AppendLine("5. Eventuali reference/materiali sono sotto `inputs/` e vanno usati solo per i ruoli dichiarati nel manifest.");
         sb.AppendLine("6. Ogni risultato rientra come Candidate. Non approvare implicitamente: Vision/review e `Porta nel libro` restano fasi Diez separate.");
-        sb.AppendLine("7. Al termine restituisci, quando il sistema lo consente, UN SOLO Response ZIP `diez-response` contenente un risultato distinto per ogni Work Unit del manifest.");
+        sb.AppendLine(string.IsNullOrWhiteSpace(expectedResponse)
+            ? "7. Al termine restituisci, quando il sistema lo consente, UN SOLO Response ZIP `diez-response` contenente un risultato distinto per ogni Work Unit del manifest."
+            : $"7. Al termine restituisci, quando il sistema lo consente, UN SOLO Response ZIP chiamato ESATTAMENTE `{expectedResponse}`, contenente un risultato distinto per ogni Work Unit del manifest.");
         sb.AppendLine();
         for (var i = 0; i < items.Count; i++)
         {
@@ -47,6 +53,8 @@ public static class DiezPromptPackBatchFrontendBridge
         }
         sb.AppendLine("## Controllo prima della consegna");
         sb.AppendLine($"Devono esistere {items.Count} risultati separati. Nessun ID, nome file tecnico, watermark o etichetta Diez deve comparire dentro le immagini.");
+        if (!string.IsNullOrWhiteSpace(expectedResponse))
+            sb.AppendLine($"Il pacchetto finale deve essere denominato `{expectedResponse}` salvo limitazioni tecniche del provider; in quel caso conserva comunque identità e manifest Diez.");
         sb.AppendLine("Se la piattaforma dimostra di contaminare un rendering con immagini precedenti, usa il fallback clean-room previsto dal protocollo storico; non è il percorso manuale predefinito.");
         return sb.ToString().Trim();
     }
@@ -79,5 +87,18 @@ public static class DiezPromptPackBatchFrontendBridge
         {
             Message = $"Prompt Pack ZIP pronto: {built.WorkUnitCount} immagini in un'unica consegna · {Path.GetFileName(built.OutputPath)} · ingresso AI: {PromptEntryName}."
         };
+    }
+
+    private static string ExpectedResponseFileName(string projectJson)
+    {
+        try
+        {
+            var root = JsonNode.Parse(projectJson) as JsonObject;
+            if (root?["AiExchangeNaming"] is not JsonObject naming) return string.Empty;
+            if (naming["ExpectedResponseFileName"] is JsonValue value && value.TryGetValue<string>(out var name))
+                return name ?? string.Empty;
+        }
+        catch { }
+        return string.Empty;
     }
 }
