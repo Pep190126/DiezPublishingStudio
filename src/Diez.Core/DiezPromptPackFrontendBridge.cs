@@ -37,6 +37,18 @@ public static class DiezPromptPackFrontendBridge
     private const string ManifestName = "prompt-manifest.json";
     private const string InstructionsName = "instructions.md";
 
+    private sealed record PublisherMaterialTransport(
+        Guid MaterialId,
+        string FileName,
+        string Kind,
+        string IntentCode,
+        string IntentLabel,
+        string Instruction,
+        string AiUsePolicy,
+        string Fidelity,
+        string Scope,
+        string InputPath);
+
     private static readonly JsonSerializerOptions ProjectJsonOptions = new()
     {
         PropertyNameCaseInsensitive = true,
@@ -67,6 +79,7 @@ public static class DiezPromptPackFrontendBridge
     /// Creates the real Prompt Pack used by the manual AI route. Internal routing identifiers live
     /// in prompt-manifest.json only; the provider-facing instruction remains exactly the prepared
     /// Work Unit prompt and is never enriched with Job/WorkUnit/session metadata.
+    /// Publisher materials are transported only when their structured intent explicitly allows AI use.
     /// </summary>
     public static async Task<DiezPromptPackBuildResult> BuildManualAsync(
         string projectJson,
@@ -87,6 +100,7 @@ public static class DiezPromptPackFrontendBridge
         if (jobIds.Count != 1)
             return Failure(projectJson, "MULTIPLE_JOBS", "Un Prompt Pack deve contenere Work Unit appartenenti allo stesso Job Diez.");
 
+        var publisherMaterials = SelectPublisherMaterials(root, project);
         var promptPackId = Guid.NewGuid();
         var snapshot = BuildSnapshot(state, units, promptPackId, jobIds[0], "PROMPT_PACK_MANUAL");
         var fullPath = EnsureZip(outputPath);
@@ -101,8 +115,8 @@ public static class DiezPromptPackFrontendBridge
             using (var zip = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true))
             {
                 await WriteTextAsync(zip, ManifestName,
-                    JsonSerializer.Serialize(BuildManifest(project, state, units, snapshot), ManifestJsonOptions));
-                await WriteTextAsync(zip, InstructionsName, ManualInstructions());
+                    JsonSerializer.Serialize(BuildManifest(project, state, units, snapshot, publisherMaterials), ManifestJsonOptions));
+                await WriteTextAsync(zip, InstructionsName, ManualInstructions(publisherMaterials.Count));
 
                 foreach (var paradigm in state.Paradigms.Where(p => units.Any(u => u.ParadigmIds.Contains(p.ParadigmId))))
                 {
@@ -126,6 +140,15 @@ public static class DiezPromptPackFrontendBridge
                     await WriteBytesAsync(zip,
                         $"inputs/current/{item.WorkUnitId:D}/{SafeName(material.FileName)}",
                         bytes);
+                }
+
+                foreach (var publisherMaterial in publisherMaterials)
+                {
+                    var material = project.Materials.FirstOrDefault(m => m.MaterialId == publisherMaterial.MaterialId);
+                    if (material is null) continue;
+                    var bytes = await ReadMaterialBytesAsync(projectPackagePath, material);
+                    if (bytes is null) continue;
+                    await WriteBytesAsync(zip, publisherMaterial.InputPath, bytes);
                 }
             }
 
@@ -152,7 +175,7 @@ public static class DiezPromptPackFrontendBridge
             Write(root),
             true,
             "CREATED",
-            $"Prompt Pack creato: {units.Count} Work Unit · {Path.GetFileName(fullPath)}.",
+            $"Prompt Pack creato: {units.Count} Work Unit · {publisherMaterials.Count} materiali publisher inviabili · {Path.GetFileName(fullPath)}.",
             promptPackId,
             snapshot.SnapshotId,
             units.Count,
@@ -204,7 +227,8 @@ public static class DiezPromptPackFrontendBridge
         PreviewProject project,
         AiExchangeState state,
         IReadOnlyList<AiExchangeWorkUnit> units,
-        AiExchangeRequestSnapshot snapshot)
+        AiExchangeRequestSnapshot snapshot,
+        IReadOnlyList<PublisherMaterialTransport> publisherMaterials)
     {
         return new
         {
@@ -217,6 +241,19 @@ public static class DiezPromptPackFrontendBridge
             prompt_pack_id = snapshot.PromptPackId,
             request_snapshot_id = snapshot.SnapshotId,
             partial_results_allowed = true,
+            publisher_materials = publisherMaterials.Select(material => new
+            {
+                material_id = material.MaterialId,
+                file_name = material.FileName,
+                kind = material.Kind,
+                intent_code = material.IntentCode,
+                intent_label = material.IntentLabel,
+                instruction = material.Instruction,
+                ai_use_policy = material.AiUsePolicy,
+                fidelity = material.Fidelity,
+                scope = material.Scope,
+                file = material.InputPath
+            }),
             shared_contexts = state.SharedContexts
                 .Where(c => units.Any(u => u.SharedContextIds.Contains(c.SharedContextId)))
                 .Select(c => new
@@ -273,6 +310,41 @@ public static class DiezPromptPackFrontendBridge
                 };
             })
         };
+    }
+
+    private static IReadOnlyList<PublisherMaterialTransport> SelectPublisherMaterials(JsonObject root, PreviewProject project)
+    {
+        if (root["Materials"] is not JsonArray rawMaterials) return [];
+        var selected = new List<PublisherMaterialTransport>();
+        foreach (var raw in rawMaterials.OfType<JsonObject>())
+        {
+            var materialId = ReadGuid(raw, "MaterialId");
+            if (!materialId.HasValue || materialId.Value == Guid.Empty) continue;
+            var typed = project.Materials.FirstOrDefault(m => m.MaterialId == materialId.Value);
+            if (typed is null || raw["PublisherIntent"] is not JsonObject intent) continue;
+
+            var intentCode = ReadString(intent, "IntentCode");
+            var policy = ReadString(intent, "AiUsePolicy");
+            if (string.IsNullOrWhiteSpace(intentCode) ||
+                string.Equals(intentCode, "UNASSIGNED", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(policy, "NEVER_SEND", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(policy, "DIRECT_ASSET", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var inputPath = $"inputs/publisher/{materialId.Value:D}/{SafeName(typed.FileName)}";
+            selected.Add(new PublisherMaterialTransport(
+                materialId.Value,
+                typed.FileName,
+                ReadString(raw, "Kind"),
+                intentCode,
+                ReadString(intent, "IntentLabel"),
+                ReadString(intent, "Instruction"),
+                string.IsNullOrWhiteSpace(policy) ? "REFERENCE_ONLY" : policy,
+                ReadString(intent, "Fidelity"),
+                ReadString(intent, "Scope"),
+                inputPath));
+        }
+        return selected;
     }
 
     private static IReadOnlyList<AiExchangeWorkUnit> SelectUnits(AiExchangeState state, IEnumerable<Guid>? requested)
@@ -368,7 +440,7 @@ public static class DiezPromptPackFrontendBridge
     private static DiezPromptPackBuildResult Failure(string projectJson, string status, string message) =>
         new(projectJson, false, status, message, Guid.Empty, Guid.Empty, 0, string.Empty, "MANUAL");
 
-    private static string ManualInstructions() => """
+    private static string ManualInstructions(int publisherMaterialCount) => $"""
 # Diez ∞ Publishing Studio — Prompt Pack manuale
 
 Questo ZIP è il passaggio manuale ufficiale fra Diez e il sistema AI scelto dall'utente.
@@ -376,10 +448,11 @@ Questo ZIP è il passaggio manuale ufficiale fra Diez e il sistema AI scelto dal
 1. Leggi `prompt-manifest.json`.
 2. Esegui ogni `work_unit` usando ESATTAMENTE il relativo campo `instruction` come prompt provider-facing.
 3. Gli ID, i codici e i numeri di versione nel manifest servono solo a Diez per ricomporre il lavoro: non inserirli nel contenuto generato.
-4. Usa eventuali file sotto `inputs/` soltanto per i ruoli dichiarati dal manifest.
-5. Per immagini restituisci anche una descrizione fedele del risultato.
-6. Non approvare implicitamente nulla: ogni risultato rientra in Diez come Candidate e passa dalla review prevista per quel tipo di contenuto.
-7. La strada Manuale e la strada Via API devono produrre Candidate sulle stesse Work Unit. Cambia il trasporto, non il modello editoriale.
+4. Usa eventuali file sotto `inputs/` soltanto per i ruoli dichiarati dal manifest. I materiali del publisher sono {publisherMaterialCount} e si trovano sotto `inputs/publisher/`; per ciascuno rispetta `intent_code`, `instruction`, `ai_use_policy` e `fidelity`.
+5. Non usare né inventare materiali che il manifest non dichiara inviabili; gli asset diretti e i materiali `NEVER_SEND` restano fuori dal Prompt Pack.
+6. Per immagini restituisci anche una descrizione fedele del risultato.
+7. Non approvare implicitamente nulla: ogni risultato rientra in Diez come Candidate e passa dalla review prevista per quel tipo di contenuto.
+8. La strada Manuale e la strada Via API devono produrre Candidate sulle stesse Work Unit. Cambia il trasporto, non il modello editoriale.
 
 Formato di risposta previsto: protocollo `diez-response` v1, con `work_unit_id`, `candidate_version`, `content_type`, `status`, eventuale `primary_asset` e `description`.
 """;
@@ -417,5 +490,14 @@ Formato di risposta previsto: protocollo `diez-response` v1, con `work_unit_id`,
         return node is JsonValue value && value.TryGetValue<string>(out var result)
             ? result ?? string.Empty
             : string.Empty;
+    }
+
+    private static Guid? ReadGuid(JsonObject obj, string name)
+    {
+        if (obj[name] is not JsonValue value) return null;
+        if (value.TryGetValue<Guid>(out var guid) && guid != Guid.Empty) return guid;
+        return value.TryGetValue<string>(out var text) && Guid.TryParse(text, out guid) && guid != Guid.Empty
+            ? guid
+            : null;
     }
 }
