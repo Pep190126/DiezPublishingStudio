@@ -1,6 +1,5 @@
 using System.IO.Compression;
 using System.Text;
-using System.Text.Json.Nodes;
 using System.Xml.Linq;
 
 namespace DiezPublishingStudio.UnoSpike;
@@ -27,12 +26,8 @@ internal static class UnoConsolidationExportService
         }
 
         var selected = items
-            .Where(item =>
-                !allAiMaterials.Contains(item.MaterialId) ||
-                approvedAiMaterials.Contains(item.MaterialId))
-            .Where(item =>
-                approvedAiMaterials.Contains(item.MaterialId) ||
-                !LooksLikeUnapprovedLegacyAi(item))
+            .Where(item => !allAiMaterials.Contains(item.MaterialId) || approvedAiMaterials.Contains(item.MaterialId))
+            .Where(item => approvedAiMaterials.Contains(item.MaterialId) || !LooksLikeUnapprovedLegacyAi(item))
             .ToList();
 
         if (selected.Count == 0)
@@ -45,47 +40,49 @@ internal static class UnoConsolidationExportService
         var missing = 0;
         try
         {
-            await using var output = new FileStream(temp, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None);
-            using var archive = new ZipArchive(output, ZipArchiveMode.Create, leaveOpen: true);
-            var manifest = new List<string>
+            await using (var output = new FileStream(temp, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None))
             {
-                "FILE\tORIGINE\tSHA256\tDIMENSIONE_BYTE"
-            };
-            var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            foreach (var item in selected)
-            {
-                var localPath = await ProjectMaterialPreviewPanel.ResolveMaterialPathAsync(document, item);
-                if (string.IsNullOrWhiteSpace(localPath) || !File.Exists(localPath))
+                using (var archive = new ZipArchive(output, ZipArchiveMode.Create, leaveOpen: true))
                 {
-                    missing++;
-                    continue;
+                    var manifest = new List<string> { "FILE\tORIGINE\tSHA256\tDIMENSIONE_BYTE" };
+                    var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                    foreach (var item in selected)
+                    {
+                        var localPath = await ProjectMaterialPreviewPanel.ResolveMaterialPathAsync(document, item);
+                        if (string.IsNullOrWhiteSpace(localPath) || !File.Exists(localPath))
+                        {
+                            missing++;
+                            continue;
+                        }
+
+                        var origin = approvedAiMaterials.Contains(item.MaterialId) ? "AI_APPROVATA" : "UTENTE";
+                        var folder = origin == "AI_APPROVATA" ? "ai-approvate" : "materiali-utente";
+                        var fileName = UniqueFileName(SafeEntryFileName(item.FileName), item.MaterialId, usedNames, folder);
+                        var entryName = folder + "/" + fileName;
+                        var entry = archive.CreateEntry(entryName, CompressionLevel.Optimal);
+                        await using (var input = File.OpenRead(localPath))
+                        await using (var target = entry.Open())
+                            await input.CopyToAsync(target);
+
+                        manifest.Add(string.Join("\t", new[]
+                        {
+                            entryName,
+                            origin,
+                            item.Sha256,
+                            item.SizeBytes.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                        }));
+                        exported++;
+                    }
+
+                    var manifestEntry = archive.CreateEntry("MANIFEST-MATERIALI.tsv", CompressionLevel.Optimal);
+                    await using var target = manifestEntry.Open();
+                    await using var writer = new StreamWriter(target, new UTF8Encoding(false));
+                    await writer.WriteAsync(string.Join(Environment.NewLine, manifest));
                 }
-
-                var origin = approvedAiMaterials.Contains(item.MaterialId) ? "AI_APPROVATA" : "UTENTE";
-                var folder = origin == "AI_APPROVATA" ? "ai-approvate" : "materiali-utente";
-                var fileName = UniqueFileName(SafeEntryFileName(item.FileName), item.MaterialId, usedNames, folder);
-                var entryName = folder + "/" + fileName;
-                var entry = archive.CreateEntry(entryName, CompressionLevel.Optimal);
-                await using (var input = File.OpenRead(localPath))
-                await using (var target = entry.Open())
-                    await input.CopyToAsync(target);
-
-                manifest.Add(string.Join('\t',
-                    entryName,
-                    origin,
-                    item.Sha256,
-                    item.SizeBytes.ToString(System.Globalization.CultureInfo.InvariantCulture)));
-                exported++;
+                await output.FlushAsync();
             }
 
-            var manifestEntry = archive.CreateEntry("MANIFEST-MATERIALI.tsv", CompressionLevel.Optimal);
-            await using (var target = manifestEntry.Open())
-            await using (var writer = new StreamWriter(target, new UTF8Encoding(false)))
-                await writer.WriteAsync(string.Join(Environment.NewLine, manifest));
-
-            archive.Dispose();
-            await output.FlushAsync();
             File.Move(temp, fullPath, true);
             return $"Materiali esportati: {exported} file in {Path.GetFileName(fullPath)}" +
                    (missing > 0 ? $" · {missing} record senza byte disponibili" : string.Empty) + ".";
@@ -107,19 +104,33 @@ internal static class UnoConsolidationExportService
 
         var lexiconRows = new List<IReadOnlyList<string>>
         {
-            new[] { "WORD", "CATEGORY", "SUBCATEGORY", "YEAR" }
+            new[] { "ID", "WORD", "CATEGORY", "SUBCATEGORY", "SERIES", "DECADE", "YEAR", "RELEVANCE", "KDPSAFE", "ORIGIN" }
         };
         foreach (var entry in snapshot.Lexicon)
-            lexiconRows.Add(new[] { entry.Word, entry.Category, entry.Subcategory, entry.Year });
+        {
+            lexiconRows.Add(new[]
+            {
+                entry.Id,
+                entry.Word,
+                entry.Category,
+                entry.Subcategory,
+                entry.Series,
+                entry.Decade,
+                entry.Year,
+                entry.Relevance?.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty,
+                entry.KdpSafe.HasValue ? (entry.KdpSafe.Value ? "YES" : "NO") : string.Empty,
+                entry.Origin
+            });
+        }
 
         var maxWords = snapshot.Puzzles.Select(p => p.Words.Count).DefaultIfEmpty(0).Max();
-        var puzzleHeader = new List<string> { "PUZZLE_ID", "TITLE", "THEME", "STATUS" };
+        var puzzleHeader = new List<string> { "PUZZLE_ID", "TITLE", "THEME", "STATUS", "ORIGIN" };
         puzzleHeader.AddRange(Enumerable.Range(1, maxWords).Select(i => $"WORD_{i:D2}"));
         puzzleHeader.Add("NOTES");
         var puzzleRows = new List<IReadOnlyList<string>> { puzzleHeader };
         foreach (var puzzle in snapshot.Puzzles)
         {
-            var row = new List<string> { puzzle.PuzzleId, puzzle.Title, puzzle.Theme, puzzle.Status };
+            var row = new List<string> { puzzle.PuzzleId, puzzle.Title, puzzle.Theme, puzzle.Status, puzzle.Origin };
             for (var i = 0; i < maxWords; i++) row.Add(i < puzzle.Words.Count ? puzzle.Words[i] : string.Empty);
             row.Add(puzzle.Notes);
             puzzleRows.Add(row);
@@ -168,17 +179,23 @@ internal static class UnoConsolidationExportService
 
         var rows = new List<IReadOnlyList<string>>
         {
-            new[] { "WORD", "CATEGORY", "SUBCATEGORY", "YEAR", "PUZZLE_IDS" }
+            new[] { "ID", "WORD", "CATEGORY", "SUBCATEGORY", "SERIES", "DECADE", "YEAR", "RELEVANCE", "KDPSAFE", "ORIGIN", "PUZZLE_IDS" }
         };
         foreach (var pair in used.OrderBy(x => x.Value.Display, StringComparer.OrdinalIgnoreCase))
         {
             lexicon.TryGetValue(pair.Key, out var meta);
             rows.Add(new[]
             {
+                meta?.Id ?? string.Empty,
                 pair.Value.Display,
                 meta?.Category ?? string.Empty,
                 meta?.Subcategory ?? string.Empty,
+                meta?.Series ?? string.Empty,
+                meta?.Decade ?? string.Empty,
                 meta?.Year ?? string.Empty,
+                meta?.Relevance?.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty,
+                meta?.KdpSafe.HasValue == true ? (meta.KdpSafe.Value ? "YES" : "NO") : string.Empty,
+                meta?.Origin ?? string.Empty,
                 string.Join(" | ", pair.Value.PuzzleIds)
             });
         }
@@ -188,6 +205,7 @@ internal static class UnoConsolidationExportService
             new[] { "PUZZLE_ID", "TITLE", "THEME", "STATUS", "WORD_COUNT" }
         };
         foreach (var puzzle in snapshot.Puzzles)
+        {
             puzzleRows.Add(new[]
             {
                 puzzle.PuzzleId,
@@ -196,6 +214,7 @@ internal static class UnoConsolidationExportService
                 puzzle.Status,
                 puzzle.Words.Count.ToString(System.Globalization.CultureInfo.InvariantCulture)
             });
+        }
 
         var infoRows = new List<IReadOnlyList<string>>
         {
@@ -204,7 +223,7 @@ internal static class UnoConsolidationExportService
             new[] { "Titolo", document.EditionTitle },
             new[] { "Parole uniche usate", used.Count.ToString(System.Globalization.CultureInfo.InvariantCulture) },
             new[] { "Puzzle", snapshot.Puzzles.Count.ToString(System.Globalization.CultureInfo.InvariantCulture) },
-            new[] { "Regola", "Contiene soltanto parole effettivamente presenti nei puzzle correnti" }
+            new[] { "Regola", "Contiene soltanto parole effettivamente presenti nei puzzle correnti, conservando i metadata canonici disponibili" }
         };
 
         var fullPath = EnsureExtension(path, ".xlsx");
@@ -225,17 +244,20 @@ internal static class UnoConsolidationExportService
         var temp = path + ".tmp." + Guid.NewGuid().ToString("N");
         try
         {
-            await using var stream = new FileStream(temp, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None);
-            using var archive = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true);
-            await WriteEntryAsync(archive, "[Content_Types].xml", ContentTypes(sheets.Length));
-            await WriteEntryAsync(archive, "_rels/.rels", RootRelationships());
-            await WriteEntryAsync(archive, "xl/workbook.xml", Workbook(sheets.Select(x => x.Name).ToList()));
-            await WriteEntryAsync(archive, "xl/_rels/workbook.xml.rels", WorkbookRelationships(sheets.Length));
-            await WriteEntryAsync(archive, "xl/styles.xml", Styles());
-            for (var i = 0; i < sheets.Length; i++)
-                await WriteEntryAsync(archive, $"xl/worksheets/sheet{i + 1}.xml", Worksheet(sheets[i].Rows));
-            archive.Dispose();
-            await stream.FlushAsync();
+            await using (var stream = new FileStream(temp, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None))
+            {
+                using (var archive = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true))
+                {
+                    await WriteEntryAsync(archive, "[Content_Types].xml", ContentTypes(sheets.Length));
+                    await WriteEntryAsync(archive, "_rels/.rels", RootRelationships());
+                    await WriteEntryAsync(archive, "xl/workbook.xml", Workbook(sheets.Select(x => x.Name).ToList()));
+                    await WriteEntryAsync(archive, "xl/_rels/workbook.xml.rels", WorkbookRelationships(sheets.Length));
+                    await WriteEntryAsync(archive, "xl/styles.xml", Styles());
+                    for (var i = 0; i < sheets.Length; i++)
+                        await WriteEntryAsync(archive, $"xl/worksheets/sheet{i + 1}.xml", Worksheet(sheets[i].Rows));
+                }
+                await stream.FlushAsync();
+            }
             File.Move(temp, path, true);
         }
         finally
@@ -397,9 +419,9 @@ internal static class UnoConsolidationExportService
         if (used.Add(key)) return fileName;
         var stem = Path.GetFileNameWithoutExtension(fileName);
         var ext = Path.GetExtension(fileName);
-        var candidate = $"{stem}-{id:N}"[..Math.Min(stem.Length + 1 + 8, stem.Length + 33)] + ext;
-        key = folder + "/" + candidate;
-        used.Add(key);
+        var shortId = id.ToString("N")[..8];
+        var candidate = $"{stem}-{shortId}{ext}";
+        used.Add(folder + "/" + candidate);
         return candidate;
     }
 
