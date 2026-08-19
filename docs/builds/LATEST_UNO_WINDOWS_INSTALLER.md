@@ -1,9 +1,9 @@
 # Latest Uno Windows installer candidate
 
-- Source SHA: `8056cc118e1a9e9dff784bc1bb614718e211ee7e`
+- Source SHA: `7b9883f70aa8f285a1ffa9a592cb80b4dcccd486`
 - Workflow: `Uno Windows Consolidation Candidate`
-- Run number: `1`
-- Run ID: `32202241659`
+- Run number: `2`
+- Run ID: `32202552003`
 - Candidate status: `FAILED_OR_INCOMPLETE`
 - Gate: `success`
 - Restore: `success`
@@ -17,6 +17,6 @@
 - Setup present: `False`
 - Setup bytes: `0`
 - Setup SHA-256: ``
-- Run URL: `https://github.com/Pep190126/DiezPublishingStudio/actions/runs/32202241659`
+- Run URL: `https://github.com/Pep190126/DiezPublishingStudio/actions/runs/32202552003`
 
 Status note: TECHNICALLY_VERIFIED means CI build + package + smoke succeeded. Physical installed-app validation is still required before consolidation.
