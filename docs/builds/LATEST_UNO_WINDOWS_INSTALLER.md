@@ -1,9 +1,9 @@
 # Latest Uno Windows installer candidate
 
-- Source SHA: `f289fd2eb5638b203b6041a3d6819a3304805bd8`
+- Source SHA: `e9259d8e240e335ec53788c2119680353e9a5292`
 - Workflow: `Uno Windows Consolidation Candidate`
-- Run number: `5`
-- Run ID: `32203055348`
+- Run number: `6`
+- Run ID: `32203259001`
 - Candidate status: `TECHNICALLY_VERIFIED`
 - Gate: `success`
 - Restore: `success`
@@ -15,8 +15,8 @@
 - Artifact: `DiezPublishingStudio-UnoPreview-Windows-x64`
 - Setup file: `DiezPublishingStudio-UnoPreview-Setup.exe`
 - Setup present: `True`
-- Setup bytes: `94919338`
-- Setup SHA-256: `2b9c45fa87d20803fc9bb764f29fb026f831f905ab0ff54b0705ffbe41d1ad9e`
-- Run URL: `https://github.com/Pep190126/DiezPublishingStudio/actions/runs/32203055348`
+- Setup bytes: `94933759`
+- Setup SHA-256: `52989f31d976d61ef04ebb9e751c91fbbdbb3583c91abfda8fc48094b0a09cd4`
+- Run URL: `https://github.com/Pep190126/DiezPublishingStudio/actions/runs/32203259001`
 
 Status note: TECHNICALLY_VERIFIED means CI build + package + smoke succeeded. Physical installed-app validation is still required before consolidation.
