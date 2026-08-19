@@ -1,6 +1,7 @@
 using DiezPublishingStudio;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Windows.Storage.Pickers;
 
 namespace DiezPublishingStudio.UnoSpike;
@@ -28,7 +29,7 @@ internal static class VisionWorkspace
         });
         root.Children.Add(new TextBlock
         {
-            Text = "Importa l'immagine candidata con la sua descrizione, poi verifica tutti i controlli richiesti da Diez. Vision approva la versione; l'applicazione al libro resta una seconda azione esplicita.",
+            Text = "Importa l'immagine candidata con la sua descrizione, poi verifica tutti i controlli richiesti da Diez. Vision approva la versione; l'applicazione al libro resta una seconda azione esplicita. Il divisore fra controlli e anteprima può essere trascinato.",
             TextWrapping = TextWrapping.Wrap
         });
         root.Children.Add(new Separator());
@@ -51,7 +52,7 @@ internal static class VisionWorkspace
             Text = "Nessuna immagine scelta.",
             TextWrapping = TextWrapping.Wrap
         };
-        var preview = new VisualImagePreviewSurface(420);
+        var preview = new VisualImagePreviewSurface(520);
         var description = Editor(
             document.GetUiString("Vision.ImageDescriptionDraft"),
             "Descrivi ciò che è realmente visibile nell'immagine: soggetto, scena, composizione e dettagli utili al controllo.",
@@ -176,7 +177,8 @@ internal static class VisionWorkspace
         RefreshSelection();
 
         root.Children.Add(Card("Attività Immagine", Vertical(jobs, selectedJob)));
-        root.Children.Add(Card("Immagine candidata", Vertical(
+
+        var candidateControls = Vertical(
             Horizontal(
                 AsyncButton("Scegli immagine…", async () =>
                 {
@@ -197,7 +199,6 @@ internal static class VisionWorkspace
                     }
                 }),
                 selectedImage),
-            preview.View,
             Labeled("Descrizione dell'immagine candidata", description),
             AsyncButton("Importa immagine candidata", async () =>
             {
@@ -218,17 +219,24 @@ internal static class VisionWorkspace
                     return;
                 }
 
+                PublisherProjectState.EnsureHistoryBaseline(document);
                 document.SetUiString("Vision.ImageDescriptionDraft", description.Text);
                 var result = await document.IngestAiImageResultAsync(
                     job.WorkUnitId.Value,
                     selectedImagePath,
                     description.Text);
                 if (result.Status is "IMPORTED" or "UPDATED" or "DUPLICATE")
+                {
                     document.SetUiString("Vision.ImageDescriptionDraft", "");
+                    PublisherProjectState.CreateCheckpoint(document, "IMAGE_CANDIDATE_IMPORTED", "Candidate immagine importata", Path.GetFileName(selectedImagePath));
+                }
                 await save();
                 showVision();
                 report(result.Message);
-            }))));
+            }));
+
+        root.Children.Add(Card("Immagine candidata · pannelli ridimensionabili",
+            ResizableColumns(candidateControls, preview.View, 360, 420)));
 
         root.Children.Add(Card("Versioni", Vertical(
             versions,
@@ -267,11 +275,15 @@ internal static class VisionWorkspace
                             ? "Verificato manualmente in Diez Uno."
                             : "Controllo non confermato dall'utente."))
                         .ToList();
+                    PublisherProjectState.EnsureHistoryBaseline(document);
                     document.SetUiString("Vision.ReviewNotes", reviewNotes.Text);
+                    var chosen = versionModels[versions.SelectedIndex];
                     var result = document.ApproveAiImageVersionWithVision(
-                        versionModels[versions.SelectedIndex].VersionId,
+                        chosen.VersionId,
                         checks,
                         reviewNotes.Text);
+                    if (result.Changed)
+                        PublisherProjectState.CreateCheckpoint(document, "VISION_REVIEW", "Vision completata", $"v{chosen.VersionNumber} · {result.Status}");
                     await save();
                     showVision();
                     report(result.Message);
@@ -283,7 +295,11 @@ internal static class VisionWorkspace
                         report("Seleziona una versione immagine da portare nel libro.");
                         return;
                     }
-                    var result = document.PromoteAiVersion(versionModels[versions.SelectedIndex].VersionId);
+                    PublisherProjectState.EnsureHistoryBaseline(document);
+                    var chosen = versionModels[versions.SelectedIndex];
+                    var result = document.PromoteAiVersion(chosen.VersionId);
+                    if (result.Changed)
+                        PublisherProjectState.CreateCheckpoint(document, "APPLY_TO_BOOK", "Candidate portata nel libro", $"v{chosen.VersionNumber}");
                     await save();
                     showVision();
                     report(result.Message);
@@ -291,6 +307,49 @@ internal static class VisionWorkspace
                 ActionButton("Torna alla Produzione con AI", showAiCenter)))));
 
         return root;
+    }
+
+    private static UIElement ResizableColumns(UIElement left, UIElement right, double leftMinimum, double rightMinimum)
+    {
+        var grid = new Grid { HorizontalAlignment = HorizontalAlignment.Stretch, MinHeight = 480 };
+        var leftColumn = new ColumnDefinition { Width = new GridLength(2, GridUnitType.Star), MinWidth = leftMinimum };
+        var splitterColumn = new ColumnDefinition { Width = new GridLength(8) };
+        var rightColumn = new ColumnDefinition { Width = new GridLength(3, GridUnitType.Star), MinWidth = rightMinimum };
+        grid.ColumnDefinitions.Add(leftColumn);
+        grid.ColumnDefinitions.Add(splitterColumn);
+        grid.ColumnDefinitions.Add(rightColumn);
+
+        var leftScroll = new ScrollViewer { Content = left, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+        Grid.SetColumn(leftScroll, 0);
+        grid.Children.Add(leftScroll);
+
+        var splitter = new Thumb
+        {
+            Width = 8,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 156, 207, 255))
+        };
+        splitter.DragDelta += (_, e) =>
+        {
+            var total = grid.ActualWidth;
+            if (total <= leftMinimum + rightMinimum + 8) return;
+            var next = Math.Clamp(leftColumn.ActualWidth + e.HorizontalChange, leftMinimum, total - rightMinimum - 8);
+            leftColumn.Width = new GridLength(next);
+            rightColumn.Width = new GridLength(1, GridUnitType.Star);
+        };
+        Grid.SetColumn(splitter, 1);
+        grid.Children.Add(splitter);
+
+        var rightHost = new Border
+        {
+            Padding = new Thickness(8, 0, 0, 0),
+            Child = right,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch
+        };
+        Grid.SetColumn(rightHost, 2);
+        grid.Children.Add(rightHost);
+        return grid;
     }
 
     private static string VersionLabel(DiezAiFrontendVersion version)
