@@ -5,6 +5,7 @@ namespace DiezPublishingStudio.UnoSpike;
 public partial class App : Application
 {
     public static Window? MainWindow { get; private set; }
+    private bool _allowClose;
 
     public App()
     {
@@ -19,7 +20,18 @@ public partial class App : Application
         };
 
         var shell = new MainShellPage();
-        MainWindow.Content = new DiezRound2PolishHost(new DiezUiPolishHost(shell));
+        var polished = new DiezRound2PolishHost(new DiezUiPolishHost(shell));
+        var consolidation = new DiezConsolidationShellHost(shell, polished);
+        MainWindow.Content = consolidation;
         MainWindow.Activate();
+
+        MainWindow.AppWindow.Closing += async (_, eventArgs) =>
+        {
+            if (_allowClose) return;
+            eventArgs.Cancel = true;
+            if (!await consolidation.ConfirmCloseAsync()) return;
+            _allowClose = true;
+            MainWindow.Close();
+        };
     }
 }
