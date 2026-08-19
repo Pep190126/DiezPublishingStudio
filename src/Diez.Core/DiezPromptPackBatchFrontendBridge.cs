@@ -15,6 +15,14 @@ public static class DiezPromptPackBatchFrontendBridge
 {
     public const string PromptEntryName = "PROMPT.md";
 
+    private sealed record PublisherMaterialPromptInfo(
+        string FileName,
+        string IntentCode,
+        string IntentLabel,
+        string Instruction,
+        string AiUsePolicy,
+        string Fidelity);
+
     public static string BuildPackagePrompt(string projectJson, IEnumerable<Guid>? workUnitIds = null)
     {
         var items = DiezPromptPackFrontendBridge.Preview(projectJson, workUnitIds)
@@ -24,6 +32,7 @@ public static class DiezPromptPackBatchFrontendBridge
             throw new InvalidOperationException("Non ci sono Prompt immagine pronti per il Prompt Pack.");
 
         var expectedResponse = ExpectedResponseFileName(projectJson);
+        var publisherMaterials = PublisherMaterials(projectJson);
         var sb = new StringBuilder();
         sb.AppendLine("# DIEZ ∞ PUBLISHING STUDIO — PROMPT PACK IMMAGINI");
         sb.AppendLine();
@@ -37,12 +46,27 @@ public static class DiezPromptPackBatchFrontendBridge
         sb.AppendLine("2. Genera una sola immagine finale per blocco. Non creare collage, griglie, contact sheet, tavole multiple o alternative nello stesso asset.");
         sb.AppendLine("3. Mantieni fra immagini soltanto le regole Consistent espresse nei prompt. Non trascinare automaticamente soggetti, pose, oggetti o Scene specifiche dal blocco precedente.");
         sb.AppendLine("4. `prompt-manifest.json` contiene gli identificatori tecnici necessari a Diez per ricomporre i risultati. Usali soltanto nel Response Pack e non inserirli nelle immagini né nei prompt del renderer.");
-        sb.AppendLine("5. Eventuali reference/materiali sono sotto `inputs/` e vanno usati solo per i ruoli dichiarati nel manifest.");
+        sb.AppendLine("5. Eventuali reference/materiali sono sotto `inputs/` e vanno usati solo per i ruoli dichiarati nel manifest. Non inferire un uso diverso dal ruolo editoriale indicato dal publisher.");
         sb.AppendLine("6. Ogni risultato rientra come Candidate. Non approvare implicitamente: Vision/review e `Porta nel libro` restano fasi Diez separate.");
         sb.AppendLine(string.IsNullOrWhiteSpace(expectedResponse)
             ? "7. Al termine restituisci, quando il sistema lo consente, UN SOLO Response ZIP `diez-response` contenente un risultato distinto per ogni Work Unit del manifest."
             : $"7. Al termine restituisci, quando il sistema lo consente, UN SOLO Response ZIP chiamato ESATTAMENTE `{expectedResponse}`, contenente un risultato distinto per ogni Work Unit del manifest.");
         sb.AppendLine();
+
+        if (publisherMaterials.Count > 0)
+        {
+            sb.AppendLine("## Materiali forniti dal publisher");
+            sb.AppendLine("Questi file sono stati inclusi intenzionalmente. Il ruolo dichiarato è vincolante: un reference di stile non diventa automaticamente un modello di composizione, e una modifica circoscritta non autorizza cambiamenti non richiesti.");
+            sb.AppendLine();
+            foreach (var material in publisherMaterials)
+            {
+                sb.AppendLine($"- `{material.FileName}` — **{material.IntentLabel}** (`{material.IntentCode}`), policy `{material.AiUsePolicy}`, fedeltà `{material.Fidelity}`.");
+                if (!string.IsNullOrWhiteSpace(material.Instruction))
+                    sb.AppendLine($"  Istruzione publisher: {material.Instruction.Trim()}");
+            }
+            sb.AppendLine();
+        }
+
         for (var i = 0; i < items.Count; i++)
         {
             sb.AppendLine($"## Immagine {i + 1:D3} di {items.Count:D3}");
@@ -101,4 +125,37 @@ public static class DiezPromptPackBatchFrontendBridge
         catch { }
         return string.Empty;
     }
+
+    private static IReadOnlyList<PublisherMaterialPromptInfo> PublisherMaterials(string projectJson)
+    {
+        try
+        {
+            var root = JsonNode.Parse(projectJson) as JsonObject;
+            if (root?["Materials"] is not JsonArray materials) return [];
+            var result = new List<PublisherMaterialPromptInfo>();
+            foreach (var material in materials.OfType<JsonObject>())
+            {
+                if (material["PublisherIntent"] is not JsonObject intent) continue;
+                var code = ReadString(intent, "IntentCode");
+                var policy = ReadString(intent, "AiUsePolicy");
+                if (string.IsNullOrWhiteSpace(code) ||
+                    string.Equals(code, "UNASSIGNED", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(policy, "NEVER_SEND", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(policy, "DIRECT_ASSET", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                result.Add(new PublisherMaterialPromptInfo(
+                    ReadString(material, "FileName"),
+                    code,
+                    ReadString(intent, "IntentLabel"),
+                    ReadString(intent, "Instruction"),
+                    policy,
+                    ReadString(intent, "Fidelity")));
+            }
+            return result;
+        }
+        catch { return []; }
+    }
+
+    private static string ReadString(JsonObject obj, string name) =>
+        obj[name] is JsonValue value && value.TryGetValue<string>(out var text) ? text ?? string.Empty : string.Empty;
 }
