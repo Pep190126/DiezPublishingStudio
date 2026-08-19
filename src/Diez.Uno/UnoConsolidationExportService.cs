@@ -29,7 +29,6 @@ internal static class UnoConsolidationExportService
             .Where(item => !allAiMaterials.Contains(item.MaterialId) || approvedAiMaterials.Contains(item.MaterialId))
             .Where(item => approvedAiMaterials.Contains(item.MaterialId) || !LooksLikeUnapprovedLegacyAi(item))
             .ToList();
-
         if (selected.Count == 0)
             return "Non ci sono materiali utente o asset AI approvati da includere nel pacchetto.";
 
@@ -38,6 +37,7 @@ internal static class UnoConsolidationExportService
         var temp = fullPath + ".tmp." + Guid.NewGuid().ToString("N");
         var exported = 0;
         var missing = 0;
+
         try
         {
             await using (var output = new FileStream(temp, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None))
@@ -62,8 +62,8 @@ internal static class UnoConsolidationExportService
                         var entryName = folder + "/" + fileName;
                         var entry = archive.CreateEntry(entryName, CompressionLevel.Optimal);
                         await using (var input = File.OpenRead(localPath))
-                        await using (var target = entry.Open())
-                            await input.CopyToAsync(target);
+                        await using (var entryTarget = entry.Open())
+                            await input.CopyToAsync(entryTarget);
 
                         manifest.Add(string.Join("\t", new[]
                         {
@@ -76,8 +76,8 @@ internal static class UnoConsolidationExportService
                     }
 
                     var manifestEntry = archive.CreateEntry("MANIFEST-MATERIALI.tsv", CompressionLevel.Optimal);
-                    await using var target = manifestEntry.Open();
-                    await using var writer = new StreamWriter(target, new UTF8Encoding(false));
+                    await using var manifestTarget = manifestEntry.Open();
+                    await using var writer = new StreamWriter(manifestTarget, new UTF8Encoding(false));
                     await writer.WriteAsync(string.Join(Environment.NewLine, manifest));
                 }
                 await output.FlushAsync();
@@ -89,10 +89,7 @@ internal static class UnoConsolidationExportService
         }
         finally
         {
-            if (File.Exists(temp))
-            {
-                try { File.Delete(temp); } catch { }
-            }
+            TryDelete(temp);
         }
     }
 
@@ -124,10 +121,10 @@ internal static class UnoConsolidationExportService
         }
 
         var maxWords = snapshot.Puzzles.Select(p => p.Words.Count).DefaultIfEmpty(0).Max();
-        var puzzleHeader = new List<string> { "PUZZLE_ID", "TITLE", "THEME", "STATUS", "ORIGIN" };
-        puzzleHeader.AddRange(Enumerable.Range(1, maxWords).Select(i => $"WORD_{i:D2}"));
-        puzzleHeader.Add("NOTES");
-        var puzzleRows = new List<IReadOnlyList<string>> { puzzleHeader };
+        var header = new List<string> { "PUZZLE_ID", "TITLE", "THEME", "STATUS", "ORIGIN" };
+        header.AddRange(Enumerable.Range(1, maxWords).Select(i => $"WORD_{i:D2}"));
+        header.Add("NOTES");
+        var puzzleRows = new List<IReadOnlyList<string>> { header };
         foreach (var puzzle in snapshot.Puzzles)
         {
             var row = new List<string> { puzzle.PuzzleId, puzzle.Title, puzzle.Theme, puzzle.Status, puzzle.Origin };
@@ -234,11 +231,9 @@ internal static class UnoConsolidationExportService
         return $"Database del libro Word Search esportato: {Path.GetFileName(fullPath)} · {used.Count} parole uniche usate.";
     }
 
-    private static bool LooksLikeUnapprovedLegacyAi(ProjectMaterialPreviewItem item) =>
-        item.Summary.Contains("Risultato AI", StringComparison.OrdinalIgnoreCase) ||
-        item.Preview.Contains("Risultato importato automaticamente", StringComparison.OrdinalIgnoreCase);
-
-    private static async Task WriteWorkbookAsync(string path, params (string Name, IReadOnlyList<IReadOnlyList<string>> Rows)[] sheets)
+    private static async Task WriteWorkbookAsync(
+        string path,
+        params (string Name, IReadOnlyList<IReadOnlyList<string>> Rows)[] sheets)
     {
         EnsureDirectory(path);
         var temp = path + ".tmp." + Guid.NewGuid().ToString("N");
@@ -262,10 +257,7 @@ internal static class UnoConsolidationExportService
         }
         finally
         {
-            if (File.Exists(temp))
-            {
-                try { File.Delete(temp); } catch { }
-            }
+            TryDelete(temp);
         }
     }
 
@@ -290,16 +282,16 @@ internal static class UnoConsolidationExportService
             sheetData.Add(row);
         }
 
-        var worksheet = new XElement(x + "worksheet",
-            new XElement(x + "sheetViews",
-                new XElement(x + "sheetView",
-                    new XAttribute("workbookViewId", "0"),
-                    new XElement(x + "pane",
-                        new XAttribute("ySplit", "1"),
-                        new XAttribute("topLeftCell", "A2"),
-                        new XAttribute("state", "frozen")))),
-            sheetData);
-        return Xml(new XDocument(new XDeclaration("1.0", "UTF-8", "yes"), worksheet));
+        return Xml(new XDocument(new XDeclaration("1.0", "UTF-8", "yes"),
+            new XElement(x + "worksheet",
+                new XElement(x + "sheetViews",
+                    new XElement(x + "sheetView",
+                        new XAttribute("workbookViewId", "0"),
+                        new XElement(x + "pane",
+                            new XAttribute("ySplit", "1"),
+                            new XAttribute("topLeftCell", "A2"),
+                            new XAttribute("state", "frozen")))),
+                sheetData)));
     }
 
     private static string Workbook(IReadOnlyList<string> names)
@@ -413,14 +405,16 @@ internal static class UnoConsolidationExportService
         return result.Length > 31 ? result[..31] : result;
     }
 
+    private static bool LooksLikeUnapprovedLegacyAi(ProjectMaterialPreviewItem item) =>
+        item.Summary.Contains("Risultato AI", StringComparison.OrdinalIgnoreCase) ||
+        item.Preview.Contains("Risultato importato automaticamente", StringComparison.OrdinalIgnoreCase);
+
     private static string UniqueFileName(string fileName, Guid id, HashSet<string> used, string folder)
     {
         var key = folder + "/" + fileName;
         if (used.Add(key)) return fileName;
-        var stem = Path.GetFileNameWithoutExtension(fileName);
-        var ext = Path.GetExtension(fileName);
-        var shortId = id.ToString("N")[..8];
-        var candidate = $"{stem}-{shortId}{ext}";
+        var candidate = $"{Path.GetFileNameWithoutExtension(fileName)}-{id:N}";
+        candidate = candidate[..Math.Min(candidate.Length, Math.Max(1, candidate.Length - 24))] + Path.GetExtension(fileName);
         used.Add(folder + "/" + candidate);
         return candidate;
     }
@@ -439,6 +433,12 @@ internal static class UnoConsolidationExportService
     {
         var directory = Path.GetDirectoryName(Path.GetFullPath(path));
         if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory);
+    }
+
+    private static void TryDelete(string path)
+    {
+        if (!File.Exists(path)) return;
+        try { File.Delete(path); } catch { }
     }
 
     private static string Xml(XDocument document) => document.ToString(SaveOptions.DisableFormatting);
