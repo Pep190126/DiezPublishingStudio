@@ -21,15 +21,15 @@ public partial class App : Application
 
         var shell = new MainShellPage();
         var polished = new DiezRound2PolishHost(new DiezUiPolishHost(shell));
-        var consolidation = new DiezConsolidationShellHost(shell, polished);
-        MainWindow.Content = consolidation;
+        var publisher = new DiezPublisherShellHost(shell, polished);
+        MainWindow.Content = publisher;
         MainWindow.Activate();
 
         MainWindow.AppWindow.Closing += async (_, eventArgs) =>
         {
             if (_allowClose) return;
             eventArgs.Cancel = true;
-            if (!await consolidation.ConfirmCloseAsync()) return;
+            if (!await publisher.ConfirmCloseAsync()) return;
             _allowClose = true;
             MainWindow.Close();
         };
