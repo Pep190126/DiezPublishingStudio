@@ -22,6 +22,33 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Publish running run locator
+        shell: powershell
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin spike/uno-platform-ui
+          git reset --hard origin/spike/uno-platform-ui
+          New-Item -ItemType Directory -Force docs/builds | Out-Null
+          $lines = @(
+            '# Latest Uno Windows installer candidate',
+            '',
+            "- Source SHA: ``$env:GITHUB_SHA``",
+            "- Workflow: ``$env:GITHUB_WORKFLOW``",
+            "- Run number: ``$env:GITHUB_RUN_NUMBER``",
+            "- Run ID: ``$env:GITHUB_RUN_ID``",
+            '- Candidate status: `RUNNING`',
+            "- Run URL: ``$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID``",
+            '',
+            'Status note: RUNNING is only a locator. Physical installed-app validation is still required after a technically verified installer exists.'
+          )
+          [System.IO.File]::WriteAllLines((Join-Path $PWD 'docs/builds/LATEST_UNO_WINDOWS_INSTALLER.md'), $lines, [System.Text.UTF8Encoding]::new($false))
+          git add docs/builds/LATEST_UNO_WINDOWS_INSTALLER.md
+          if (!(git diff --cached --quiet)) {
+            git commit -m "Locate running Uno Windows candidate $env:GITHUB_RUN_NUMBER [skip ci]"
+            git push origin HEAD:spike/uno-platform-ui
+          }
+
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: |
@@ -144,9 +171,7 @@ jobs:
           [System.IO.File]::WriteAllLines((Join-Path $PWD 'docs/builds/LATEST_UNO_WINDOWS_INSTALLER.md'), $lines, [System.Text.UTF8Encoding]::new($false))
 
           git add docs/builds/LATEST_UNO_WINDOWS_INSTALLER.md
-          if (git diff --cached --quiet) {
-            Write-Host 'Candidate manifest unchanged.'
-          } else {
+          if (!(git diff --cached --quiet)) {
             git commit -m "Record Uno Windows candidate run $env:GITHUB_RUN_NUMBER [skip ci]"
             git push origin HEAD:spike/uno-platform-ui
           }
