@@ -109,6 +109,12 @@ internal static class AiCenterWorkspace
                     "Response ZIP: nessun import eseguito in questa versione del progetto."),
                 TextWrapping = TextWrapping.Wrap
             };
+            var nextNames = PublisherProjectState.PreviewNextAiExchange(document);
+            var namingInfo = new TextBlock
+            {
+                Text = $"Prossimo Prompt Pack: {nextNames.PromptPackFileName}\nResponse atteso: {nextNames.ResponseFileName}\nLa versione aumenta ad ogni nuovo Prompt Pack emesso nello stesso giorno.",
+                TextWrapping = TextWrapping.Wrap
+            };
             var apiButton = new Button
             {
                 Content = "Via API · non configurata",
@@ -146,6 +152,7 @@ internal static class AiCenterWorkspace
                     Text = "Per i libri con immagini ci sono due strade che devono convergere sulle stesse Work Unit: Manuale e Via API. La strada Manuale crea UN SOLO Prompt Pack ZIP da consegnare/uploadare all’AI; lo ZIP contiene PROMPT.md, manifest, istruzioni ed eventuali reference.",
                     TextWrapping = TextWrapping.Wrap
                 },
+                namingInfo,
                 Horizontal(
                     AsyncButton("Crea Prompt Pack ZIP · Manuale", async () =>
                     {
@@ -174,22 +181,47 @@ internal static class AiCenterWorkspace
                             return;
                         }
 
+                        PublisherProjectState.EnsureHistoryBaseline(document);
                         await save();
                         try
                         {
+                            var names = PublisherProjectState.PreviewNextAiExchange(document);
                             var picker = new FileSavePicker
                             {
                                 SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
-                                SuggestedFileName = SafeFileName(document.EditionTitle) + "-prompt-pack"
+                                SuggestedFileName = Path.GetFileNameWithoutExtension(names.PromptPackFileName)
                             };
                             picker.FileTypeChoices.Add("Prompt Pack Diez", new List<string> { ".zip" });
                             var file = await picker.PickSaveFileAsync();
                             if (file is null) return;
 
-                            var result = await document.CreateManualPromptPackAsync(workUnitIds, file.Path);
-                            if (result.Success) await save();
-                            report(result.Message);
-                            if (result.Success) showAiCenter();
+                            var canonicalPath = PublisherProjectState.CanonicalPromptPackPath(file.Path, names);
+                            if (!string.Equals(file.Path, canonicalPath, StringComparison.OrdinalIgnoreCase) &&
+                                File.Exists(file.Path) && new FileInfo(file.Path).Length == 0)
+                            {
+                                try { File.Delete(file.Path); } catch { }
+                            }
+
+                            PublisherProjectState.StageAiExchange(document, names);
+                            var result = await document.CreateManualPromptPackAsync(workUnitIds, canonicalPath);
+                            if (result.Success)
+                            {
+                                PublisherProjectState.CommitAiExchange(document, names);
+                                PublisherProjectState.CreateCheckpoint(
+                                    document,
+                                    "PROMPT_PACK_ISSUED",
+                                    "Prompt Pack emesso",
+                                    $"{names.PromptPackFileName} → {names.ResponseFileName}");
+                                await save();
+                                report(result.Message + $" Response atteso: {names.ResponseFileName}");
+                                showAiCenter();
+                            }
+                            else
+                            {
+                                PublisherProjectState.CancelStagedAiExchange(document, names);
+                                await save();
+                                report(result.Message);
+                            }
                         }
                         catch (Exception ex)
                         {
@@ -211,10 +243,22 @@ internal static class AiCenterWorkspace
                         var file = await picker.PickSingleFileAsync();
                         if (file is null) return;
 
+                        var expected = PublisherProjectState.ExpectedResponseFileName(document);
+                        var mismatch = !string.IsNullOrWhiteSpace(expected) &&
+                                       !string.Equals(file.Name, expected, StringComparison.OrdinalIgnoreCase);
+                        var warning = mismatch
+                            ? $"Avviso nome file: atteso “{expected}”, ricevuto “{file.Name}”. Verifico comunque identità e manifest del pacchetto.\n"
+                            : string.Empty;
+
+                        PublisherProjectState.EnsureHistoryBaseline(document);
+                        await save();
                         responseImportInfo.Text = $"Response ZIP: copia byte-per-byte e verifica in corso · {file.Name}…";
                         report(responseImportInfo.Text);
                         var result = await document.ImportManualVisualResponsePackAsync(file);
-                        await SetResponseImportStatusAsync(result.Message);
+                        PublisherProjectState.RecordProviderResponseFileName(document, file.Name);
+                        if (result.Success)
+                            PublisherProjectState.CreateCheckpoint(document, "RESPONSE_IMPORTED", "Response importato", file.Name);
+                        await SetResponseImportStatusAsync(warning + result.Message);
                         if (result.Success) showVision();
                     }
                     catch (Exception ex)
@@ -226,7 +270,7 @@ internal static class AiCenterWorkspace
                 apiInfo,
                 new TextBlock
                 {
-                    Text = "Percorso Manuale: 1 Prompt Pack ZIP → consegna all’AI → 1 Response ZIP quando il provider lo consente → Candidate separate → Vision. Copia Prompt resta una utility di emergenza, non il flusso normale.",
+                    Text = "Percorso Manuale: 1 Prompt Pack ZIP → consegna all’AI → 1 Response ZIP con lo stesso nome progetto/data/versione → Candidate separate → Vision. Se un provider rinomina il file, Diez avvisa ma decide in base all'identità del manifest, non al solo nome.",
                     TextWrapping = TextWrapping.Wrap
                 })));
         }
