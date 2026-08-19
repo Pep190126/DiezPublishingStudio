@@ -43,14 +43,16 @@ internal static class VisualBookWorkspace
             return root;
         }
 
-        root.Children.Add(PhaseStrip(phase));
-
         async Task GoToPhaseAsync(int target)
         {
+            // Navigation is workspace/session state only. The shell consumes this transient value
+            // to render the requested phase and removes it from project persistence immediately.
             document.SetUiInt("Visual.ActivePhase", Math.Clamp(target, 1, 4));
-            await save();
             refresh();
+            await Task.CompletedTask;
         }
+
+        root.Children.Add(PhaseStrip(phase, GoToPhaseAsync));
 
         switch (phase)
         {
@@ -92,10 +94,55 @@ internal static class VisualBookWorkspace
             "Regole generali Consistent: proporzioni, stile, palette, elementi ricorrenti…",
             90);
 
+        var sceneState = document.ReadVisualSceneState();
+        var structuredInitial = sceneState.ScenesEnabled || sceneState.MultiSubjectEnabled;
+        var genericMode = new RadioButton
+        {
+            GroupName = "VisualContentAuthoringMode",
+            Content = "Soggetto + ambientazione generici",
+            IsChecked = !structuredInitial
+        };
+        var structuredMode = new RadioButton
+        {
+            GroupName = "VisualContentAuthoringMode",
+            Content = "Scene + soggetti strutturati",
+            IsChecked = structuredInitial
+        };
+        var genericPanel = Vertical(
+            Labeled("Soggetto/i", subject),
+            Labeled("Ambientazione generica", environment),
+            new TextBlock
+            {
+                Text = "Usa questa modalità quando una descrizione generale è sufficiente per l'intera serie.",
+                TextWrapping = TextWrapping.Wrap
+            });
         var structuredConsistency = BuildStructuredConsistencyEditor(document, save, report, refresh);
-        structuredConsistency.Visibility = consistent.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
-        consistent.Checked += (_, _) => structuredConsistency.Visibility = Visibility.Visible;
-        consistent.Unchecked += (_, _) => structuredConsistency.Visibility = Visibility.Collapsed;
+
+        void RefreshContentMode()
+        {
+            genericPanel.Visibility = genericMode.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+            structuredConsistency.Visibility = structuredMode.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+        }
+        genericMode.Checked += async (_, _) =>
+        {
+            RefreshContentMode();
+            var state = document.ReadVisualSceneState();
+            if (state.MultiSubjectEnabled) document.ConfigureVisualSubjects(false, Math.Max(1, state.SubjectCount));
+            if (state.ScenesEnabled) document.ConfigureVisualScenes(false, Math.Max(1, state.SceneCount));
+            await save();
+            refresh();
+        };
+        structuredMode.Checked += async (_, _) =>
+        {
+            RefreshContentMode();
+            var state = document.ReadVisualSceneState();
+            if (!state.MultiSubjectEnabled) document.ConfigureVisualSubjects(true, Math.Max(1, state.SubjectCount));
+            state = document.ReadVisualSceneState();
+            if (!state.ScenesEnabled) document.ConfigureVisualScenes(true, Math.Max(1, state.SceneCount));
+            await save();
+            refresh();
+        };
+        RefreshContentMode();
 
         var planPanel = Vertical(
             Labeled("Numero esatto di immagini", count),
@@ -104,17 +151,19 @@ internal static class VisualBookWorkspace
                 Text = "Usa le frecce del contatore oppure digita direttamente un valore da 1 a 500.",
                 TextWrapping = TextWrapping.Wrap
             },
-            Labeled("Soggetto/i", subject),
-            Labeled("Ambientazione generica", environment),
-            new TextBlock
-            {
-                Text = "Se attivi Scene strutturate, l'ambientazione della singola scena prevale su questa ambientazione generica per le immagini assegnate a quella scena.",
-                TextWrapping = TextWrapping.Wrap
-            },
+            new TextBlock { Text = "Come vuoi definire il contenuto?", FontSize = 17, TextWrapping = TextWrapping.Wrap },
+            WrapRow(genericMode, structuredMode),
+            genericPanel,
+            structuredConsistency,
+            new Separator(),
             consistent,
             Labeled("Regole Consistent generali", consistencyRules),
-            structuredConsistency);
-        root.Children.Add(Card("1/4 · Definizione del libro e Consistent", planPanel));
+            new TextBlock
+            {
+                Text = "Consistent si combina con la modalità scelta: può mantenere identità, stile e altri LOCK fra immagini e anche fra lotti diversi, senza obbligare a ripetere posa o composizione se non richiesto.",
+                TextWrapping = TextWrapping.Wrap
+            });
+        root.Children.Add(Card("1/4 · Definizione contenuto e Consistent", planPanel));
 
         Func<DiezColoringProfileDto>? coloringProfile = null;
         Func<DiezImageProfileDto>? imageProfile = null;
@@ -222,6 +271,17 @@ internal static class VisualBookWorkspace
                 Labeled("Note", notes))));
         }
 
+        var mustDo = Editor(document.GetUiString("Prompt.MustDo"), "Cosa DEVE essere presente o rispettato. Ogni istruzione qui è HARD.", 130);
+        var mustNot = Editor(document.GetUiString("Prompt.MustNotDo"), "Cosa NON DEVE comparire o accadere. Ogni esclusione qui è HARD.", 130);
+        root.Children.Add(Card("Ultimi vincoli prima del Prompt · HARD", Vertical(
+            new TextBlock
+            {
+                Text = "Questi sono gli ultimi campi della Definizione. Diez li inserisce nel Prompt come USER REQUIREMENT / USER EXCLUSION HARD: non sono semplici note o preferenze.",
+                TextWrapping = TextWrapping.Wrap
+            },
+            Labeled("DEVE FARE · HARD", mustDo),
+            Labeled("NON DEVE FARE · HARD", mustNot))));
+
         async Task<bool> SaveSetupAsync()
         {
             var parsed = ReadInteger(count, 1);
@@ -254,6 +314,8 @@ internal static class VisualBookWorkspace
             document.SetUiString("Visual.Environment", environment.Text);
             document.SetUiBool("Visual.Consistent", consistent.IsChecked == true);
             document.SetUiString("Visual.ConsistencyRules", consistent.IsChecked == true ? consistencyRules.Text : string.Empty);
+            document.SetUiString("Prompt.MustDo", mustDo.Text);
+            document.SetUiString("Prompt.MustNotDo", mustNot.Text);
             await save();
             return true;
         }
@@ -276,42 +338,60 @@ internal static class VisualBookWorkspace
         Action refresh,
         Func<int, Task> goToPhase)
     {
-        var mustDo = Editor(document.GetUiString("Prompt.MustDo"), "Cosa deve esserci / cosa deve fare ogni immagine", 140);
-        var mustNot = Editor(document.GetUiString("Prompt.MustNotDo"), "Cosa deve essere escluso", 120);
         var provider = Combo(["ChatGPT / OpenAI", "Gemini", "Altra / nuova AI"], document.GetUiString("AI.Provider", "ChatGPT / OpenAI"));
         var advanced = Check("Usa il modello immagini più avanzato disponibile", document.GetUiBool("AI.PreferAdvanced", true));
+        var promptPreview = Editor(string.Empty, "Prompt compilato", 420);
+        promptPreview.IsReadOnly = true;
 
-        root.Children.Add(Card("2/4 · Istruzioni e Prompt", Vertical(
+        void CompilePreview()
+        {
+            try
+            {
+                var pack = document.BuildVisualPromptPack(
+                    document.GetUiString("Prompt.MustDo"),
+                    document.GetUiString("Prompt.MustNotDo"),
+                    ProviderId(provider.SelectedItem?.ToString()),
+                    advanced.IsChecked == true);
+                promptPreview.Text = pack.MasterPrompt;
+                report($"Prompt compilato dalla Definizione: {pack.Items.Count} posizioni visuali.");
+            }
+            catch (Exception ex)
+            {
+                promptPreview.Text = "Prompt non disponibile: " + ex.GetBaseException().Message;
+            }
+        }
+        CompilePreview();
+
+        root.Children.Add(Card("2/4 · Prompt", Vertical(
             new TextBlock
             {
-                Text = "Diez combina queste istruzioni con Tipo libro, profilo visuale, Consistent, soggetti, Scene e HARD locks. Il Prompt finale resta modificabile/trasportabile nella fase successiva.",
+                Text = "Il Prompt deriva dalle scelte della fase Definizione: profilo del tipo libro, modalità generica oppure Scene/Soggetti, Consistent e i vincoli DEVE FARE / NON DEVE FARE HARD. Per cambiarne il contenuto torna alla Definizione e ricompila.",
                 TextWrapping = TextWrapping.Wrap
             },
-            Labeled("DEVE FARE", mustDo),
-            Labeled("NON DEVE FARE", mustNot),
-            WrapRow(Labeled("Provider AI", provider), advanced))));
+            WrapRow(Labeled("Provider AI", provider), advanced),
+            Labeled("Prompt compilato", promptPreview),
+            WrapRow(
+                ActionButton("Copia Prompt", () => Copy(promptPreview.Text ?? string.Empty)),
+                ActionButton("Ricompila dalla Definizione", CompilePreview)))));
 
-        async Task SavePromptInputsAsync()
+        async Task SavePromptPreparationAsync()
         {
-            document.SetUiString("Prompt.MustDo", mustDo.Text);
-            document.SetUiString("Prompt.MustNotDo", mustNot.Text);
             document.SetUiString("AI.Provider", provider.SelectedItem?.ToString());
             document.SetUiBool("AI.PreferAdvanced", advanced.IsChecked == true);
+            document.BuildVisualPromptPack(
+                document.GetUiString("Prompt.MustDo"),
+                document.GetUiString("Prompt.MustNotDo"),
+                ProviderId(provider.SelectedItem?.ToString()),
+                advanced.IsChecked == true);
             await save();
         }
 
         root.Children.Add(NavigationRow(
             AsyncButton("← Indietro", async () => await goToPhase(1)),
-            AsyncButton("Prepara Prompt Pack →", async () =>
+            AsyncButton("Continua → Produzione AI", async () =>
             {
-                await SavePromptInputsAsync();
-                var pack = document.BuildVisualPromptPack(
-                    mustDo.Text,
-                    mustNot.Text,
-                    ProviderId(provider.SelectedItem?.ToString()),
-                    advanced.IsChecked == true);
-                await save();
-                report($"Prompt Pack preparato: {pack.Items.Count} Prompt atomici.");
+                await SavePromptPreparationAsync();
+                report("Prompt aggiornato dalla Definizione e pronto per la Produzione AI.");
                 await goToPhase(3);
             })));
     }
@@ -337,7 +417,7 @@ internal static class VisualBookWorkspace
         }
         catch (Exception ex)
         {
-            root.Children.Add(Card("3/4 · Prompt Pack e produzione", new TextBlock
+            root.Children.Add(Card("3/4 · Prompt Pack e Produzione AI", new TextBlock
             {
                 Text = "Non riesco a preparare il Prompt Pack: " + ex.GetBaseException().Message,
                 TextWrapping = TextWrapping.Wrap
@@ -359,7 +439,7 @@ internal static class VisualBookWorkspace
             promptPreview.Text = pack.Items[promptItems.SelectedIndex].Prompt;
         };
 
-        root.Children.Add(Card("3/4 · Prompt Pack e produzione", Vertical(
+        root.Children.Add(Card("3/4 · Prompt Pack e Produzione AI", Vertical(
             new TextBlock
             {
                 Text = "Un Prompt atomico per ogni immagine. Le Scene e i partecipanti selezionati sono già risolti nel Prompt della relativa posizione; gli ID tecnici restano interni.",
@@ -379,7 +459,7 @@ internal static class VisualBookWorkspace
                     await save();
                     report(result.Message);
                 }),
-                ActionButton("Produzione con AI", showAiCenter),
+                ActionButton("Produzione AI", showAiCenter),
                 ActionButton("Vision", showVision)))));
 
         var imageAssets = DiezImagePreviewCatalog.Read(document).ToList();
@@ -391,7 +471,7 @@ internal static class VisualBookWorkspace
                     Text = "Non ci sono ancora materiali immagine. Aggiungi un'immagine ai Materiali del progetto oppure importa una Candidate da Vision: apparirà qui nella stessa gallery.",
                     TextWrapping = TextWrapping.Wrap
                 },
-                WrapRow(ActionButton("Produzione con AI", showAiCenter), ActionButton("Vision", showVision)))));
+                WrapRow(ActionButton("Produzione AI", showAiCenter), ActionButton("Vision", showVision)))));
         }
         else
         {
@@ -469,7 +549,7 @@ internal static class VisualBookWorkspace
                 Text = "Seleziona Vision per controllare le Candidate reali. Un'immagine entra nel libro solo dopo approvazione e il successivo comando Porta nel libro.",
                 TextWrapping = TextWrapping.Wrap
             },
-            WrapRow(ActionButton("Apri Vision", showVision), ActionButton("Apri Produzione con AI", showAiCenter)),
+            WrapRow(ActionButton("Apri Vision", showVision), ActionButton("Apri Produzione AI", showAiCenter)),
             new Separator(),
             new TextBlock
             {
@@ -808,7 +888,7 @@ internal static class VisualBookWorkspace
         return root;
     }
 
-    private static UIElement PhaseStrip(int active)
+    private static UIElement PhaseStrip(int active, Func<int, Task> goToPhase)
     {
         var panel = new StackPanel
         {
@@ -816,20 +896,26 @@ internal static class VisualBookWorkspace
             Spacing = 8,
             HorizontalAlignment = HorizontalAlignment.Stretch
         };
-        var names = new[] { "1 · Definizione", "2 · Prompt", "3 · Produzione", "4 · Revisione" };
+        var names = new[] { "1 · Definizione", "2 · Prompt", "3 · Produzione AI", "4 · Revisione" };
         for (var i = 0; i < names.Length; i++)
         {
-            panel.Children.Add(new Border
+            var target = i + 1;
+            var button = new Button
             {
+                Content = (target == active ? "● " : "○ ") + names[i],
                 Padding = new Thickness(12, 7),
-                BorderThickness = new Thickness(i + 1 == active ? 2 : 1),
-                CornerRadius = new CornerRadius(16),
-                Child = new TextBlock
-                {
-                    Text = (i + 1 == active ? "● " : "○ ") + names[i],
-                    TextWrapping = TextWrapping.Wrap
-                }
-            });
+                BorderThickness = new Thickness(target == active ? 2 : 1),
+                CornerRadius = new CornerRadius(18),
+                MinHeight = 38,
+                HorizontalAlignment = HorizontalAlignment.Left
+            };
+            ToolTipService.SetToolTip(button, $"Vai alla fase {target}: {names[i]}");
+            button.Click += async (_, _) =>
+            {
+                if (target == active) return;
+                await goToPhase(target);
+            };
+            panel.Children.Add(button);
         }
         return panel;
     }

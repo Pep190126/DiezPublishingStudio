@@ -512,3 +512,22 @@ Una funzione passa attraverso quattro stati:
 4. **CONSOLIDATA** dopo conferma esplicita.
 
 CI, test automatici e costruzione dell'installer sono necessari, ma non sostituiscono la prova fisica dell'applicazione installata.
+
+
+---
+
+## Round 3 · verifica del nuovo flusso Produzione AI
+
+Questa candidata modifica il percorso visuale senza dichiararlo ancora consolidato. Verificare fisicamente:
+
+1. la sidebar mostra **Produzione AI**;
+2. non esistono più i cinque tab superiori della Round 2;
+3. i soli quattro ovali `Definizione → Prompt → Produzione AI → Revisione` sono cliccabili e consentono anche navigazione non sequenziale senza loop;
+4. in **Definizione** l'utente sceglie fra `Soggetto + ambientazione generici` e `Scene + soggetti strutturati`;
+5. `Consistent` resta combinabile con la modalità scelta;
+6. `DEVE FARE · HARD` e `NON DEVE FARE · HARD` sono gli ultimi campi della Definizione;
+7. la fase Prompt mostra il Prompt compilato dagli stessi dati senza richiedere nuovamente i due campi HARD;
+8. nei materiali, **Uso dell'AI** e **Fedeltà** mostrano etichette italiane e una breve descrizione dinamica;
+9. salvare, chiudere, riaprire e cambiare progetto non deve far ricomparire loop o fasi contaminate.
+
+Solo dopo questa prova le parti nuove possono avanzare verso **CONSOLIDATO**.

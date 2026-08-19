@@ -128,7 +128,7 @@ internal sealed class DiezPublisherShellHost : ContentControl
         _navigationBody.Children.Add(new Separator());
         _navigationBody.Children.Add(NavButton("Progetto", ShowProject));
         _navigationBody.Children.Add(NavButton("Tipo libro", ShowBookType));
-        _navigationBody.Children.Add(NavButton("Produzione", ShowProduction));
+        _navigationBody.Children.Add(NavButton("Produzione AI", ShowProduction));
         _navigationBody.Children.Add(NavButton("Controlli e revisione", ShowReview));
         _navigationBody.Children.Add(NavButton("Esportazione", ShowExport));
         _navigationBody.Children.Add(NavButton("Libri finalizzati", ShowFinalized));
@@ -212,23 +212,16 @@ internal sealed class DiezPublisherShellHost : ContentControl
 
     private void RewrapVisualWorkspaceIfNeeded()
     {
-        if (_buildingTabs || _rewrapQueued || !string.Equals(_activeSection, "production", StringComparison.Ordinal)) return;
+        if (_rewrapQueued || !string.Equals(_activeSection, "production", StringComparison.Ordinal)) return;
         var document = Document;
         if (document is null || !BookTypeCatalog.IsVisual(BookTypeCatalog.Normalize(document.BookType))) return;
-        if (ContentHost?.Content is TabView tabs && string.Equals(tabs.Tag?.ToString(), "Publisher.ProductionTabs", StringComparison.Ordinal)) return;
         if (ContentHost?.Content is not StackPanel raw || !LooksLikeVisualWorkspace(raw)) return;
 
         var transient = PublisherProjectState.ReadUiInt(document, "Visual.ActivePhase", 0);
         var id = PublisherProjectState.ProjectId(document);
         if (transient is >= 1 and <= 4) _visualPhaseByProject[id] = transient;
-        if (PublisherProjectState.RemoveUiKey(document, "Visual.ActivePhase")) _ = SaveTransientCleanupAsync();
-        var target = _visualPhaseByProject.TryGetValue(id, out var phase) ? phase : 1;
-        _rewrapQueued = true;
-        DispatcherQueue.TryEnqueue(() =>
-        {
-            _rewrapQueued = false;
-            ShowVisualProductionTab(target);
-        });
+        if (PublisherProjectState.RemoveUiKey(document, "Visual.ActivePhase"))
+            _ = SaveTransientCleanupAsync();
     }
 
     private static bool LooksLikeVisualWorkspace(StackPanel root) =>
@@ -449,22 +442,49 @@ internal sealed class DiezPublisherShellHost : ContentControl
             MinHeight = 100,
             HorizontalAlignment = HorizontalAlignment.Stretch
         };
-        var policy = Combo(["ALLOW", "REFERENCE_ONLY", "DIRECT_ASSET", "NEVER_SEND"], current.AiUsePolicy);
-        var fidelity = Combo(["EXACT", "CLOSE", "GUIDED", "LOOSE", "NOT_APPLICABLE"], current.Fidelity);
+        var policyChoices = new[]
+        {
+            new PublisherChoice("ALLOW", "Può usarlo e modificarlo", "L'AI può usare questo materiale come input operativo e trasformarlo secondo il ruolo e le istruzioni definite."),
+            new PublisherChoice("REFERENCE_ONLY", "Usalo solo come riferimento", "Il materiale guida identità, stile, composizione, ambiente o contenuto, ma non viene trattato automaticamente come asset da copiare o inserire nel libro."),
+            new PublisherChoice("DIRECT_ASSET", "Usa il file direttamente", "Il file è già un asset editoriale: resta nel progetto/libro e non deve essere rigenerato automaticamente dall'AI."),
+            new PublisherChoice("NEVER_SEND", "Non inviare all'AI", "Il materiale resta disponibile nel progetto, ma viene escluso dai Prompt Pack e dagli input inviati all'AI.")
+        };
+        var fidelityChoices = new[]
+        {
+            new PublisherChoice("EXACT", "Da rispettare esattamente", "Dati, termini, struttura o contenuto indicati sono vincolanti e non vanno reinterpretati liberamente."),
+            new PublisherChoice("CLOSE", "Molto fedele", "Mantieni identità e caratteristiche molto vicine al materiale originale, salvo le modifiche esplicitamente richieste."),
+            new PublisherChoice("GUIDED", "Fedele ma guidata", "Usa il materiale come base riconoscibile, con libertà controllata dalle istruzioni editoriali dell'utente."),
+            new PublisherChoice("LOOSE", "Solo ispirazione", "Conta l'idea, lo stile o l'atmosfera generale; non è richiesta una replica fedele del contenuto."),
+            new PublisherChoice("NOT_APPLICABLE", "Non applicabile", "Per questo ruolo non ha senso definire un livello di fedeltà.")
+        };
+        var policy = PublisherChoiceCombo(policyChoices, current.AiUsePolicy);
+        var fidelity = PublisherChoiceCombo(fidelityChoices, current.Fidelity);
         var info = new TextBlock { TextWrapping = TextWrapping.Wrap };
+        var policyInfo = new TextBlock { TextWrapping = TextWrapping.Wrap };
+        var fidelityInfo = new TextBlock { TextWrapping = TextWrapping.Wrap };
+
+        void RefreshChoiceDescriptions()
+        {
+            policyInfo.Text = (policy.SelectedItem as PublisherChoice)?.Description ?? string.Empty;
+            fidelityInfo.Text = (fidelity.SelectedItem as PublisherChoice)?.Description ?? string.Empty;
+        }
+        policy.SelectionChanged += (_, _) => RefreshChoiceDescriptions();
+        fidelity.SelectionChanged += (_, _) => RefreshChoiceDescriptions();
 
         void ApplyDefaults()
         {
             if (intent.SelectedItem is not IntentChoice selected) return;
             info.Text = selected.Description;
-            policy.SelectedItem = selected.DefaultPolicy;
-            fidelity.SelectedItem = selected.DefaultFidelity;
+            SelectPublisherChoice(policy, selected.DefaultPolicy);
+            SelectPublisherChoice(fidelity, selected.DefaultFidelity);
+            RefreshChoiceDescriptions();
             instruction.PlaceholderText = selected.Code == "MODIFY_SPECIFIC_DETAILS"
                 ? "Obbligatorio: indica esattamente i particolari da cambiare e quelli da lasciare invariati."
                 : "Istruzione editoriale opzionale per questo materiale.";
         }
         intent.SelectionChanged += (_, _) => ApplyDefaults();
         info.Text = (intent.SelectedItem as IntentChoice)?.Description ?? string.Empty;
+        RefreshChoiceDescriptions();
 
         var saveIntent = AsyncButton("Salva ruolo materiale", async () =>
         {
@@ -481,8 +501,8 @@ internal sealed class DiezPublisherShellHost : ContentControl
                 selected.Code,
                 selected.Label,
                 instruction.Text ?? string.Empty,
-                policy.SelectedItem?.ToString() ?? selected.DefaultPolicy,
-                fidelity.SelectedItem?.ToString() ?? selected.DefaultFidelity);
+                SelectedPublisherCode(policy, selected.DefaultPolicy),
+                SelectedPublisherCode(fidelity, selected.DefaultFidelity));
             PublisherProjectState.CreateCheckpoint(document, "MATERIAL_INTENT", "Ruolo materiale modificato", $"{item.FileName} → {selected.Label}");
             await InvokeAsync("SaveIfPossibleAsync");
             ShowProject();
@@ -497,8 +517,10 @@ internal sealed class DiezPublisherShellHost : ContentControl
                 Labeled("Ruolo editoriale", intent),
                 info,
                 Labeled("Istruzione specifica", instruction),
-                Horizontal(Labeled("Uso AI", policy), Labeled("Fedeltà", fidelity)),
-                new TextBlock { Text = "“Archivio / non inviare all'AI” e “Asset diretto” restano nel progetto ma non devono entrare silenziosamente nei Prompt Pack di generazione.", TextWrapping = TextWrapping.Wrap },
+                Horizontal(
+                    Vertical(Labeled("Uso dell'AI", policy), policyInfo),
+                    Vertical(Labeled("Fedeltà", fidelity), fidelityInfo)),
+                new TextBlock { Text = "“Non inviare all'AI” conserva il materiale nel progetto ma lo esclude dai Prompt Pack. “Usa il file direttamente” indica invece un asset editoriale già pronto, che non va rigenerato automaticamente.", TextWrapping = TextWrapping.Wrap },
                 saveIntent)));
     }
 
@@ -597,41 +619,17 @@ internal sealed class DiezPublisherShellHost : ContentControl
     {
         var document = Document;
         if (document is null) return;
-        selected = Math.Clamp(selected, 1, 5);
+        selected = Math.Clamp(selected, 1, 4);
         var projectId = PublisherProjectState.ProjectId(document);
         _visualPhaseByProject[projectId] = selected;
-        _buildingTabs = true;
-        try
-        {
-            if (selected == 5)
-            {
-                Invoke("ShowScenesAndSubjects");
-            }
-            else
-            {
-                document.SetUiInt("Visual.ActivePhase", selected);
-                Invoke("ShowVisualWorkspace");
-                PublisherProjectState.RemoveUiKey(document, "Visual.ActivePhase");
-            }
-            if (ContentHost?.Content is not UIElement currentContent) return;
-            ContentHost.Content = BuildSafeTabView(
-                ["1 · Definizione", "2 · Prompt", "3 · Produzione", "4 · Revisione", "Scene e soggetti"],
-                selected - 1,
-                currentContent,
-                "Publisher.ProductionTabs",
-                async index =>
-                {
-                    if (_tabNavigationBusy) return;
-                    _tabNavigationBusy = true;
-                    try { ShowVisualProductionTab(index + 1); }
-                    finally { _tabNavigationBusy = false; }
-                    await Task.CompletedTask;
-                });
-        }
-        finally
-        {
-            _buildingTabs = false;
-        }
+
+        // Visual.ActivePhase is only a transient handoff to the existing workspace builder.
+        // It is removed immediately after the workspace has consumed it and must never become
+        // canonical project/editorial state.
+        document.SetUiInt("Visual.ActivePhase", selected);
+        Invoke("ShowVisualWorkspace");
+        if (PublisherProjectState.RemoveUiKey(document, "Visual.ActivePhase"))
+            _ = SaveTransientCleanupAsync();
     }
 
     private void ShowReview()
@@ -1010,6 +1008,23 @@ internal sealed class DiezPublisherShellHost : ContentControl
         HorizontalAlignment = HorizontalAlignment.Stretch
     };
 
+    private static ComboBox PublisherChoiceCombo(IEnumerable<PublisherChoice> values, string selectedCode)
+    {
+        var items = values.ToList();
+        var combo = new ComboBox { ItemsSource = items, MinWidth = 250, HorizontalAlignment = HorizontalAlignment.Left };
+        combo.SelectedItem = items.FirstOrDefault(x => string.Equals(x.Code, selectedCode, StringComparison.OrdinalIgnoreCase)) ?? items.FirstOrDefault();
+        return combo;
+    }
+
+    private static void SelectPublisherChoice(ComboBox combo, string code)
+    {
+        if (combo.ItemsSource is not IEnumerable<PublisherChoice> source) return;
+        combo.SelectedItem = source.FirstOrDefault(x => string.Equals(x.Code, code, StringComparison.OrdinalIgnoreCase)) ?? source.FirstOrDefault();
+    }
+
+    private static string SelectedPublisherCode(ComboBox combo, string fallback) =>
+        combo.SelectedItem is PublisherChoice selected ? selected.Code : fallback;
+
     private static IReadOnlyList<IntentChoice> IntentChoices(string kind)
     {
         if (string.Equals(kind, "Image", StringComparison.OrdinalIgnoreCase))
@@ -1063,6 +1078,11 @@ internal sealed class DiezPublisherShellHost : ContentControl
     {
         var value = hex.TrimStart('#');
         return new SolidColorBrush(Color.FromArgb(255, Convert.ToByte(value[0..2], 16), Convert.ToByte(value[2..4], 16), Convert.ToByte(value[4..6], 16)));
+    }
+
+    private sealed record PublisherChoice(string Code, string Label, string Description)
+    {
+        public override string ToString() => Label;
     }
 
     private sealed record IntentChoice(string Code, string Label, string Description, string DefaultPolicy, string DefaultFidelity)
