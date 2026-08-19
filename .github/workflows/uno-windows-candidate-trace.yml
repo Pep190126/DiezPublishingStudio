@@ -111,6 +111,11 @@ jobs:
           $size = if ($setupExists) { (Get-Item $setup).Length } else { 0 }
           $candidateStatus = if ($env:SMOKE_OUTCOME -eq 'success' -and $env:UPLOAD_OUTCOME -eq 'success') { 'TECHNICALLY_VERIFIED' } else { 'FAILED_OR_INCOMPLETE' }
 
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin spike/uno-platform-ui
+          git reset --hard origin/spike/uno-platform-ui
+
           New-Item -ItemType Directory -Force docs/builds | Out-Null
           $lines = @(
             '# Latest Uno Windows installer candidate',
@@ -138,13 +143,10 @@ jobs:
           )
           [System.IO.File]::WriteAllLines((Join-Path $PWD 'docs/builds/LATEST_UNO_WINDOWS_INSTALLER.md'), $lines, [System.Text.UTF8Encoding]::new($false))
 
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add docs/builds/LATEST_UNO_WINDOWS_INSTALLER.md
           if (git diff --cached --quiet) {
             Write-Host 'Candidate manifest unchanged.'
           } else {
             git commit -m "Record Uno Windows candidate run $env:GITHUB_RUN_NUMBER [skip ci]"
-            git pull --rebase origin spike/uno-platform-ui
             git push origin HEAD:spike/uno-platform-ui
           }
