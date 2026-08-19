@@ -12,6 +12,9 @@ on:
       - '.github/workflows/uno-preview-installers.yml'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   windows-installer:
     name: Windows x64 Setup Preview
@@ -80,6 +83,39 @@ jobs:
           path: artifacts/installers/DiezPublishingStudio-UnoPreview-Setup.exe
           if-no-files-found: error
           retention-days: 90
+
+      - name: Record latest successful Windows candidate
+        shell: powershell
+        run: |
+          $setup = (Resolve-Path 'artifacts\installers\DiezPublishingStudio-UnoPreview-Setup.exe').Path
+          $hash = (Get-FileHash $setup -Algorithm SHA256).Hash.ToLowerInvariant()
+          $size = (Get-Item $setup).Length
+          New-Item -ItemType Directory -Force docs/builds | Out-Null
+          $lines = @(
+            '# Latest Uno Windows installer candidate',
+            '',
+            "- Source SHA: ``$env:GITHUB_SHA``",
+            "- Workflow: ``$env:GITHUB_WORKFLOW``",
+            "- Run number: ``$env:GITHUB_RUN_NUMBER``",
+            "- Run ID: ``$env:GITHUB_RUN_ID``",
+            "- Artifact: ``DiezPublishingStudio-UnoPreview-Windows-x64``",
+            "- Setup file: ``DiezPublishingStudio-UnoPreview-Setup.exe``",
+            "- Setup bytes: ``$size``",
+            "- Setup SHA-256: ``$hash``",
+            "- Run URL: ``$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID``",
+            '',
+            'Status: CI installer candidate only. Physical installed-app validation is still required before consolidation.'
+          )
+          [System.IO.File]::WriteAllLines((Join-Path $PWD 'docs/builds/LATEST_UNO_WINDOWS_INSTALLER.md'), $lines, [System.Text.UTF8Encoding]::new($false))
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/builds/LATEST_UNO_WINDOWS_INSTALLER.md
+          if (git diff --cached --quiet) {
+            Write-Host 'Build manifest unchanged.'
+          } else {
+            git commit -m "Record Uno Windows installer run $env:GITHUB_RUN_NUMBER [skip ci]"
+            git push origin HEAD:spike/uno-platform-ui
+          }
 
   macos-installer:
     name: macOS DMG Preview (${{ matrix.rid }})
