@@ -10,7 +10,7 @@ internal static class Round51LegacyPromptMigrationRegression
         LegacyRequirementIsMigrated();
         Round5ExecutionMethodIsCompatible();
         RealMultiImageLayoutStillFails();
-        VisualBridgeUsesCanonicalCompiler();
+        VisualBridgeRejectsUnresolvedAggregateSubject();
     }
 
     private static void LegacyRequirementIsMigrated()
@@ -67,7 +67,7 @@ USER REQUIREMENT — HARD: arrange the result as a triptych composition.
         }
     }
 
-    private static void VisualBridgeUsesCanonicalCompiler()
+    private static void VisualBridgeRejectsUnresolvedAggregateSubject()
     {
         var project = new PreviewProject { Name = "Round51 regression" };
         BookTypeProfileService.Set(project, BookTypeProfileService.ColoringBook);
@@ -86,19 +86,20 @@ USER REQUIREMENT — HARD: arrange the result as a triptych composition.
         ColoringIndependentHardProfileService.PersistResolvedState(project, "Cute & Playful", "Thick", true, false);
 
         var json = JsonSerializer.Serialize(project);
-        var pack = DiezVisualBookFrontendBridge.BuildPromptPack(
-            json,
-            "3 images: 1 per ogni soggetto",
-            string.Empty,
-            PromptEngineeringProviderIds.Generic,
-            true);
-        if (pack.Items.Count != 3)
-            throw new Exception("ROUND51_REGRESSION: visual bridge did not build the expected three atomic prompts.");
-        foreach (var item in pack.Items)
+        try
         {
-            if (item.Prompt.Contains("3 images", StringComparison.OrdinalIgnoreCase))
-                throw new Exception($"ROUND51_REGRESSION: {item.Code} still contains legacy batch quantity.");
-            PromptPackRendererVisualBriefService.EnsureVisualOnly(item.Prompt);
+            _ = DiezVisualBookFrontendBridge.BuildPromptPack(
+                json,
+                "3 images: 1 per ogni soggetto",
+                string.Empty,
+                PromptEngineeringProviderIds.Generic,
+                true);
+            throw new Exception("ROUND51_REGRESSION: unresolved aggregate subject was delegated to the renderer instead of being blocked by Diez.");
+        }
+        catch (InvalidOperationException ex)
+        {
+            if (!ex.Message.Contains("Piano soggetti non risolto", StringComparison.OrdinalIgnoreCase))
+                throw new Exception("ROUND51_REGRESSION: aggregate subject was blocked for the wrong reason: " + ex.Message);
         }
     }
 }
