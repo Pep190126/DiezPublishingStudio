@@ -8,7 +8,6 @@ on:
       - 'src/Diez.Core/**'
       - 'src/Diez.Uno/**'
       - 'tests/Diez.VisualBook.Pianist/**'
-      - 'scripts/apply_round4_semantic_coloring_fix.py'
       - 'installer/DiezPublishingStudio-UnoPreview.iss'
       - '.github/workflows/uno-windows-candidate-trace.yml'
   workflow_dispatch:
@@ -26,54 +25,12 @@ jobs:
           ref: spike/uno-platform-ui
           fetch-depth: 0
 
-      - name: Apply and persist Round 4 semantic source patch
+      - name: Capture committed source SHA
         shell: powershell
         run: |
-          python scripts/apply_round4_semantic_coloring_fix.py
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src/Diez.Core/DiezVisualHardPromptFrontendBridge.cs `
-                  src/Diez.Core/DiezPromptPackBatchFrontendBridge.cs `
-                  src/Diez.Core/VisionHardGatePolicy.cs `
-                  src/Diez.Core/DiezVisionFrontendBridge.cs `
-                  src/Diez.Uno/VisionWorkspace.cs `
-                  tests/Diez.VisualBook.Pianist/Program.cs
-          if (!(git diff --cached --quiet)) {
-            git commit -m 'Fix visual semantic correspondence and editorial Vision gate'
-            git pull --rebase origin spike/uno-platform-ui
-            git push origin HEAD:spike/uno-platform-ui
-          }
           $sourceSha = (git rev-parse HEAD).Trim()
-          "ROUND4_SOURCE_SHA=$sourceSha" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          Write-Host "Round 4 source SHA: $sourceSha"
-
-      - name: Publish running run locator
-        shell: powershell
-        run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git fetch origin spike/uno-platform-ui
-          git reset --hard origin/spike/uno-platform-ui
-          New-Item -ItemType Directory -Force docs/builds | Out-Null
-          $lines = @(
-            '# Latest Uno Windows installer candidate',
-            '',
-            "- Source SHA: ``$env:ROUND4_SOURCE_SHA``",
-            "- Trigger SHA: ``$env:GITHUB_SHA``",
-            "- Workflow: ``$env:GITHUB_WORKFLOW``",
-            "- Run number: ``$env:GITHUB_RUN_NUMBER``",
-            "- Run ID: ``$env:GITHUB_RUN_ID``",
-            '- Candidate status: `RUNNING`',
-            "- Run URL: ``$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID``",
-            '',
-            'Status note: RUNNING is only a locator. Physical installed-app validation is still required after a technically verified installer exists.'
-          )
-          [System.IO.File]::WriteAllLines((Join-Path $PWD 'docs/builds/LATEST_UNO_WINDOWS_INSTALLER.md'), $lines, [System.Text.UTF8Encoding]::new($false))
-          git add docs/builds/LATEST_UNO_WINDOWS_INSTALLER.md
-          if (!(git diff --cached --quiet)) {
-            git commit -m "Locate running Uno Windows candidate $env:GITHUB_RUN_NUMBER [skip ci]"
-            git push origin HEAD:spike/uno-platform-ui
-          }
+          "CANDIDATE_SOURCE_SHA=$sourceSha" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Candidate source SHA: $sourceSha"
 
       - uses: actions/setup-dotnet@v4
         with:
@@ -163,18 +120,14 @@ jobs:
           $hash = if ($setupExists) { (Get-FileHash $setup -Algorithm SHA256).Hash.ToLowerInvariant() } else { '' }
           $size = if ($setupExists) { (Get-Item $setup).Length } else { 0 }
           $candidateStatus = if ($env:SMOKE_OUTCOME -eq 'success' -and $env:UPLOAD_OUTCOME -eq 'success') { 'TECHNICALLY_VERIFIED' } else { 'FAILED_OR_INCOMPLETE' }
-
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git fetch origin spike/uno-platform-ui
           git reset --hard origin/spike/uno-platform-ui
-
           New-Item -ItemType Directory -Force docs/builds | Out-Null
           $lines = @(
-            '# Latest Uno Windows installer candidate',
-            '',
-            "- Source SHA: ``$env:ROUND4_SOURCE_SHA``",
-            "- Trigger SHA: ``$env:GITHUB_SHA``",
+            '# Latest Uno Windows installer candidate','',
+            "- Source SHA: ``$env:CANDIDATE_SOURCE_SHA``",
             "- Workflow: ``$env:GITHUB_WORKFLOW``",
             "- Run number: ``$env:GITHUB_RUN_NUMBER``",
             "- Run ID: ``$env:GITHUB_RUN_ID``",
@@ -186,17 +139,15 @@ jobs:
             "- Package: ``$env:PACKAGE_OUTCOME``",
             "- Smoke install/launch/uninstall: ``$env:SMOKE_OUTCOME``",
             "- Artifact upload: ``$env:UPLOAD_OUTCOME``",
-            "- Artifact: ``DiezPublishingStudio-UnoPreview-Windows-x64``",
-            "- Setup file: ``DiezPublishingStudio-UnoPreview-Setup.exe``",
+            '- Artifact: `DiezPublishingStudio-UnoPreview-Windows-x64`',
+            '- Setup file: `DiezPublishingStudio-UnoPreview-Setup.exe`',
             "- Setup present: ``$setupExists``",
             "- Setup bytes: ``$size``",
             "- Setup SHA-256: ``$hash``",
-            "- Run URL: ``$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID``",
-            '',
+            "- Run URL: ``$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID``",'',
             'Status note: TECHNICALLY_VERIFIED means CI build + package + smoke succeeded. Physical installed-app validation is still required before consolidation.'
           )
           [System.IO.File]::WriteAllLines((Join-Path $PWD 'docs/builds/LATEST_UNO_WINDOWS_INSTALLER.md'), $lines, [System.Text.UTF8Encoding]::new($false))
-
           git add docs/builds/LATEST_UNO_WINDOWS_INSTALLER.md
           if (!(git diff --cached --quiet)) {
             git commit -m "Record Uno Windows candidate run $env:GITHUB_RUN_NUMBER [skip ci]"
