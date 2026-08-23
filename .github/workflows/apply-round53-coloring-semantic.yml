@@ -1,5 +1,6 @@
 name: Apply Round 5.3 Coloring Semantic Fix
 
+# Trigger marker: 2026-08-24 Round 5.3 source apply
 on:
   push:
     branches:
