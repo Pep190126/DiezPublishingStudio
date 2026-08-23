@@ -331,6 +331,16 @@ try
     Require(!duplicateProgress.ReadyForPublication && duplicateProgress.Problems.Any(p => p.Contains("duplicat", StringComparison.OrdinalIgnoreCase)),
         "Due pagine diverse che usano lo stesso identico file devono bloccare la readiness del libro visuale.");
 
+    var normalizeResultStatus = typeof(DiezVisualResponsePackFrontendBridge).GetMethod(
+        "NormalizeResultStatus", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+    Require(normalizeResultStatus is not null, "Il normalizzatore degli status Response deve restare disponibile al gate visuale.");
+    Require((string?)normalizeResultStatus!.Invoke(null, new object?[] { "CANDIDATE" }) == "COMPLETE",
+        "Response compatibility: CANDIDATE deve essere accettato come alias transport di COMPLETE.");
+    Require((string?)normalizeResultStatus.Invoke(null, new object?[] { "INCOMPLETE" }) == "INCOMPLETE",
+        "Response protocol: INCOMPLETE deve restare uno status transport valido.");
+    Require((string?)normalizeResultStatus.Invoke(null, new object?[] { "QUALSIASI" }) == string.Empty,
+        "Response safety: uno status sconosciuto deve continuare a essere rifiutato.");
+
     Console.WriteLine("VISUAL BOOK PIANIST PASS: three visual families survived canonical setup, atomic prompts, Vision-only approval, explicit promotion, whole-book duplicates, freeze/preflight, publication candidate and final approved-asset export.");
 }
 finally

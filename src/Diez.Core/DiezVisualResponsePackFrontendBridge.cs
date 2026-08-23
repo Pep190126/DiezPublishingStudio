@@ -317,6 +317,10 @@ public static class DiezVisualResponsePackFrontendBridge
         "COMPLETED" => "COMPLETE",
         "SUCCESS" => "COMPLETE",
         "SUCCEEDED" => "COMPLETE",
+        // Some provider-produced Response packs use Diez's internal lifecycle word CANDIDATE
+        // for a successfully produced result. At the transport boundary it is equivalent to COMPLETE.
+        "CANDIDATE" => "COMPLETE",
+        "INCOMPLETE" => "INCOMPLETE",
         "FAILED" => "FAILED",
         "FAIL" => "FAILED",
         _ => string.Empty
