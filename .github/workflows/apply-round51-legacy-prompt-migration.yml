@@ -1,0 +1,51 @@
+name: Apply Round 5.1 Legacy Prompt Migration
+
+on:
+  push:
+    branches:
+      - spike/uno-platform-ui
+    paths:
+      - 'scripts/apply_round51_legacy_prompt_migration_fix.py'
+      - '.github/workflows/apply-round51-legacy-prompt-migration.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: spike/uno-platform-ui
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - name: Apply Round 5.1 compatibility patch
+        run: python scripts/apply_round51_legacy_prompt_migration_fix.py
+
+      - name: Run visual regression gate
+        run: dotnet run --project tests/Diez.VisualBook.Pianist/Diez.VisualBook.Pianist.csproj -c Release
+
+      - name: Commit reviewed source and regression
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/Diez.Core/DiezVisualBookFrontendBridge.cs \
+                  src/Diez.Core/PromptPackRendererVisualBriefService.cs \
+                  src/Diez.Core/DiezPromptPackBatchFrontendBridge.cs \
+                  tests/Diez.VisualBook.Pianist/Round51LegacyPromptMigrationRegression.cs
+          if git diff --cached --quiet; then
+            echo 'No Round 5.1 source changes to commit.'
+            exit 0
+          fi
+          git commit -m 'Migrate legacy visual prompts before Prompt Pack freeze'
+          git pull --rebase origin spike/uno-platform-ui
+          git push origin HEAD:spike/uno-platform-ui
