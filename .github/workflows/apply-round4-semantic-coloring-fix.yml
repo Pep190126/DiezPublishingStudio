@@ -1,0 +1,47 @@
+name: Apply Round 4 Semantic Coloring Fix
+
+on:
+  push:
+    branches:
+      - spike/uno-platform-ui
+    paths:
+      - 'scripts/apply_round4_semantic_coloring_fix.py'
+      - '.github/workflows/apply-round4-semantic-coloring-fix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: spike/uno-platform-ui
+          fetch-depth: 0
+
+      - name: Apply Round 4 semantic source patch
+        run: python scripts/apply_round4_semantic_coloring_fix.py
+
+      - name: Run visual semantic gate before commit
+        run: dotnet run --project tests/Diez.VisualBook.Pianist/Diez.VisualBook.Pianist.csproj -c Release
+
+      - name: Commit semantic fix
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/Diez.Core/DiezVisualHardPromptFrontendBridge.cs \
+                  src/Diez.Core/DiezPromptPackBatchFrontendBridge.cs \
+                  src/Diez.Core/VisionHardGatePolicy.cs \
+                  src/Diez.Core/DiezVisionFrontendBridge.cs \
+                  src/Diez.Uno/VisionWorkspace.cs \
+                  tests/Diez.VisualBook.Pianist/Program.cs
+          if git diff --cached --quiet; then
+            echo 'No source changes to commit.'
+            exit 0
+          fi
+          git commit -m 'Fix visual semantic correspondence and editorial Vision gate'
+          git pull --rebase origin spike/uno-platform-ui
+          git push origin HEAD:spike/uno-platform-ui
