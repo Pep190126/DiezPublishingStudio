@@ -1,23 +1,11 @@
 # Latest Uno Windows installer candidate
 
-- Source SHA: `d7ade909cbc1ca3789787e0ecde782e72d8c635f`
-- Trigger SHA: `6071d5040a71b2a0b55db5359d82a157995586b7`
+- Source SHA: `4d1d937a0acaeb491ad2475e0c925c9566786e41`
+- Trigger SHA: `207f3ab5947239bd5dc3fcaf639b0909ca8a97ed`
 - Workflow: `Uno Windows Consolidation Candidate`
-- Run number: `19`
-- Run ID: `32656445101`
-- Candidate status: `FAILED_OR_INCOMPLETE`
-- Gate: `failure`
-- Restore: `skipped`
-- Publish: `skipped`
-- Verify executable: `skipped`
-- Package: `skipped`
-- Smoke install/launch/uninstall: `skipped`
-- Artifact upload: `skipped`
-- Artifact: `DiezPublishingStudio-UnoPreview-Windows-x64`
-- Setup file: `DiezPublishingStudio-UnoPreview-Setup.exe`
-- Setup present: `False`
-- Setup bytes: `0`
-- Setup SHA-256: ``
-- Run URL: `https://github.com/Pep190126/DiezPublishingStudio/actions/runs/32656445101`
+- Run number: `20`
+- Run ID: `32656515437`
+- Candidate status: `RUNNING`
+- Run URL: `https://github.com/Pep190126/DiezPublishingStudio/actions/runs/32656515437`
 
-Status note: TECHNICALLY_VERIFIED means CI build + package + smoke succeeded. Physical installed-app validation is still required before consolidation.
+Status note: RUNNING is only a locator. Physical installed-app validation is still required after a technically verified installer exists.
