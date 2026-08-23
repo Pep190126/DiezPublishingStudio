@@ -90,8 +90,10 @@ public static class DiezVisualResponsePackFrontendBridge
                 return Failure("INVALID_PROTOCOL", "Protocollo Response non valido: atteso diez-response v1.");
             if (manifest.ProjectId == Guid.Empty || manifest.ProjectId != project.ProjectId)
                 return Failure("PROJECT_MISMATCH", "Il Response ZIP appartiene a un altro progetto Diez.");
-            if (manifest.JobId == Guid.Empty || manifest.PromptPackId == Guid.Empty)
-                return Failure("HEADER_INCOMPLETE", "Job o Prompt Pack non identificabili nel Response ZIP.");
+            if (manifest.JobId == Guid.Empty || manifest.PromptPackId == Guid.Empty || manifest.RequestSnapshotId == Guid.Empty)
+                return Failure("HEADER_INCOMPLETE", "Job, Prompt Pack o request snapshot non identificabili nel Response ZIP.");
+            if (!string.Equals(manifest.Transport, "MANUAL", StringComparison.OrdinalIgnoreCase))
+                return Failure("TRANSPORT_MISMATCH", "Il Response manuale deve dichiarare transport=MANUAL.");
 
             var packageId = manifest.PackageId;
             if (string.IsNullOrWhiteSpace(packageId))
@@ -106,6 +108,8 @@ public static class DiezVisualResponsePackFrontendBridge
                 : state.RequestSnapshots.FirstOrDefault(s => s.SnapshotId == pack.SnapshotId);
             if (pack is null || snapshot is null || snapshot.JobId != manifest.JobId)
                 return Failure("PROMPT_PACK_MISMATCH", "Prompt Pack, snapshot o Job non corrispondono allo stato del progetto aperto.");
+            if (snapshot.SnapshotId != manifest.RequestSnapshotId)
+                return Failure("REQUEST_SNAPSHOT_MISMATCH", "request_snapshot_id del Response non corrisponde allo snapshot congelato dal Prompt Pack.");
 
             var result = new List<DiezVisualResponsePackItem>();
             var seen = new HashSet<Guid>();
@@ -130,7 +134,8 @@ public static class DiezVisualResponsePackFrontendBridge
                 var normalizedStatus = NormalizeResultStatus(item.Status);
                 if (normalizedStatus.Length == 0)
                     return Failure("RESULT_STATUS_INVALID", $"{unit.Code}: status '{item.Status}' non riconosciuto.");
-                var failed = string.Equals(normalizedStatus, "FAILED", StringComparison.Ordinal);
+                var failed = string.Equals(normalizedStatus, "FAILED", StringComparison.Ordinal) ||
+                             string.Equals(normalizedStatus, "INCOMPLETE", StringComparison.Ordinal);
                 var entryPath = string.Empty;
                 var fileName = string.Empty;
                 var length = 0L;
@@ -305,6 +310,8 @@ public static class DiezVisualResponsePackFrontendBridge
             ReadGuid(root, "project_id"),
             ReadGuid(root, "job_id"),
             promptPackId,
+            ReadGuid(root, "request_snapshot_id"),
+            ReadString(root, "transport"),
             ReadString(root, "package_id"),
             ReadBool(root, "partial"),
             items);
@@ -482,6 +489,8 @@ public static class DiezVisualResponsePackFrontendBridge
         Guid ProjectId,
         Guid JobId,
         Guid PromptPackId,
+        Guid RequestSnapshotId,
+        string Transport,
         string PackageId,
         bool Partial,
         IReadOnlyList<NormalizedItem> Items);

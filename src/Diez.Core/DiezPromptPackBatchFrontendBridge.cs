@@ -34,55 +34,57 @@ public static class DiezPromptPackBatchFrontendBridge
         var expectedResponse = ExpectedResponseFileName(projectJson);
         var publisherMaterials = PublisherMaterials(projectJson);
         var sb = new StringBuilder();
-        sb.AppendLine("# DIEZ ∞ PUBLISHING STUDIO — PROMPT PACK IMMAGINI");
+        sb.AppendLine("# DIEZ ∞ PUBLISHING STUDIO — IMAGE PROMPT PACK");
         sb.AppendLine();
-        sb.AppendLine("Questo ZIP è il pacchetto completo da eseguire. Non chiedere all'utente di copiare i singoli prompt e non richiedere una nuova chat per ogni immagine.");
-        sb.AppendLine($"Il lotto contiene ESATTAMENTE {items.Count} immagini da generare come asset separati, nell'ordine indicato qui sotto.");
+        sb.AppendLine("This ZIP is the complete execution package. Process the whole batch in this session; do not ask the publisher to paste each Work Unit separately.");
+        sb.AppendLine($"The batch contains EXACTLY {items.Count} separate image assets, one final asset per Work Unit, in manifest order.");
         if (!string.IsNullOrWhiteSpace(expectedResponse))
-            sb.AppendLine($"Nome canonico richiesto per il Response ZIP finale: `{expectedResponse}`.");
+            sb.AppendLine($"Required final Response ZIP filename: `{expectedResponse}`.");
         sb.AppendLine();
-        sb.AppendLine("## Regole di esecuzione del lotto");
-        sb.AppendLine("1. Tratta ogni blocco DIEZ VISUAL PROMPT come una richiesta di rendering indipendente, ma gestisci l'intero lotto all'interno di questa consegna ZIP.");
-        sb.AppendLine("2. Genera una sola immagine finale per blocco. Non creare collage, griglie, contact sheet, tavole multiple o alternative nello stesso asset.");
-        sb.AppendLine("3. Se il publisher ha espresso il soggetto come conteggio/tema di serie (es. '3 soggetti di Halloween') invece che come nomi atomici, crea PRIMA un piano soggetti per l'intero lotto: assegna un soggetto concreto, riconoscibile e distinto a ciascuna Work Unit e mantieni quell'assegnazione durante tutti i rendering. Il numero della serie non è contenuto visivo della singola immagine.");
-        sb.AppendLine("4. Mantieni fra immagini soltanto le regole Consistent espresse nei prompt. Non trascinare automaticamente pose, oggetti o Scene specifiche dal blocco precedente; un soggetto assegnato resta invece quello della propria Work Unit.");
-        sb.AppendLine("5. ESECUZIONE OBBLIGATORIA: per ogni immagine usa un vero modello/tool nativo di GENERAZIONE IMMAGINI. È vietato sostituirlo con Python, Pillow, SVG, Canvas, plotting, primitive vettoriali/geometriche o disegno programmatico. Se un generatore immagini nativo non è disponibile, restituisci FAILED/INCOMPLETE: non creare un surrogato.");
-        sb.AppendLine("6. Prima di accettare un risultato, scartalo e rigeneralo se appare come bozza, scarabocchio, primitive geometriche, placeholder, icon sheet, diagramma o pagina non commercialmente pubblicabile, anche se il tema generale è intuibile.");
-        sb.AppendLine("7. `prompt-manifest.json` contiene gli identificatori tecnici necessari a Diez per ricomporre i risultati. Usali soltanto nel Response Pack e non inserirli nelle immagini né nei prompt del renderer.");
-        sb.AppendLine("8. Eventuali reference/materiali sono sotto `inputs/` e vanno usati solo per i ruoli dichiarati nel manifest. Non inferire un uso diverso dal ruolo editoriale indicato dal publisher.");
-        sb.AppendLine("9. Ogni risultato rientra come Candidate. Non approvare implicitamente: Vision/review e `Porta nel libro` restano fasi Diez separate.");
+        sb.AppendLine("## Batch execution contract");
+        sb.AppendLine("1. Each DIEZ VISUAL PROMPT is already semantically frozen by Diez. Render it independently; do not reinterpret the batch as one canvas.");
+        sb.AppendLine("2. Produce exactly ONE final image per Work Unit. Never create a collage, grid, contact sheet, split panel, multiple alternatives, or multiple sibling illustrations in one asset.");
+        sb.AppendLine("3. SUBJECT PLANNING IS ALREADY DONE BY DIEZ. The concrete primary subject in each Work Unit is authoritative. Do not choose, replace, broaden, rotate, or invent a different batch subject. If a Work Unit still appears to contain an unresolved aggregate subject, STOP that Work Unit and return FAILED/INCOMPLETE instead of deciding it yourself.");
+        sb.AppendLine("4. SCENE PLANNING IS ALREADY DONE BY DIEZ when scenes are required. Keep the Work Unit scene and participants exactly as frozen; do not invent a different scenario merely to diversify the series.");
+        sb.AppendLine("5. Preserve only the Consistent locks explicitly present in the Work Unit. Do not carry pose, props, framing, or scene details from sibling images unless a lock requires it.");
+        sb.AppendLine("6. RENDERING METHOD — HARD: use a real native generative IMAGE model/tool. Python, Pillow, SVG, Canvas, plotting, programmatic vector primitives, geometric assembly, diagrams, or coded drawing fallbacks are forbidden. If native image generation is unavailable, return FAILED/INCOMPLETE; never fabricate a surrogate.");
+        sb.AppendLine("7. QUALITY GATE — HARD: reject and regenerate drafts, scribbles, geometric primitive assemblies, placeholders, icon sheets, diagrams, malformed anatomy/structure, unrelated imagery, or work that is not commercially publishable for the requested book type.");
+        sb.AppendLine("8. `prompt-manifest.json` is the authoritative transport contract. Technical identifiers belong only in the Response manifest; never render them into artwork or inject them into the image-model visual brief.");
+        sb.AppendLine("9. RESPONSE HEADER — HARD: copy `project_id`, `job_id`, `prompt_pack_id`, and `request_snapshot_id` EXACTLY from `prompt-manifest.json`; set `transport` to `MANUAL`. These fields are mandatory even when every Work Unit is FAILED/INCOMPLETE. Never omit or regenerate them.");
+        sb.AppendLine("10. For every result, preserve the exact `work_unit_id` and `target_candidate_version` from the corresponding manifest Work Unit. A FAILED/INCOMPLETE result has no fabricated primary asset.");
+        sb.AppendLine("11. Files under `inputs/` may be used only according to the structured role/policy/fidelity declared in the manifest. Do not infer broader permission.");
+        sb.AppendLine("12. Results return to Diez as Candidates or incomplete provider attempts. Do not approve or apply anything to the book; Vision/review and `Porta nel libro` remain separate Diez actions.");
         sb.AppendLine(string.IsNullOrWhiteSpace(expectedResponse)
-            ? "10. Al termine restituisci, quando il sistema lo consente, UN SOLO Response ZIP `diez-response` contenente un risultato distinto per ogni Work Unit del manifest."
-            : $"10. Al termine restituisci, quando il sistema lo consente, UN SOLO Response ZIP chiamato ESATTAMENTE `{expectedResponse}`, contenente un risultato distinto per ogni Work Unit del manifest.");
+            ? "13. Return ONE `diez-response` v1 ZIP containing one result record per Work Unit."
+            : $"13. Return ONE `diez-response` v1 ZIP named EXACTLY `{expectedResponse}`, containing one result record per Work Unit.");
         sb.AppendLine();
 
         if (publisherMaterials.Count > 0)
         {
-            sb.AppendLine("## Materiali forniti dal publisher");
-            sb.AppendLine("Questi file sono stati inclusi intenzionalmente. Il ruolo dichiarato è vincolante: un reference di stile non diventa automaticamente un modello di composizione, e una modifica circoscritta non autorizza cambiamenti non richiesti.");
+            sb.AppendLine("## Publisher materials");
+            sb.AppendLine("The following files were intentionally included. Their machine-readable intent code, AI-use policy and fidelity are authoritative; do not expand their role.");
             sb.AppendLine();
             foreach (var material in publisherMaterials)
             {
-                sb.AppendLine($"- `{material.FileName}` — **{material.IntentLabel}** (`{material.IntentCode}`), policy `{material.AiUsePolicy}`, fedeltà `{material.Fidelity}`.");
-                if (!string.IsNullOrWhiteSpace(material.Instruction))
-                    sb.AppendLine($"  Istruzione publisher: {material.Instruction.Trim()}");
+                sb.AppendLine($"- `{material.FileName}` — intent `{material.IntentCode}`, policy `{material.AiUsePolicy}`, fidelity `{material.Fidelity}`.");
             }
             sb.AppendLine();
         }
 
         for (var i = 0; i < items.Count; i++)
         {
-            sb.AppendLine($"## Immagine {i + 1:D3} di {items.Count:D3}");
+            sb.AppendLine($"## Image {i + 1:D3} of {items.Count:D3}");
             sb.AppendLine("<<< DIEZ VISUAL PROMPT START >>>");
             sb.AppendLine(items[i].Prompt.Trim());
             sb.AppendLine("<<< DIEZ VISUAL PROMPT END >>>");
             sb.AppendLine();
         }
-        sb.AppendLine("## Controllo prima della consegna");
-        sb.AppendLine($"Devono esistere {items.Count} risultati separati. Nessun ID, nome file tecnico, watermark o etichetta Diez deve comparire dentro le immagini.");
+
+        sb.AppendLine("## Delivery check");
+        sb.AppendLine($"Return exactly {items.Count} result records, one per Work Unit. No Diez ID, filename, watermark, prompt fragment, or protocol label may appear inside generated artwork.");
         if (!string.IsNullOrWhiteSpace(expectedResponse))
-            sb.AppendLine($"Il pacchetto finale deve essere denominato `{expectedResponse}` salvo limitazioni tecniche del provider; in quel caso conserva comunque identità e manifest Diez.");
-        sb.AppendLine("Se la piattaforma dimostra di contaminare un rendering con immagini precedenti, usa il fallback clean-room previsto dal protocollo storico; non è il percorso manuale predefinito.");
+            sb.AppendLine($"The final ZIP filename is `{expectedResponse}` unless the platform technically prevents renaming; even then, preserve the complete Diez manifest identity exactly.");
+        sb.AppendLine("If the platform demonstrably contaminates a render with previous images, use the historical clean-room fallback; this is an execution fallback, never permission to change the frozen Work Unit semantics.");
         return sb.ToString().Trim();
     }
 

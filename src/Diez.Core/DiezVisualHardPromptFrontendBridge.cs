@@ -201,6 +201,9 @@ internal static class VisualHardPromptContractCompiler
             (focal is null || participants.All(x => !string.Equals(x.SubjectId, focal.SubjectId, StringComparison.OrdinalIgnoreCase))))
             focal = participants[0];
 
+        VisualSemanticResolutionGuard.EnsureResolvedForPosition(
+            project, request, position, item?.Subject, focal, participants);
+
         var subject = focal?.Name?.Trim();
         var hasAtomicSubject = !string.IsNullOrWhiteSpace(subject);
         if (!hasAtomicSubject && !string.IsNullOrWhiteSpace(item?.Subject))
@@ -210,11 +213,7 @@ internal static class VisualHardPromptContractCompiler
         }
 
         var seriesSubject = (request.Subject ?? string.Empty).Trim();
-        var aggregateSeriesSubject = !hasAtomicSubject && IsAggregateSeriesSubject(seriesSubject, request.SeriesCount);
-        if (!hasAtomicSubject && aggregateSeriesSubject)
-            subject = AtomicSubjectFromSeriesTheme(seriesSubject);
-        else if (!hasAtomicSubject)
-            subject = seriesSubject;
+        if (!hasAtomicSubject) subject = seriesSubject;
         if (string.IsNullOrWhiteSpace(subject)) subject = "the requested focal subject";
 
         var environment = !string.IsNullOrWhiteSpace(item?.Environment)
@@ -226,10 +225,6 @@ internal static class VisualHardPromptContractCompiler
         sb.AppendLine(string.Equals(request.BookType, BookTypeProfileService.ColoringBook, StringComparison.OrdinalIgnoreCase)
             ? "Create ONE finished, publication-quality coloring-book illustration."
             : "Create ONE finished, publication-quality editorial image.");
-        if (aggregateSeriesSubject)
-        {
-            sb.AppendLine($"SERIES SUBJECT ASSIGNMENT — HARD: the user phrase '{seriesSubject}' describes the SERIES, not the contents of this single canvas. This is item {position} of {request.SeriesCount}. Assign exactly ONE concrete, specific, immediately recognizable subject to this Work Unit before rendering. Across the batch, use a different concrete subject for each sibling Work Unit unless the user explicitly requests repetition. Never draw the numeric series count, multiple alternative subjects, a contact sheet or several sibling illustrations on this canvas.");
-        }
         sb.AppendLine(VisualPromptIntentSynthesizer.BuildWorkUnitDirection(project, request, subject, scene, participants));
         sb.AppendLine($"PRIMARY SUBJECT — HARD LOCK: {subject}. The subject must be dominant, large, immediately recognizable, structurally coherent for the selected style and more visually important than the background. If a viewer cannot name the intended subject immediately at thumbnail size, the asset FAILS and must be regenerated.");
         AppendSubject(sb, focal, consistent);

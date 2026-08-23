@@ -149,7 +149,8 @@ internal static class VisualBookDocumentAdapter
             using var archive = ZipFile.OpenRead(zipPath);
             foreach (var item in audit.Items)
             {
-                if (string.Equals(item.Status, "FAILED", StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(item.Status, "FAILED", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(item.Status, "INCOMPLETE", StringComparison.OrdinalIgnoreCase))
                 {
                     var failed = DiezVisualResponsePackFrontendBridge.RecordProviderFailure(
                         document.ExportProjectJson(), audit.PackageId, audit.PromptPackId,

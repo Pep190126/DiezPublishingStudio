@@ -441,20 +441,22 @@ public static class DiezPromptPackFrontendBridge
         new(projectJson, false, status, message, Guid.Empty, Guid.Empty, 0, string.Empty, "MANUAL");
 
     private static string ManualInstructions(int publisherMaterialCount) => $"""
-# Diez ∞ Publishing Studio — Prompt Pack manuale
+# Diez ∞ Publishing Studio — manual Prompt Pack
 
-Questo ZIP è il passaggio manuale ufficiale fra Diez e il sistema AI scelto dall'utente.
+This ZIP is the official manual transport boundary between Diez and the selected AI system.
 
-1. Leggi `prompt-manifest.json`.
-2. Esegui ogni `work_unit` usando ESATTAMENTE il relativo campo `instruction` come prompt provider-facing.
-3. Gli ID, i codici e i numeri di versione nel manifest servono solo a Diez per ricomporre il lavoro: non inserirli nel contenuto generato.
-4. Usa eventuali file sotto `inputs/` soltanto per i ruoli dichiarati dal manifest. I materiali del publisher sono {publisherMaterialCount} e si trovano sotto `inputs/publisher/`; per ciascuno rispetta `intent_code`, `instruction`, `ai_use_policy` e `fidelity`.
-5. Non usare né inventare materiali che il manifest non dichiara inviabili; gli asset diretti e i materiali `NEVER_SEND` restano fuori dal Prompt Pack.
-6. Per immagini restituisci anche una descrizione fedele del risultato.
-7. Non approvare implicitamente nulla: ogni risultato rientra in Diez come Candidate e passa dalla review prevista per quel tipo di contenuto.
-8. La strada Manuale e la strada Via API devono produrre Candidate sulle stesse Work Unit. Cambia il trasporto, non il modello editoriale.
+1. Read `prompt-manifest.json` first; it is the authoritative transport contract.
+2. Execute every `work_unit` using exactly its `instruction` as the provider-facing content instruction.
+3. Work Unit semantics are already frozen by Diez. Do not perform unresolved subject/scene planning inside the image renderer.
+4. IDs, codes, hashes and version numbers are transport metadata only. Never render them into generated content.
+5. Use files under `inputs/` only for the roles explicitly declared by the manifest. Publisher materials included in this package: {publisherMaterialCount}.
+6. For image results, return a faithful factual description of the actual pixels; the description is not evidence of visual compliance.
+7. Do not approve anything implicitly. Results return to Diez as Candidate versions or incomplete provider attempts and remain subject to the appropriate review.
+8. Manual and API transports must address the same canonical Work Units. Transport changes must not change editorial semantics.
+9. RESPONSE HEADER — mandatory: copy `project_id`, `job_id`, `prompt_pack_id`, and `request_snapshot_id` exactly from `prompt-manifest.json`; set `transport` to `MANUAL`. Never omit or regenerate these identifiers, including all-FAILED/all-INCOMPLETE responses.
+10. Each result must copy the exact `work_unit_id` and `target_candidate_version` for that Work Unit. Use `status` COMPLETE/CANDIDATE only when a real primary asset exists; use FAILED or INCOMPLETE without fabricating an asset when generation cannot satisfy the contract.
 
-Formato di risposta previsto: protocollo `diez-response` v1, con `work_unit_id`, `candidate_version`, `content_type`, `status`, eventuale `primary_asset` e `description`.
+Expected response protocol: `diez-response` v1 with the mandatory header above and one result per Work Unit containing `work_unit_id`, `candidate_version`, `content_type`, `status`, optional `primary_asset`, `description`, and `failure_reason` when applicable.
 """;
 
     private static string EnsureZip(string path) =>
