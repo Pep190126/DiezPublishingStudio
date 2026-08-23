@@ -225,7 +225,7 @@ public static class DiezVisionFrontendBridge
                 "Anatomia/struttura coerente nello stile scelto, contorni intenzionali e organici, silhouette leggibile; niente primitive geometriche rozze, arti/forme malformati, duplicazioni o filler senza senso.", true));
             result.Add(new(VisionHardGatePolicy.EditorialReadiness,
                 "Qualità editoriale / pubblicabile",
-                "La pagina deve sembrare un'illustrazione finita che un editore potrebbe inserire in un libro da colorare a pagamento: niente scarabocchi, bozza, primitive, clip-art grezza, placeholder, esercizio tecnico o resa solo vagamente interpretabile.", true));
+                "La pagina deve sembrare un'illustrazione finita che un editore potrebbe inserire in un libro da colorare a pagamento: niente scarabocchi, bozza, primitive, clip-art grezza, placeholder, esercizio tecnico, resa da SVG/diagramma/disegno programmatico o contenuto solo vagamente interpretabile. Semplice non significa geometrico o rudimentale.", true));
 
             if (profile.ClosedAreas)
                 result.Add(new(VisionHardGatePolicy.ColorableRegions,
