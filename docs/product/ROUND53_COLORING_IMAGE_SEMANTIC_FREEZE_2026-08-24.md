@@ -1,6 +1,6 @@
 # Round 5.3 — Coloring / immagini: semantic freeze prima del provider
 
-Status: **IMPLEMENTAZIONE IN CORSO / NON CONSOLIDATA**
+Status: **TECHNICALLY_VERIFIED / NON CONSOLIDATA**
 
 Data: 2026-08-24
 
@@ -71,20 +71,55 @@ senza cambiare il contratto di freeze introdotto qui.
 
 Nuovo progetto di test: `tests/Diez.VisualSemanticRegression`.
 
-Deve verificare almeno:
+Verificato insieme al gate visuale storico:
 
 - tema aggregato nuovo bloccato;
 - residuo aggregato legacy bloccato allo stesso modo;
 - tre soggetti strutturati concreti producono tre Work Unit atomiche;
 - nessun `SERIES SUBJECT ASSIGNMENT` arriva al renderer;
 - `PROMPT.md` non delega al provider la scelta dei soggetti;
-- contratto Response richiama gli header Diez obbligatori.
+- contratto Response richiama gli header Diez obbligatori;
+- gli scenari storici del Visual Book Pianist restano verdi dopo l'allineamento delle aspettative al nuovo semantic freeze.
 
-## Consolidamento
+## Installer Windows autorevole Round 5.3
 
-Round 5.3 resta **NON CONSOLIDATO** finché:
+La pipeline finale è stata ripulita da ogni patch/apply one-shot: il run autorevole costruisce esclusivamente sorgente già committato.
 
-1. CI Windows non produce un installer TECHNICALLY_VERIFIED;
-2. il progetto installato viene provato fisicamente;
-3. un progetto nuovo e uno riaperto mostrano comportamento semantico coerente;
-4. Prompt Pack e Response reali vengono nuovamente ispezionati.
+- Workflow: `Uno Windows Consolidation Candidate`
+- Run number: **32**
+- Run ID: **32674072201**
+- Source SHA: **`77cd6686034f91d84e8b3765df9f04382db975e4`**
+- Candidate status: **TECHNICALLY_VERIFIED**
+- Visual book gate: `success`
+- Round 5.3 semantic regression: `success`
+- Restore: `success`
+- Publish: `success`
+- Verify executable: `success`
+- Package: `success`
+- Smoke install/launch/uninstall: `success`
+- Artifact upload: `success`
+- Artifact ID: **9502209022**
+- Artifact name: `DiezPublishingStudio-UnoPreview-Windows-x64`
+- Artifact ZIP bytes (GitHub metadata): **94447334**
+- Artifact ZIP SHA-256: **`2f5031ce84ca2bbd5defeaab0fafc5e08c7fd51259caba9d5e2b4b23f7e50bdd`**
+- Setup file: `DiezPublishingStudio-UnoPreview-Setup.exe`
+- Setup bytes: **94975930**
+- Setup SHA-256: **`1d52b19beaa36e698510bf04e2abecbd791226e4784bfd95bceb6d193463e1a2`**
+
+Il download locale dell'artifact e l'estrazione del Setup hanno confermato entrambi gli SHA-256 sopra.
+
+## Test fisico richiesto
+
+Round 5.3 resta **NON CONSOLIDATO** finché il publisher non prova l'app installata.
+
+Test prioritari:
+
+1. riaprire un progetto legacy equivalente al progetto 10 e tentare la rigenerazione del Prompt Pack;
+2. creare un progetto nuovo equivalente al progetto 17;
+3. con solo un tema aggregato (`3 soggetti di Halloween`) verificare che Diez non crei prompt che chiedono al renderer di scegliere i soggetti, ma mostri il gate italiano di piano soggetti non risolto;
+4. definire invece tre soggetti concreti strutturati e verificare che il Prompt Pack venga creato con una Work Unit atomica per soggetto;
+5. controllare che `PROMPT.md` / `instructions.md` siano provider-facing in inglese tecnico e non contengano la vecchia istruzione di pianificazione esterna;
+6. verificare che un Response privo di `request_snapshot_id` o `transport=MANUAL` venga rifiutato;
+7. verificare che un Response `FAILED`/`INCOMPLETE` senza asset venga registrato come tentativo incompleto e non trasformato in Candidate fittizia.
+
+Solo dopo questi test fisici il Round 5.3 potrà essere considerato consolidabile.
