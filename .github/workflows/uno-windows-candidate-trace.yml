@@ -26,32 +26,6 @@ jobs:
           ref: spike/uno-platform-ui
           fetch-depth: 0
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: One-shot commit Round 5.3 source corrections
-        shell: powershell
-        run: |
-          $batch = Get-Content 'src/Diez.Core/DiezPromptPackBatchFrontendBridge.cs' -Raw
-          if ($batch.Contains('PROMPT PACK IMMAGINI')) {
-            python scripts/apply_round53_coloring_semantic_fix.py
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-            git config user.name 'github-actions[bot]'
-            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git add src/Diez.Core/DiezVisualHardPromptFrontendBridge.cs `
-                    src/Diez.Core/DiezPromptPackBatchFrontendBridge.cs `
-                    src/Diez.Core/DiezPromptPackFrontendBridge.cs `
-                    src/Diez.Core/DiezVisualResponsePackFrontendBridge.cs `
-                    src/Diez.Uno/VisualBookDocumentAdapter.cs
-            if (!(git diff --cached --quiet)) {
-              git commit -m 'Round 5.3: freeze visual semantics before provider execution'
-              git push origin HEAD:spike/uno-platform-ui
-            }
-          } else {
-            Write-Host 'Round 5.3 source corrections already committed.'
-          }
-
       - name: Capture committed source SHA
         shell: powershell
         run: |
