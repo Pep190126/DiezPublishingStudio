@@ -89,8 +89,12 @@ public static class DiezPromptPackBatchFrontendBridge
     public static async Task<DiezPromptPackBuildResult> BuildManualPackageAsync(string projectJson, string? projectPackagePath, IEnumerable<Guid>? workUnitIds, string outputPath)
     {
         var ids = workUnitIds?.Where(x => x != Guid.Empty).Distinct().ToList();
-        var packagePrompt = BuildPackagePrompt(projectJson, ids);
-        var built = await DiezPromptPackFrontendBridge.BuildManualAsync(projectJson, projectPackagePath, ids, outputPath);
+        var effectiveJson = projectJson;
+        var refreshed = DiezVisualHardPromptFrontendBridge.Recompile(projectJson, ids);
+        if (refreshed.Success) effectiveJson = refreshed.ProjectJson;
+
+        var packagePrompt = BuildPackagePrompt(effectiveJson, ids);
+        var built = await DiezPromptPackFrontendBridge.BuildManualAsync(effectiveJson, projectPackagePath, ids, outputPath);
         if (!built.Success || string.IsNullOrWhiteSpace(built.OutputPath) || !File.Exists(built.OutputPath)) return built;
         try
         {

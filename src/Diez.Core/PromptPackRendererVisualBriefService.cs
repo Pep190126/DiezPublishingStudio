@@ -10,20 +10,24 @@ namespace DiezPublishingStudio;
 /// </summary>
 internal static class PromptPackRendererVisualBriefService
 {
-    private static readonly Regex SeriesLayoutOrRoutingDirective = new(
-        @"(?i)(?:\b\d+\s+(?:images?|immagini|illustrations?|illustrazioni|panels?|pannelli)\b|\b(?:one|una|un['’]?unica?)\s+(?:image|immagine)\b.{0,40}\b\d+\s+(?:illustrations?|illustrazioni|images?|immagini)\b|\b(?:one|una|un['’]?)\s*(?:image|immagine)\s+(?:(?:for)\s+(?:each|every)\s+|(?:per)\s+(?:ogni\s+)?)(?:animals?|animali|animale|subjects?|soggetti|soggetto|characters?|personaggi|personaggio)\b|\b(?:triptych|trittico|contact\s+sheet|collage|multi[- ]?panel|griglia|grid)\b)",
+    private static readonly Regex LegacySeriesOrchestrationDirective = new(
+        @"(?i)^\s*(?:(?:\d+)\s+(?:images?|immagini|illustrations?|illustrazioni)\s*|(?:\d+)\s+(?:images?|immagini|illustrations?|illustrazioni)\s*:?\s*(?:1|one|una?)\s+(?:(?:for)\s+(?:each|every)\s+|(?:per)\s+(?:ogni\s+)?)(?:animals?|animali|animale|subjects?|soggetti|soggetto|characters?|personaggi|personaggio)?\s*|(?:one|una|un['’]?)\s*(?:image|immagine)\s+(?:(?:for)\s+(?:each|every)\s+|(?:per)\s+(?:ogni\s+)?)(?:animals?|animali|animale|subjects?|soggetti|soggetto|characters?|personaggi|personaggio)\s*|(?:generate|create|produce|render|genera|crea|produci|renderizza|request|richiedi)\s+\d+\s+(?:images?|immagini|illustrations?|illustrazioni)\s*)[.!]?\s*$",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    private static readonly Regex ForbiddenLayoutDirective = new(
+        @"(?i)\b(?:triptych|trittico|contact\s+sheet|collage|multi[- ]?panel|griglia|grid)\b",
         RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     private static readonly string[] OperationalMarkers =
     [
         "FRESH GENERATION", "Source-image policy:", "DIEZ RENDER REQUEST ID:",
-        "If the renderer cannot", "SERIES ROLE:", "FINAL CHECK — HARD:"
+        "If the renderer cannot", "SERIES ROLE:", "SERIES SUBJECT ASSIGNMENT — HARD:",
+        "FINAL CHECK — HARD:"
     ];
 
     private static readonly string[] ForbiddenRendererConceptSoup =
     [
         "triptych", "contact sheet", "collage", "multi-panel", "multi panel",
-        "3 images", "3 immagini", "3 illustrations", "3 illustrazioni",
         "DIEZ RENDER REQUEST ID", "FAILED/INCOMPLETE", "FRESH GENERATION"
     ];
 
@@ -37,9 +41,22 @@ internal static class PromptPackRendererVisualBriefService
         string? synthesizedArtDirection = null;
         foreach (var raw in lines)
         {
-            var line = raw.Trim();
+            var line = StripLegacyBullet(raw.Trim());
             if (line.Length == 0) continue;
             if (OperationalMarkers.Any(m => line.StartsWith(m, StringComparison.OrdinalIgnoreCase))) continue;
+
+            if (line.StartsWith("USER EXCLUSION — HARD:", StringComparison.OrdinalIgnoreCase) ||
+                line.StartsWith("USER REQUIREMENT — HARD:", StringComparison.OrdinalIgnoreCase))
+            {
+                var sanitized = SanitizeLegacyRequirementLine(line);
+                if (string.IsNullOrWhiteSpace(sanitized)) continue;
+                line = sanitized;
+            }
+            else if (LegacySeriesOrchestrationDirective.IsMatch(line))
+            {
+                // A standalone legacy quantity/routing sentence belongs to the batch planner.
+                continue;
+            }
 
             if (line.StartsWith("ART DIRECTION — SYNTHESIZED:", StringComparison.OrdinalIgnoreCase))
             {
@@ -99,6 +116,24 @@ internal static class PromptPackRendererVisualBriefService
                 continue;
             }
 
+            if (line.StartsWith("RENDERING METHOD — HARD:", StringComparison.OrdinalIgnoreCase))
+            {
+                output.Add("RENDERING METHOD — HARD: use the provider's native generative image capability to create a finished organic illustration; coded geometric, vector or diagrammatic construction is not an acceptable substitute.");
+                continue;
+            }
+
+            if (line.StartsWith("QUALITY FIRST — HARD:", StringComparison.OrdinalIgnoreCase))
+            {
+                output.Add("QUALITY FIRST — HARD: create a professional organic illustration first; simplified Coloring artwork must remain authored illustration rather than icon, diagram or geometric assembly.");
+                continue;
+            }
+
+            if (line.StartsWith("COLORING APPEARANCE — HARD:", StringComparison.OrdinalIgnoreCase))
+            {
+                output.Add("COLORING APPEARANCE — HARD: use clean black line art on a white background without intentional gray shading, color, gradients, shadows or tonal texture; preserve organic illustration quality.");
+                continue;
+            }
+
             if (line.StartsWith("DRAWING CRAFT:", StringComparison.OrdinalIgnoreCase))
             {
                 output.Add("DRAWING CRAFT: use smooth intentional organic contours, coherent anatomy, a strong readable silhouette, clean closed colorable regions and a balanced professional composition.");
@@ -108,15 +143,6 @@ internal static class PromptPackRendererVisualBriefService
             if (line.StartsWith("COLOR OUTPUT — HARD:", StringComparison.OrdinalIgnoreCase))
             {
                 output.Add("COLOR OUTPUT — HARD: final raster uses exactly pure black #000000 and pure white #FFFFFF, with clean colorable regions and print-legible line work.");
-                continue;
-            }
-
-            if ((line.StartsWith("USER EXCLUSION — HARD:", StringComparison.OrdinalIgnoreCase) ||
-                 line.StartsWith("USER REQUIREMENT — HARD:", StringComparison.OrdinalIgnoreCase)) &&
-                SeriesLayoutOrRoutingDirective.IsMatch(line))
-            {
-                // Series orchestration such as "one image per animal/character" belongs to the batch/work-unit
-                // planner. The atomic subject + one-scene locks already express the renderer-visible intent.
                 continue;
             }
 
@@ -139,8 +165,43 @@ internal static class PromptPackRendererVisualBriefService
         foreach (var forbidden in ForbiddenRendererConceptSoup)
             if (text.Contains(forbidden, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException("Renderer visual brief contaminato da istruzione orchestrativa/layout: " + forbidden);
-        if (SeriesLayoutOrRoutingDirective.IsMatch(text))
-            throw new InvalidOperationException("Renderer visual brief contaminato da direttiva di serie/per-item.");
+        if (ForbiddenLayoutDirective.IsMatch(text))
+            throw new InvalidOperationException("Renderer visual brief contaminato da direttiva layout multi-immagine.");
+        foreach (var raw in text.Replace("\r\n", "\n").Split('\n'))
+            if (ContainsLegacySeriesDirective(raw))
+                throw new InvalidOperationException("Renderer visual brief contaminato da direttiva di serie/per-item.");
+    }
+
+    private static string StripLegacyBullet(string line) =>
+        Regex.Replace(line ?? string.Empty, @"^\s*(?:[-*•]\s+|\d+[.)]\s+)", string.Empty).Trim();
+
+    private static string SanitizeLegacyRequirementLine(string line)
+    {
+        var colon = line.IndexOf(':');
+        if (colon < 0) return line;
+        var prefix = line[..(colon + 1)];
+        var payload = line[(colon + 1)..];
+        var kept = payload.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+            .Where(part => !LegacySeriesOrchestrationDirective.IsMatch(part))
+            .ToArray();
+        return kept.Length == 0 ? string.Empty : prefix + " " + string.Join("; ", kept);
+    }
+
+    private static bool ContainsLegacySeriesDirective(string line)
+    {
+        var normalized = StripLegacyBullet(line);
+        if (normalized.StartsWith("USER EXCLUSION — HARD:", StringComparison.OrdinalIgnoreCase) ||
+            normalized.StartsWith("USER REQUIREMENT — HARD:", StringComparison.OrdinalIgnoreCase))
+        {
+            var colon = normalized.IndexOf(':');
+            if (colon >= 0)
+            {
+                var payload = normalized[(colon + 1)..];
+                return payload.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+                    .Any(part => LegacySeriesOrchestrationDirective.IsMatch(part));
+            }
+        }
+        return LegacySeriesOrchestrationDirective.IsMatch(normalized);
     }
 
     private static string ExtractStyle(string line)

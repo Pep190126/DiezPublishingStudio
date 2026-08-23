@@ -1,4 +1,3 @@
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -185,6 +184,11 @@ public static class DiezVisualBookFrontendBridge
             throw new InvalidOperationException("Il progetto non è un libro con immagini.");
 
         var plan = VisualBookPlanService.Load(project);
+        PromptPreparationSettingsStore.Save(project, new PromptPreparationSettings
+        {
+            ProviderId = providerId,
+            PreferAdvancedModel = preferAdvancedModel
+        });
         var request = PromptEngineeringEngine.BuildRequest(
             project,
             plan.ImageCount,
@@ -199,7 +203,13 @@ public static class DiezVisualBookFrontendBridge
         for (var position = 1; position <= plan.ImageCount; position++)
         {
             var code = $"IMG-{position:D3}";
-            var source = BuildAtomicVisualSource(project, request, position);
+            var unit = new AiExchangeWorkUnit
+            {
+                Position = position,
+                Code = code,
+                ContentType = AiExchangeContentTypes.Image
+            };
+            var source = VisualHardPromptContractCompiler.Build(project, unit);
             var prompt = PromptPackRendererVisualBriefService.Build(source);
             items.Add(new DiezVisualPromptItem(position, code, $"Immagine {position:D3}", prompt));
         }
@@ -226,68 +236,6 @@ public static class DiezVisualBookFrontendBridge
             problems);
     }
 
-    private static string BuildAtomicVisualSource(PreviewProject project, PromptEngineeringRequest request, int position)
-    {
-        var item = request.ItemOverrides.FirstOrDefault(x => x.ItemIndex == position);
-        var scene = StructuredSceneProfileService.SceneForPosition(project, position);
-        var participants = scene is null
-            ? Array.Empty<MultiSubjectDefinition>()
-            : StructuredSceneProfileService.Participants(project, scene).ToArray();
-
-        var subject = (item?.Subject ?? string.Empty).Trim();
-        if (subject.Length == 0 && participants.Length > 0)
-            subject = string.Join(", ", participants.Select(p => p.Name).Where(n => !string.IsNullOrWhiteSpace(n)));
-        if (subject.Length == 0) subject = request.Subject;
-        if (string.IsNullOrWhiteSpace(subject)) subject = "the requested focal subject";
-
-        var artDirection = VisualPromptIntentSynthesizer.BuildWorkUnitDirection(
-            project,
-            request,
-            subject,
-            scene,
-            participants)
-            .Replace("Work Unit", "image", StringComparison.OrdinalIgnoreCase)
-            .Replace("work-unit", "image", StringComparison.OrdinalIgnoreCase);
-
-        var sb = new StringBuilder();
-        sb.AppendLine(artDirection);
-        sb.AppendLine(string.Equals(request.BookType, BookTypeProfileService.ColoringBook, StringComparison.OrdinalIgnoreCase)
-            ? "Create ONE finished, publication-quality coloring-book illustration."
-            : "Create ONE finished, publication-quality editorial illustration.");
-        sb.AppendLine($"PRIMARY SUBJECT — HARD LOCK: {subject}. The requested focal subject must be clearly present and immediately readable.");
-        sb.AppendLine("COMPOSITION — HARD LOCK: exactly ONE unified continuous composition with one primary scene.");
-
-        var required = Join(request.MustDo, item?.MustDo);
-        var excluded = Join(request.MustNotDo, item?.MustNotDo);
-        if (!string.IsNullOrWhiteSpace(required)) sb.AppendLine("USER REQUIREMENT — HARD: " + required);
-        if (!string.IsNullOrWhiteSpace(excluded)) sb.AppendLine("USER EXCLUSION — HARD: " + excluded);
-
-        if (string.Equals(request.BookType, BookTypeProfileService.ColoringBook, StringComparison.OrdinalIgnoreCase))
-        {
-            var hard = ColoringIndependentHardProfileService.Resolve(project);
-            sb.AppendLine($"STYLE — HARD LOCK: {hard.Style}.");
-            sb.AppendLine(ColoringIndependentHardProfileService.BoldEasyDirective(hard.BoldEasy));
-            sb.AppendLine(ColoringIndependentHardProfileService.CozyDirective(hard.Cozy));
-            sb.AppendLine($"LINE WEIGHT — HARD: selected line weight {hard.LineWeight} is authoritative throughout the page.");
-            sb.AppendLine("DRAWING CRAFT: smooth intentional organic contours, coherent anatomy, readable silhouette and clean closed colorable regions.");
-            sb.AppendLine("COLOR OUTPUT — HARD: pure black #000000 and pure white #FFFFFF only.");
-            if (request.NoTextInsideImage) sb.AppendLine("NO TEXT — HARD: no letters, numbers, captions, signatures, watermarks or pseudo-text inside the image.");
-        }
-        else
-        {
-            sb.AppendLine($"RENDERING STYLE — HARD LOCK: {request.RenderingStyle}. Preserve this rendering language consistently throughout the image.");
-            sb.AppendLine($"COLOR TREATMENT — HARD: {request.ColorMode}.");
-            sb.AppendLine($"LINE / EDGE TREATMENT — HARD: {request.LineTreatment}.");
-            sb.AppendLine($"DETAIL LEVEL — HARD: {request.DetailLevel}.");
-            sb.AppendLine($"VIEWPOINT: {request.Viewpoint}.");
-            sb.AppendLine($"BACKGROUND: {request.Background}.");
-            if (request.SubjectClearlySeparated) sb.AppendLine("SUBJECT READABILITY — HARD: keep the principal subject immediately distinguishable from the background.");
-            if (request.NoTextInsideImage) sb.AppendLine("NO TEXT — HARD: do not insert text, labels, captions, IDs or watermarks inside the image.");
-            if (request.EditorialClarity) sb.AppendLine("EDITORIAL CLARITY — HARD: communicative clarity takes priority over ornamental complexity.");
-        }
-
-        return sb.ToString().Trim();
-    }
 
     private static DiezVisualBookSetupDto ProjectSetup(PreviewProject project)
     {
@@ -349,15 +297,6 @@ public static class DiezVisualBookFrontendBridge
                 image.Notes));
     }
 
-    private static string Join(string? first, string? second)
-    {
-        var values = new[] { first, second }
-            .Where(v => !string.IsNullOrWhiteSpace(v))
-            .Select(v => v!.Trim())
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-        return string.Join("; ", values);
-    }
 
     private static (JsonObject Root, PreviewProject Project) Parse(string projectJson)
     {
