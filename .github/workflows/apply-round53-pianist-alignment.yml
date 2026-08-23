@@ -1,0 +1,37 @@
+name: Apply Round 5.3 Pianist Alignment
+
+on:
+  push:
+    branches:
+      - spike/uno-platform-ui
+    paths:
+      - '.github/workflows/apply-round53-pianist-alignment.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: spike/uno-platform-ui
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Align historical Pianist expectation
+        run: python scripts/apply_round53_pianist_alignment.py
+      - name: Commit regression alignment
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tests/Diez.VisualBook.Pianist/Program.cs
+          if git diff --cached --quiet; then
+            echo 'No changes to commit.'
+          else
+            git commit -m 'Align visual Pianist with Round 5.3 semantic freeze'
+            git push origin HEAD:spike/uno-platform-ui
+          fi
