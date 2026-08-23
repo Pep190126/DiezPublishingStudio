@@ -1,5 +1,6 @@
 name: Apply Round 5.3 Pianist Alignment
 
+# Trigger marker: Round 5.3 historical gate alignment
 on:
   push:
     branches:
