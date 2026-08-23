@@ -1,0 +1,42 @@
+name: Apply Round 5.3 Coloring Semantic Fix
+
+on:
+  push:
+    branches:
+      - spike/uno-platform-ui
+    paths:
+      - '.github/workflows/apply-round53-coloring-semantic.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: spike/uno-platform-ui
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply semantic corrections
+        run: python scripts/apply_round53_coloring_semantic_fix.py
+      - name: Commit source corrections
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/Diez.Core/DiezVisualHardPromptFrontendBridge.cs \
+                  src/Diez.Core/DiezPromptPackBatchFrontendBridge.cs \
+                  src/Diez.Core/DiezPromptPackFrontendBridge.cs \
+                  src/Diez.Core/DiezVisualResponsePackFrontendBridge.cs \
+                  src/Diez.Uno/VisualBookDocumentAdapter.cs \
+                  .github/workflows/uno-windows-candidate-trace.yml
+          if git diff --cached --quiet; then
+            echo 'No changes to commit.'
+          else
+            git commit -m 'Round 5.3: freeze visual semantics before provider execution'
+            git push origin HEAD:spike/uno-platform-ui
+          fi
