@@ -29,7 +29,7 @@ internal static class VisionWorkspace
         });
         root.Children.Add(new TextBlock
         {
-            Text = "Importa l'immagine candidata con la sua descrizione, poi verifica tutti i controlli richiesti da Diez. Vision approva la versione; l'applicazione al libro resta una seconda azione esplicita. Il divisore fra controlli e anteprima può essere trascinato.",
+            Text = "Importa l'immagine candidata e guarda i pixel reali. La descrizione ricevuta dal provider è solo metadato descrittivo: NON dimostra che l'immagine rispetti il brief. Verifica ogni HARD gate confrontando l'anteprima con ciò che era richiesto; Vision approva la versione solo dopo questo controllo. Il divisore fra controlli e anteprima può essere trascinato.",
             TextWrapping = TextWrapping.Wrap
         });
         root.Children.Add(new Separator());
@@ -55,7 +55,7 @@ internal static class VisionWorkspace
         var preview = new VisualImagePreviewSurface(520);
         var description = Editor(
             document.GetUiString("Vision.ImageDescriptionDraft"),
-            "Descrivi ciò che è realmente visibile nell'immagine: soggetto, scena, composizione e dettagli utili al controllo.",
+            "Descrizione fattuale di ciò che è realmente visibile. Non usare questa descrizione come prova di conformità al brief.",
             135);
         var versions = new ListView { Height = 170 };
         List<DiezAiFrontendVersion> versionModels = [];
@@ -108,7 +108,7 @@ internal static class VisionWorkspace
 
             requirementsHost.Children.Add(new TextBlock
             {
-                Text = "Spunta un controllo solo dopo averlo verificato. Un controllo obbligatorio non spuntato viene trattato come FAIL e blocca l'approvazione.",
+                Text = "Spunta un controllo solo dopo averlo verificato sui PIXEL reali, non sulla descrizione del provider. Chiediti anche se pagheresti per trovare questa pagina in un libro finito. Un controllo HARD non spuntato è FAIL e blocca l'approvazione.",
                 TextWrapping = TextWrapping.Wrap
             });
         }
@@ -199,7 +199,7 @@ internal static class VisionWorkspace
                     }
                 }),
                 selectedImage),
-            Labeled("Descrizione dell'immagine candidata", description),
+            Labeled("Descrizione del provider / della Candidate · NON è una prova di conformità", description),
             AsyncButton("Importa immagine candidata", async () =>
             {
                 if (jobs.SelectedIndex < 0 || jobs.SelectedIndex >= imageJobs.Count)

@@ -44,13 +44,15 @@ public static class DiezPromptPackBatchFrontendBridge
         sb.AppendLine("## Regole di esecuzione del lotto");
         sb.AppendLine("1. Tratta ogni blocco DIEZ VISUAL PROMPT come una richiesta di rendering indipendente, ma gestisci l'intero lotto all'interno di questa consegna ZIP.");
         sb.AppendLine("2. Genera una sola immagine finale per blocco. Non creare collage, griglie, contact sheet, tavole multiple o alternative nello stesso asset.");
-        sb.AppendLine("3. Mantieni fra immagini soltanto le regole Consistent espresse nei prompt. Non trascinare automaticamente soggetti, pose, oggetti o Scene specifiche dal blocco precedente.");
-        sb.AppendLine("4. `prompt-manifest.json` contiene gli identificatori tecnici necessari a Diez per ricomporre i risultati. Usali soltanto nel Response Pack e non inserirli nelle immagini né nei prompt del renderer.");
-        sb.AppendLine("5. Eventuali reference/materiali sono sotto `inputs/` e vanno usati solo per i ruoli dichiarati nel manifest. Non inferire un uso diverso dal ruolo editoriale indicato dal publisher.");
-        sb.AppendLine("6. Ogni risultato rientra come Candidate. Non approvare implicitamente: Vision/review e `Porta nel libro` restano fasi Diez separate.");
+        sb.AppendLine("3. Se il publisher ha espresso il soggetto come conteggio/tema di serie (es. '3 soggetti di Halloween') invece che come nomi atomici, crea PRIMA un piano soggetti per l'intero lotto: assegna un soggetto concreto, riconoscibile e distinto a ciascuna Work Unit e mantieni quell'assegnazione durante tutti i rendering. Il numero della serie non è contenuto visivo della singola immagine.");
+        sb.AppendLine("4. Mantieni fra immagini soltanto le regole Consistent espresse nei prompt. Non trascinare automaticamente pose, oggetti o Scene specifiche dal blocco precedente; un soggetto assegnato resta invece quello della propria Work Unit.");
+        sb.AppendLine("5. Prima di accettare un risultato, scartalo e rigeneralo se appare come bozza, scarabocchio, primitive geometriche, placeholder, icon sheet, diagramma o pagina non commercialmente pubblicabile, anche se il tema generale è intuibile.");
+        sb.AppendLine("6. `prompt-manifest.json` contiene gli identificatori tecnici necessari a Diez per ricomporre i risultati. Usali soltanto nel Response Pack e non inserirli nelle immagini né nei prompt del renderer.");
+        sb.AppendLine("7. Eventuali reference/materiali sono sotto `inputs/` e vanno usati solo per i ruoli dichiarati nel manifest. Non inferire un uso diverso dal ruolo editoriale indicato dal publisher.");
+        sb.AppendLine("8. Ogni risultato rientra come Candidate. Non approvare implicitamente: Vision/review e `Porta nel libro` restano fasi Diez separate.");
         sb.AppendLine(string.IsNullOrWhiteSpace(expectedResponse)
-            ? "7. Al termine restituisci, quando il sistema lo consente, UN SOLO Response ZIP `diez-response` contenente un risultato distinto per ogni Work Unit del manifest."
-            : $"7. Al termine restituisci, quando il sistema lo consente, UN SOLO Response ZIP chiamato ESATTAMENTE `{expectedResponse}`, contenente un risultato distinto per ogni Work Unit del manifest.");
+            ? "9. Al termine restituisci, quando il sistema lo consente, UN SOLO Response ZIP `diez-response` contenente un risultato distinto per ogni Work Unit del manifest."
+            : $"9. Al termine restituisci, quando il sistema lo consente, UN SOLO Response ZIP chiamato ESATTAMENTE `{expectedResponse}`, contenente un risultato distinto per ogni Work Unit del manifest.");
         sb.AppendLine();
 
         if (publisherMaterials.Count > 0)

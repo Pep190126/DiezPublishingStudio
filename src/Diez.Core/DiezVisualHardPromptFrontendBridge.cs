@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Text.Json.Nodes;
 
 namespace DiezPublishingStudio;
@@ -160,6 +161,18 @@ public static class DiezVisualHardPromptFrontendBridge
 /// </summary>
 internal static class VisualHardPromptContractCompiler
 {
+    private static readonly Regex AggregateSeriesSubjectRegex = new(
+        @"^\s*(?<count>\d+|one|two|three|four|five|six|seven|eight|nine|ten|uno|una|due|tre|quattro|cinque|sei|sette|otto|nove|dieci)\s+(?:soggett[oi]|subjects?|personagg(?:io|i)|characters?)\b(?:\s+(?:di|del|della|dei|delle|a\s+tema|of|for|themed(?:\s+around)?))?\s*(?<theme>.*)$",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    private static readonly Regex BatchImageCountRegex = new(
+        @"\b(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|uno|una|due|tre|quattro|cinque|sei|sette|otto|nove|dieci)\s+(?:images?|immagin[ei])\b",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    private static readonly Regex OneCanvasManyIllustrationsRegex = new(
+        @"(?:un.?unica|una\s+sola|single|one)\s+(?:image|immagine).*?(?:\d+|multiple|piu|più)\s+(?:illustrazion\w*|images?|immagin\w*|pictures?)",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
     public static string Build(PreviewProject project, AiExchangeWorkUnit unit)
     {
         var plan = VisualBookPlanService.Load(project);
@@ -189,8 +202,19 @@ internal static class VisualHardPromptContractCompiler
             focal = participants[0];
 
         var subject = focal?.Name?.Trim();
-        if (string.IsNullOrWhiteSpace(subject)) subject = (item?.Subject ?? string.Empty).Trim();
-        if (string.IsNullOrWhiteSpace(subject)) subject = (request.Subject ?? string.Empty).Trim();
+        var hasAtomicSubject = !string.IsNullOrWhiteSpace(subject);
+        if (!hasAtomicSubject && !string.IsNullOrWhiteSpace(item?.Subject))
+        {
+            subject = item!.Subject.Trim();
+            hasAtomicSubject = true;
+        }
+
+        var seriesSubject = (request.Subject ?? string.Empty).Trim();
+        var aggregateSeriesSubject = !hasAtomicSubject && IsAggregateSeriesSubject(seriesSubject, request.SeriesCount);
+        if (!hasAtomicSubject && aggregateSeriesSubject)
+            subject = AtomicSubjectFromSeriesTheme(seriesSubject);
+        else if (!hasAtomicSubject)
+            subject = seriesSubject;
         if (string.IsNullOrWhiteSpace(subject)) subject = "the requested focal subject";
 
         var environment = !string.IsNullOrWhiteSpace(item?.Environment)
@@ -202,16 +226,20 @@ internal static class VisualHardPromptContractCompiler
         sb.AppendLine(string.Equals(request.BookType, BookTypeProfileService.ColoringBook, StringComparison.OrdinalIgnoreCase)
             ? "Create ONE finished, publication-quality coloring-book illustration."
             : "Create ONE finished, publication-quality editorial image.");
+        if (aggregateSeriesSubject)
+        {
+            sb.AppendLine($"SERIES SUBJECT ASSIGNMENT — HARD: the user phrase '{seriesSubject}' describes the SERIES, not the contents of this single canvas. This is item {position} of {request.SeriesCount}. Assign exactly ONE concrete, specific, immediately recognizable subject to this Work Unit before rendering. Across the batch, use a different concrete subject for each sibling Work Unit unless the user explicitly requests repetition. Never draw the numeric series count, multiple alternative subjects, a contact sheet or several sibling illustrations on this canvas.");
+        }
         sb.AppendLine(VisualPromptIntentSynthesizer.BuildWorkUnitDirection(project, request, subject, scene, participants));
-        sb.AppendLine($"PRIMARY SUBJECT — HARD LOCK: {subject}. The subject must be dominant, large, immediately recognizable, anatomically coherent for the selected style and more visually important than the background.");
+        sb.AppendLine($"PRIMARY SUBJECT — HARD LOCK: {subject}. The subject must be dominant, large, immediately recognizable, structurally coherent for the selected style and more visually important than the background. If a viewer cannot name the intended subject immediately at thumbnail size, the asset FAILS and must be regenerated.");
         AppendSubject(sb, focal, consistent);
         AppendScene(sb, project, scene, focal, participants, consistent);
         sb.AppendLine("COMPOSITION — HARD LOCK: exactly ONE unified continuous primary scene filling the canvas. No collage, grid, contact sheet, split panel, stacked alternatives or visual representation of the series count.");
         if (!string.IsNullOrWhiteSpace(environment))
             sb.AppendLine($"SETTING — SUPPORTING ONLY: {environment}. Use only scene elements that clarify place, action or mood; keep them subordinate to the required subjects and avoid unrelated filler.");
 
-        var required = Join(request.MustDo, item?.MustDo);
-        var excluded = Join(request.MustNotDo, item?.MustNotDo);
+        var required = AtomicUserConstraint(Join(request.MustDo, item?.MustDo), exclusion: false);
+        var excluded = AtomicUserConstraint(Join(request.MustNotDo, item?.MustNotDo), exclusion: true);
         if (!string.IsNullOrWhiteSpace(required)) sb.AppendLine("USER REQUIREMENT — HARD: " + required);
         if (!string.IsNullOrWhiteSpace(excluded)) sb.AppendLine("USER EXCLUSION — HARD: " + excluded);
 
@@ -227,6 +255,37 @@ internal static class VisualHardPromptContractCompiler
             : $"FINAL CHECK — HARD: before returning the asset, visibly verify PRIMARY SUBJECT{sceneCheck}, rendering style, requested line/edge treatment, editorial clarity and one unified composition. If a HARD requirement fails, regenerate instead of returning the asset.");
 
         return PromptEnglishNormalizer.NormalizeProviderFacing(sb.ToString()).Trim();
+    }
+
+    private static bool IsAggregateSeriesSubject(string? value, int seriesCount)
+    {
+        if (seriesCount <= 1 || string.IsNullOrWhiteSpace(value)) return false;
+        return AggregateSeriesSubjectRegex.IsMatch(value.Trim());
+    }
+
+    private static string AtomicSubjectFromSeriesTheme(string value)
+    {
+        var match = AggregateSeriesSubjectRegex.Match(value ?? string.Empty);
+        var theme = match.Success ? match.Groups["theme"].Value.Trim(' ', ':', '-', '–', '—') : string.Empty;
+        return string.IsNullOrWhiteSpace(theme)
+            ? "one concrete, specific, immediately recognizable subject fitting the user's series theme"
+            : $"one concrete, specific, immediately recognizable subject fitting the theme: {theme}";
+    }
+
+    private static string AtomicUserConstraint(string? value, bool exclusion)
+    {
+        var kept = new List<string>();
+        foreach (var line in Lines(value ?? string.Empty))
+        {
+            if (BatchImageCountRegex.IsMatch(line)) continue;
+            if (exclusion && OneCanvasManyIllustrationsRegex.IsMatch(line))
+            {
+                kept.Add("Do not combine multiple requested series illustrations into one canvas.");
+                continue;
+            }
+            kept.Add(line);
+        }
+        return string.Join(Environment.NewLine, kept.Distinct(StringComparer.OrdinalIgnoreCase));
     }
 
     private static void AppendColoring(StringBuilder sb, PreviewProject project, PromptEngineeringRequest request)

@@ -37,6 +37,7 @@ internal static class VisionHardGatePolicy
     public const string BookTypeFit = "book_type_fit";
     public const string ColorOutputMatch = "color_output_match";
     public const string DrawingCraft = "drawing_craft";
+    public const string EditorialReadiness = "editorial_readiness";
     public const string ColorableRegions = "colorable_regions";
     public const string CleanContours = "clean_contours";
     public const string MicroDetailFit = "micro_detail_fit";
@@ -57,6 +58,7 @@ internal static class VisionHardGatePolicy
         BookTypeFit,
         ColorOutputMatch,
         DrawingCraft,
+        EditorialReadiness,
         ColorableRegions,
         CleanContours,
         MicroDetailFit,
@@ -123,6 +125,7 @@ Required semantic checks:
 - `book_type_fit` — HARD: a Coloring candidate must look like a professionally publishable coloring page, not a diagram, logo, technical sheet, icon sheet, crude draft or unrelated image.
 - `color_output_match` — HARD for pure-B/W Coloring: final pixels must respect the selected black/white contract; no gray/tonal substitute may pass.
 - `drawing_craft` — HARD for Coloring: coherent anatomy/structure, intentional organic contours and usable geometry. Obvious malformed anatomy, primitive placeholder construction, accidental duplicates or meaningless filler fail.
+- `editorial_readiness` — HARD: judge the candidate as a paid publishing asset, not as an AI demo. A scribble, rough sketch, primitive clip-art, placeholder, exercise sheet or merely interpretable draft is FAIL even when the theme can be guessed.
 - `colorable_regions` — HARD when closed regions are requested: the visible page must contain comfortably fillable, clearly bounded regions rather than ambiguous open/tangled cells.
 - `clean_contours` — HARD when enabled: no broken, doubled, dirty, dangling or accidental contour collisions.
 - `micro_detail_fit` — HARD when tiny areas are forbidden: detail must suit the selected audience/difficulty and avoid unusable micro-cells.

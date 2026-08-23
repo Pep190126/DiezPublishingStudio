@@ -331,6 +331,28 @@ try
     Require(!duplicateProgress.ReadyForPublication && duplicateProgress.Problems.Any(p => p.Contains("duplicat", StringComparison.OrdinalIgnoreCase)),
         "Due pagine diverse che usano lo stesso identico file devono bloccare la readiness del libro visuale.");
 
+    var aggregateSetup = SaveSetup(NewProject(BookTypeCatalog.ColoringBook), BookTypeCatalog.ColoringBook, 3, "3 soggetti di Halloween");
+    var aggregateProject = JsonSerializer.Deserialize<PreviewProject>(aggregateSetup.ProjectJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
+    PromptMasterStateStore.SaveDraft(aggregateProject, 3, "3 images: 1 per ogni soggetto", "un'unica image con 3 illustrazioni ognuna", string.Empty);
+    var aggregatePrompt = VisualHardPromptContractCompiler.Build(aggregateProject, new AiExchangeWorkUnit
+    {
+        Position = 1,
+        Code = "IMG-001",
+        ContentType = AiExchangeContentTypes.Image
+    });
+    Require(aggregatePrompt.Contains("SERIES SUBJECT ASSIGNMENT — HARD", StringComparison.OrdinalIgnoreCase),
+        "Un soggetto aggregato di serie deve essere materializzato come assegnazione atomica per Work Unit.");
+    Require(!aggregatePrompt.Contains("PRIMARY SUBJECT — HARD LOCK: 3 soggetti di Halloween", StringComparison.OrdinalIgnoreCase),
+        "Il conteggio globale dei soggetti non deve più diventare il PRIMARY SUBJECT della singola immagine.");
+    Require(aggregatePrompt.Contains("item 1 of 3", StringComparison.OrdinalIgnoreCase),
+        "Il prompt atomico deve dichiarare la posizione della Work Unit nel piano soggetti.");
+    Require(!aggregatePrompt.Contains("USER REQUIREMENT — HARD: 3 images", StringComparison.OrdinalIgnoreCase),
+        "Le istruzioni sul numero di immagini appartengono all'orchestrazione del lotto, non ai pixel della singola Work Unit.");
+    Require(aggregatePrompt.Contains("Do not combine multiple requested series illustrations into one canvas", StringComparison.OrdinalIgnoreCase),
+        "Il divieto utente di accorpare le illustrazioni deve diventare un vincolo atomico non ambiguo.");
+    Require(VisionHardGatePolicy.IsHard(VisionHardGatePolicy.EditorialReadiness),
+        "La qualità editoriale/pubblicabile deve restare un HARD gate Vision.");
+
     var normalizeResultStatus = typeof(DiezVisualResponsePackFrontendBridge).GetMethod(
         "NormalizeResultStatus", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
     Require(normalizeResultStatus is not null, "Il normalizzatore degli status Response deve restare disponibile al gate visuale.");
