@@ -5,7 +5,7 @@ on:
     branches:
       - spike/uno-platform-ui
     paths:
-      - 'scripts/apply_round4_semantic_coloring_fix.py'
+      - 'scripts/cleanup_round4_duplicate_using.py'
       - '.github/workflows/apply-round3-visual-ux.yml'
   workflow_dispatch:
 
@@ -22,26 +22,21 @@ jobs:
           ref: spike/uno-platform-ui
           fetch-depth: 0
 
-      - name: Apply reviewed Round 4 semantic source patch
-        run: python scripts/apply_round4_semantic_coloring_fix.py
+      - name: Clean reviewed Round 4 source
+        run: python scripts/cleanup_round4_duplicate_using.py
 
       - name: Run visual semantic regression gate
         run: dotnet run --project tests/Diez.VisualBook.Pianist/Diez.VisualBook.Pianist.csproj -c Release
 
-      - name: Commit patched source
+      - name: Commit source cleanup
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src/Diez.Core/DiezVisualHardPromptFrontendBridge.cs \
-                  src/Diez.Core/DiezPromptPackBatchFrontendBridge.cs \
-                  src/Diez.Core/VisionHardGatePolicy.cs \
-                  src/Diez.Core/DiezVisionFrontendBridge.cs \
-                  src/Diez.Uno/VisionWorkspace.cs \
-                  tests/Diez.VisualBook.Pianist/Program.cs
+          git add src/Diez.Core/DiezVisualHardPromptFrontendBridge.cs
           if git diff --cached --quiet; then
-            echo 'No source changes to commit.'
+            echo 'No source cleanup needed.'
             exit 0
           fi
-          git commit -m 'Fix visual semantic correspondence and editorial Vision gate'
+          git commit -m 'Clean Round 4 semantic prompt compiler source'
           git pull --rebase origin spike/uno-platform-ui
           git push origin HEAD:spike/uno-platform-ui
