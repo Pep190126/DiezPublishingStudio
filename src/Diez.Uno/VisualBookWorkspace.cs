@@ -382,18 +382,39 @@ internal static class VisualBookWorkspace
         }
 
         var plannerState = document.ReadVisualSubjectPlanner();
+
+        string PlannerSummaryText()
+        {
+            if (!plannerState.Required)
+                return "Piano soggetti risolto in Diez. I soggetti canonici sono già disponibili per la compilazione del Prompt immagini.";
+            if (!plannerState.ProposalValid)
+                return $"Tema di serie da risolvere: {plannerState.SeriesTheme}. {plannerState.ValidationMessage}";
+
+            var lines = new List<string> { "Proposta AI da verificare prima di accettare:" };
+            foreach (var item in plannerState.Proposal.Select((value, index) => (value, index)))
+            {
+                lines.Add($"{item.index + 1}. {item.value.DisplayName}");
+                if (!string.IsNullOrWhiteSpace(item.value.Description))
+                    lines.Add("   " + item.value.Description.Trim());
+            }
+            lines.Add(string.Empty);
+            lines.Add("Nessun soggetto viene applicato o congelato finché non premi “Accetta proposta e congela i soggetti”.");
+            return string.Join(Environment.NewLine, lines);
+        }
+
         var plannerSummary = new TextBlock
         {
-            Text = plannerState.Required
-                ? plannerState.ProposalValid
-                    ? "Proposta valida ricevuta:\n" + string.Join("\n", plannerState.Proposal.Select((x, i) => $"{i + 1}. {x.DisplayName}"))
-                    : $"Tema di serie da risolvere: {plannerState.SeriesTheme}. {plannerState.ValidationMessage}"
-                : "Il soggetto corrente non richiede un piano AI: è già atomico oppure viene gestito da Soggetti/Scene strutturati.",
+            Text = PlannerSummaryText(),
             TextWrapping = TextWrapping.Wrap
         };
         var acceptProposal = AsyncButton("Accetta proposta e congela i soggetti", async () =>
         {
             var current = document.ReadVisualSubjectPlanner();
+            if (!current.Required)
+            {
+                report("Il piano soggetti è già risolto in Diez.");
+                return;
+            }
             if (!current.ProposalValid || !current.ProposalVersionId.HasValue)
             {
                 report("Non c'è ancora una proposta soggetti valida da accettare.");
@@ -404,12 +425,12 @@ internal static class VisualBookWorkspace
             report(applied.Message);
             if (applied.Status == "APPLIED") refresh();
         });
-        acceptProposal.IsEnabled = plannerState.ProposalValid && plannerState.ProposalVersionId.HasValue;
+        acceptProposal.IsEnabled = plannerState.Required && plannerState.ProposalValid && plannerState.ProposalVersionId.HasValue;
 
         root.Children.Add(Card("Piano soggetti Diez · prima del Prompt", Vertical(
             new TextBlock
             {
-                Text = "Se hai descritto una serie (per esempio “3 soggetti di Halloween”), il generatore immagini non deve scegliere i soggetti. Diez prepara prima una proposta strutturata con un'attività AI testuale, la valida e la applica allo stato canonico solo dopo la tua accettazione.",
+                Text = "Se hai descritto una serie (per esempio “3 soggetti di Halloween”), il generatore immagini non deve scegliere i soggetti. Diez prepara una proposta strutturata con un'attività AI testuale. Dopo l'import della risposta, qui vedi nomi e descrizioni trovati dall'AI prima di decidere se accettarli.",
                 TextWrapping = TextWrapping.Wrap
             },
             plannerSummary,

@@ -32,6 +32,9 @@ internal static class AiCenterWorkspace
         var outputType = Combo(["Image", "Text", "Data"], document.GetUiString("AI.OutputType", "Image"));
 
         var jobModels = document.AiJobs().ToList();
+        var visualPlannerState = BookTypeCatalog.IsVisual(document.BookType)
+            ? document.ReadVisualSubjectPlanner()
+            : null;
         var jobs = new ListView
         {
             Height = 220,
@@ -73,12 +76,18 @@ internal static class AiCenterWorkspace
             }
 
             var job = jobModels[jobs.SelectedIndex];
-            selectedJob.Text = $"{job.Code} · {job.DisplayType} · {job.DisplayStatus}\n{job.Title}";
+            var plannerJob = (visualPlannerState?.PlannerJobId.HasValue == true && visualPlannerState.PlannerJobId.Value == job.JobId) ||
+                             string.Equals(job.Title, "Diez · Piano soggetti visuali", StringComparison.OrdinalIgnoreCase);
+            selectedJob.Text = plannerJob
+                ? $"{job.Code} · {job.DisplayType} · {job.DisplayStatus}\n{job.Title}\nPasso corrente: esegui questo Prompt con l'AI, poi incolla qui sotto il JSON dei soggetti. Dopo l'import Diez ti riporta in Definizione per mostrarti la proposta prima dell'accettazione."
+                : $"{job.Code} · {job.DisplayType} · {job.DisplayStatus}\n{job.Title}";
             var image = string.Equals(job.OutputType, "Image", StringComparison.OrdinalIgnoreCase);
             response.IsEnabled = !image;
             response.PlaceholderText = image
                 ? "Per le immagini importa il Response ZIP e usa Vision per l'approvazione HARD."
-                : "Incolla qui la risposta ricevuta dall’AI.";
+                : plannerJob
+                    ? "Incolla qui SOLO il JSON restituito dal planner soggetti."
+                    : "Incolla qui la risposta ricevuta dall’AI.";
 
             versionModels = job.WorkUnitId.HasValue
                 ? document.AiVersions(job.WorkUnitId.Value).ToList()
@@ -90,7 +99,10 @@ internal static class AiCenterWorkspace
         }
 
         jobs.SelectionChanged += (_, _) => RefreshSelectedJob();
-        jobs.SelectedIndex = jobModels.Count > 0 ? 0 : -1;
+        var preferredPlannerIndex = visualPlannerState?.Required == true && visualPlannerState.PlannerJobId.HasValue
+            ? jobModels.FindIndex(x => x.JobId == visualPlannerState.PlannerJobId.Value)
+            : -1;
+        jobs.SelectedIndex = preferredPlannerIndex >= 0 ? preferredPlannerIndex : jobModels.Count > 0 ? 0 : -1;
         RefreshSelectedJob();
 
         root.Children.Add(Card("Impostazioni AI", Vertical(
@@ -102,6 +114,15 @@ internal static class AiCenterWorkspace
         if (BookTypeCatalog.IsVisual(document.BookType))
         {
             var apiInfo = new TextBlock { TextWrapping = TextWrapping.Wrap };
+            var plannerGateInfo = new TextBlock
+            {
+                Text = visualPlannerState?.Required == true
+                    ? visualPlannerState.ProposalValid
+                        ? "Prompt Pack immagini BLOCCATO: la proposta AI è arrivata ma deve ancora essere verificata e accettata in Definizione."
+                        : "Prompt Pack immagini BLOCCATO: completa prima il Piano soggetti Diez. Seleziona l'attività planner, copia il Prompt, eseguilo con l'AI, incolla il JSON qui sotto e scegli “Importa come candidato”."
+                    : "Piano soggetti: risolto. Il Prompt Pack immagini può usare soggetti atomici congelati.",
+                TextWrapping = TextWrapping.Wrap
+            };
             var responseImportInfo = new TextBlock
             {
                 Text = document.GetUiString(
@@ -152,9 +173,10 @@ internal static class AiCenterWorkspace
                     Text = "Per i libri con immagini ci sono due strade che devono convergere sulle stesse Work Unit: Manuale e Via API. La strada Manuale crea UN SOLO Prompt Pack ZIP da consegnare/uploadare all’AI; lo ZIP contiene PROMPT.md, manifest, istruzioni ed eventuali reference.",
                     TextWrapping = TextWrapping.Wrap
                 },
+                plannerGateInfo,
                 namingInfo,
                 Horizontal(
-                    AsyncButton("Crea Prompt Pack ZIP · Manuale", async () =>
+                    GuardedAsyncButton("Crea Prompt Pack ZIP · Manuale", visualPlannerState?.Required != true, async () =>
                     {
                         document.SetUiString("AI.Provider", provider.SelectedItem?.ToString());
                         document.SetUiBool("AI.PreferAdvanced", document.GetUiBool("AI.PreferAdvanced", true));
@@ -308,11 +330,19 @@ internal static class AiCenterWorkspace
                         return;
                     }
 
+                    var plannerJob = (visualPlannerState?.PlannerJobId.HasValue == true && visualPlannerState.PlannerJobId.Value == job.JobId) ||
+                                     string.Equals(job.Title, "Diez · Piano soggetti visuali", StringComparison.OrdinalIgnoreCase);
                     document.SetUiString("AI.LastResponseDraft", response.Text);
                     var result = await document.IngestAiTextResultAsync(job.WorkUnitId.Value, response.Text);
                     if (result.Status is "IMPORTED" or "UPDATED" or "DUPLICATE")
                         document.SetUiString("AI.LastResponseDraft", "");
                     await save();
+                    if (plannerJob && result.Status is "IMPORTED" or "UPDATED" or "DUPLICATE")
+                    {
+                        report(result.Message + " Proposta planner importata: torno in Definizione per mostrarti cosa ha trovato l'AI prima dell'accettazione.");
+                        routeCurrentBook();
+                        return;
+                    }
                     showAiCenter();
                     report(result.Message);
                 }),
@@ -478,6 +508,13 @@ internal static class AiCenterWorkspace
     {
         var button = new Button { Content = text, Padding = new Thickness(14, 8) };
         button.Click += async (_, _) => await action();
+        return button;
+    }
+
+    private static Button GuardedAsyncButton(string text, bool enabled, Func<Task> action)
+    {
+        var button = AsyncButton(text, action);
+        button.IsEnabled = enabled;
         return button;
     }
 

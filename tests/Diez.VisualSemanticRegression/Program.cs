@@ -145,6 +145,22 @@ Require(!preparedPlanner.State.PlannerPrompt.Contains("generate images", StringC
         preparedPlanner.State.PlannerPrompt.Contains("Do not generate images", StringComparison.OrdinalIgnoreCase),
     "Il planner non deve trasformarsi in un renderer immagini.");
 
+var plannerJobCount = DiezAiExchangeBridge.ReadJobs(preparedPlanner.ProjectJson).Count;
+var duplicatePlanner = DiezVisualSubjectPlannerFrontendBridge.Prepare(preparedPlanner.ProjectJson);
+Require(duplicatePlanner.Status == "ALREADY_PREPARED",
+    "Una seconda preparazione identica deve riusare il planner esistente: " + duplicatePlanner.Message);
+Require(DiezAiExchangeBridge.ReadJobs(duplicatePlanner.ProjectJson).Count == plannerJobCount,
+    "Una seconda preparazione identica non deve creare una seconda Work Unit planner.");
+
+var layoutFilteredPlanner = DiezVisualSubjectPlannerFrontendBridge.Prepare(
+    Save(NewProject(), "3 soggetti di Halloween"),
+    mustNotDo: "generare un'unica image con 3 illustrazioni");
+Require(layoutFilteredPlanner.Status == "PREPARED", "Il planner con esclusione layout deve prepararsi normalmente.");
+Require(!layoutFilteredPlanner.State.PlannerPrompt.Contains("un'unica image", StringComparison.OrdinalIgnoreCase),
+    "Un vincolo layout raw non deve contaminare il planner soggetti.");
+Require(!layoutFilteredPlanner.State.PlannerPrompt.Contains("3 illustrazioni", StringComparison.OrdinalIgnoreCase),
+    "La cardinalità/layout del canvas appartiene al renderer, non al planner soggetti.");
+
 var plannerJson = """
 {"subjects":[
   {"display_name_it":"Zucca jack-o'-lantern simpatica","canonical_concept":"friendly jack-o'-lantern pumpkin","description_it":"Una grande zucca sorridente e riconoscibile.","canonical_description":"A large friendly smiling jack-o'-lantern pumpkin."},
@@ -160,10 +176,15 @@ Require(plannerIngest.Status is "IMPORTED" or "UPDATED", "La proposta planner de
 Require(plannerIngest.Version is not null, "La proposta planner deve creare una versione candidata.");
 
 var plannerReady = DiezVisualSubjectPlannerFrontendBridge.Read(plannerIngest.ProjectJson);
-Require(plannerReady.ProposalValid && plannerReady.Proposal.Count == 3,
-    "Diez deve validare esattamente tre soggetti concreti prima dell'applicazione.");
+Require(plannerReady.Required && plannerReady.ProposalValid && plannerReady.Proposal.Count == 3,
+    "Diez deve mantenere il Prompt Pack bloccato ma mostrare tre soggetti concreti prima dell'applicazione.");
+var proposalAlreadyReady = DiezVisualSubjectPlannerFrontendBridge.Prepare(plannerIngest.ProjectJson);
+Require(proposalAlreadyReady.Status == "PROPOSAL_READY",
+    "Con una proposta valida già importata Diez deve chiedere la verifica utente, non creare un altro planner.");
 var appliedPlan = DiezVisualSubjectPlannerFrontendBridge.ApplyProposal(plannerIngest.ProjectJson, plannerIngest.Version!.VersionId);
 Require(appliedPlan.Status == "APPLIED", "L'accettazione utente deve congelare il piano soggetti: " + appliedPlan.Message);
+Require(!DiezVisualSubjectPlannerFrontendBridge.Read(appliedPlan.ProjectJson).Required,
+    "Dopo l'accettazione il piano non deve restare segnato come irrisolto.");
 var canonicalScene = DiezVisualSceneFrontendBridge.Read(appliedPlan.ProjectJson);
 Require(canonicalScene.MultiSubjectEnabled && canonicalScene.Subjects.Count == 3,
     "La proposta accettata deve diventare stato canonico Soggetti, non testo del prompt.");

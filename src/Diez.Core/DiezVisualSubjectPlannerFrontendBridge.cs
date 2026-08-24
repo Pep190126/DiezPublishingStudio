@@ -55,6 +55,10 @@ public static class DiezVisualSubjectPlannerFrontendBridge
         @"^\s*\S+\s+(?:images?|immagin[ei])\s+(?:(?:di|of)\s+)?(?:soggett[oi]|subjects?|personagg(?:io|i)|characters?)\s*(?:(?:di|per|of|for|about)\s+)?(?<theme>.+?)\s*$",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
+    private static readonly Regex PlannerIrrelevantLayoutConstraint = new(
+        @"(?:\bcollage\b|\btriptych\b|\bgrid\b|\bcontact\s+sheet\b|\bmulti[-\s]?panel\b|\bun['’]?\s*unic[ao]\b.*\b(?:image|immagine|canvas)\b.*\b(?:\d+|multiple|pi[uù])\b.*\b(?:illustr|soggett|subject)|\bone\s+(?:image|canvas)\b.*\b(?:multiple|\d+)\b.*\b(?:illustr|subject))",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
     public static DiezVisualSubjectPlannerStateDto Read(string projectJson)
     {
         var (_, project) = Parse(projectJson);
@@ -66,9 +70,14 @@ public static class DiezVisualSubjectPlannerFrontendBridge
         string? mustDo = null,
         string? mustNotDo = null)
     {
-        var setup = DiezVisualBookFrontendBridge.Read(projectJson);
-        if (!VisualSemanticResolutionGuard.LooksAggregateSubject(setup.Subject))
-            return Mutation(projectJson, "NOT_REQUIRED", "Il soggetto è già atomico: non serve una proposta di piano soggetti.");
+        var (_, currentProject) = Parse(projectJson);
+        var currentState = State(currentProject);
+        if (!currentState.Required)
+            return Mutation(projectJson, "NOT_REQUIRED", "Il piano soggetti è già risolto in Diez: non serve una nuova proposta AI.");
+        if (currentState.ProposalValid)
+            return Mutation(projectJson, "PROPOSAL_READY", "Una proposta AI valida è già disponibile. Torna in Definizione, controlla i soggetti trovati e scegli se accettarla; non creo un secondo planner.");
+
+        var setup = ProjectSetup(currentProject);
         if (setup.ImageCount < 2)
             return Mutation(projectJson, "INVALID", "Una serie aggregata deve richiedere almeno due immagini.");
 
@@ -77,13 +86,21 @@ public static class DiezVisualSubjectPlannerFrontendBridge
             return Mutation(projectJson, "INVALID", "Diez riconosce una serie aggregata ma non riesce a isolare il tema. Rendi più esplicito il tema prima di chiedere la proposta.");
 
         var prompt = BuildPlannerPrompt(setup, theme, mustDo, mustNotDo);
+        var existingPlanner = currentProject.AiProductionJobs
+            .Where(IsPlannerJob)
+            .OrderByDescending(x => x.CreatedAtLocal, StringComparer.Ordinal)
+            .ThenByDescending(x => x.Code, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault(x => string.Equals((x.Prompt ?? string.Empty).Trim(), prompt, StringComparison.Ordinal));
+        if (existingPlanner is not null)
+            return Mutation(projectJson, "ALREADY_PREPARED", $"Il planner {existingPlanner.Code} è già pronto per questo stesso piano. Selezionalo in Produzione con AI, incolla la risposta JSON e importala come candidato; Diez non crea duplicati.");
+
         var prepared = DiezAiExchangeBridge.CreateReadyJob(
             projectJson,
             PlannerTitle,
             AiProductionService.TypeText,
             prompt);
 
-        var message = "Proposta soggetti preparata come attività AI testuale. Apri Produzione con AI, copia il Prompt dell’attività selezionata, eseguilo con il provider scelto e importa la risposta JSON come candidato. Poi torna in Definizione per accettarla.";
+        var message = "Proposta soggetti preparata come attività AI testuale. Apri Produzione con AI, copia il Prompt dell’attività planner selezionata, eseguilo con il provider scelto e importa la risposta JSON come candidato. Diez tornerà poi in Definizione per mostrarti ciò che l’AI ha trovato prima dell’accettazione.";
         return Mutation(prepared.ProjectJson, "PREPARED", message);
     }
 
@@ -162,8 +179,15 @@ public static class DiezVisualSubjectPlannerFrontendBridge
     private static DiezVisualSubjectPlannerStateDto State(PreviewProject project)
     {
         var setup = ProjectSetup(project);
-        var required = VisualSemanticResolutionGuard.LooksAggregateSubject(setup.Subject);
-        var theme = required ? ExtractTheme(setup.Subject) : string.Empty;
+        var aggregate = VisualSemanticResolutionGuard.LooksAggregateSubject(setup.Subject);
+        var multi = MultiSubjectProfileService.Load(project);
+        var activeSubjects = multi.Enabled ? MultiSubjectProfileService.ActiveSubjects(multi) : [];
+        var resolvedStructured = multi.Enabled &&
+            activeSubjects.Count == setup.ImageCount &&
+            activeSubjects.All(x => VisualSemanticResolutionGuard.IsConcrete(x.CanonicalConcept) ||
+                                    VisualSemanticResolutionGuard.IsConcrete(x.Name));
+        var required = aggregate && !resolvedStructured;
+        var theme = aggregate ? ExtractTheme(setup.Subject) : string.Empty;
         var plannerJob = project.AiProductionJobs
             .Where(IsPlannerJob)
             .OrderBy(x => x.CreatedAtLocal, StringComparer.Ordinal)
@@ -253,8 +277,8 @@ public static class DiezVisualSubjectPlannerFrontendBridge
         if (!string.IsNullOrWhiteSpace(setup.Coloring?.TargetAudience))
             sb.AppendLine($"Audience context: {PromptEnglishNormalizer.NormalizeProviderFacing(setup.Coloring.TargetAudience)}.");
 
-        var required = PromptEnglishNormalizer.NormalizeProviderFacing(mustDo);
-        var excluded = PromptEnglishNormalizer.NormalizeProviderFacing(mustNotDo);
+        var required = PlannerSubjectConstraint(mustDo);
+        var excluded = PlannerSubjectConstraint(mustNotDo);
         if (!string.IsNullOrWhiteSpace(required)) sb.AppendLine("Publisher HARD requirements relevant to subject selection: " + required);
         if (!string.IsNullOrWhiteSpace(excluded)) sb.AppendLine("Publisher HARD exclusions relevant to subject selection: " + excluded);
 
@@ -272,6 +296,21 @@ public static class DiezVisualSubjectPlannerFrontendBridge
         sb.AppendLine("Return JSON ONLY, with no Markdown fences and no commentary, using exactly this schema:");
         sb.AppendLine("{\"subjects\":[{\"display_name_it\":\"...\",\"canonical_concept\":\"...\",\"description_it\":\"...\",\"canonical_description\":\"...\"}]}");
         return sb.ToString().Trim();
+    }
+
+    private static string PlannerSubjectConstraint(string? value)
+    {
+        var kept = new List<string>();
+        foreach (var raw in (value ?? string.Empty).Replace("\r\n", "\n").Split('\n'))
+        {
+            var line = raw.Trim();
+            if (line.Length == 0) continue;
+            if (PlannerIrrelevantLayoutConstraint.IsMatch(line)) continue;
+            var normalized = PromptEnglishNormalizer.NormalizeProviderFacing(line);
+            if (PlannerIrrelevantLayoutConstraint.IsMatch(normalized)) continue;
+            kept.Add(normalized);
+        }
+        return string.Join("; ", kept.Distinct(StringComparer.OrdinalIgnoreCase));
     }
 
     private static bool TryParseProposal(
