@@ -1,10 +1,10 @@
 # Latest Uno Windows installer candidate
 
-- Source SHA: `6c76843b8ec404ab42315690b64b98132ae60894`
+- Source SHA: `5ef64cde12eb1070cadc86de9f83852c33290cab`
 - Workflow: `Uno Windows Consolidation Candidate`
-- Run number: `38`
-- Run ID: `32709320131`
+- Run number: `39`
+- Run ID: `32709568400`
 - Candidate status: `RUNNING`
-- Run URL: `https://github.com/Pep190126/DiezPublishingStudio/actions/runs/32709320131`
+- Run URL: `https://github.com/Pep190126/DiezPublishingStudio/actions/runs/32709568400`
 
 Status note: RUNNING is only a locator. Physical installed-app validation is still required after a technically verified installer exists.
