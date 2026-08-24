@@ -204,7 +204,7 @@ internal static class VisualHardPromptContractCompiler
         VisualSemanticResolutionGuard.EnsureResolvedForPosition(
             project, request, position, item?.Subject, focal, participants);
 
-        var subject = focal?.Name?.Trim();
+        var subject = ProviderSubject(focal);
         var hasAtomicSubject = !string.IsNullOrWhiteSpace(subject);
         if (!hasAtomicSubject && !string.IsNullOrWhiteSpace(item?.Subject))
         {
@@ -330,11 +330,19 @@ internal static class VisualHardPromptContractCompiler
             sb.AppendLine("EDITORIAL CLARITY — HARD: communicative value and semantic accuracy take priority over ornamental complexity.");
     }
 
+    private static string ProviderSubject(MultiSubjectDefinition? subject)
+    {
+        if (subject is null) return string.Empty;
+        var canonical = (subject.CanonicalConcept ?? string.Empty).Trim();
+        return canonical.Length > 0 ? canonical : (subject.Name ?? string.Empty).Trim();
+    }
+
     private static void AppendSubject(StringBuilder sb, MultiSubjectDefinition? subject, bool consistent)
     {
         if (subject is null) return;
-        if (!string.IsNullOrWhiteSpace(subject.Description))
-            sb.AppendLine("SUBJECT IDENTITY — HARD LOCK: " + subject.Description.Trim() + " Preserve these identifying traits whenever this subject appears.");
+        var semanticDescription = string.IsNullOrWhiteSpace(subject.CanonicalDescription) ? subject.Description : subject.CanonicalDescription;
+        if (!string.IsNullOrWhiteSpace(semanticDescription))
+            sb.AppendLine("SUBJECT IDENTITY — HARD LOCK: " + semanticDescription.Trim() + " Preserve these identifying traits whenever this subject appears.");
         if (!consistent) return;
         var rules = MultiSubjectProfileService.BuildConsistencyRules(subject);
         if (string.IsNullOrWhiteSpace(rules)) return;
@@ -363,12 +371,13 @@ internal static class VisualHardPromptContractCompiler
             sb.AppendLine("SCENE INTENT — HARD LOCK: " + intent + ". Keep this action/relationship inside the same unified composition.");
         if (participants.Count == 0) return;
 
-        sb.AppendLine("SCENE PARTICIPANTS — HARD LOCK: " + string.Join(", ", participants.Select(x => x.Name)) + ". Every listed participant must visibly appear in this SAME scene. Do not omit, merge, replace or substitute any listed participant with another subject.");
+        sb.AppendLine("SCENE PARTICIPANTS — HARD LOCK: " + string.Join(", ", participants.Select(ProviderSubject)) + ". Every listed participant must visibly appear in this SAME scene. Do not omit, merge, replace or substitute any listed participant with another subject.");
         foreach (var participant in participants)
         {
             if (focal is not null && string.Equals(participant.SubjectId, focal.SubjectId, StringComparison.OrdinalIgnoreCase)) continue;
-            if (!string.IsNullOrWhiteSpace(participant.Description))
-                sb.AppendLine($"PARTICIPANT IDENTITY — HARD LOCK [{participant.Name}]: {participant.Description.Trim()} Preserve these identifying traits in this scene.");
+            var participantDescription = string.IsNullOrWhiteSpace(participant.CanonicalDescription) ? participant.Description : participant.CanonicalDescription;
+            if (!string.IsNullOrWhiteSpace(participantDescription))
+                sb.AppendLine($"PARTICIPANT IDENTITY — HARD LOCK [{ProviderSubject(participant)}]: {participantDescription.Trim()} Preserve these identifying traits in this scene.");
             if (!consistent) continue;
             var rules = MultiSubjectProfileService.BuildConsistencyRules(participant);
             if (string.IsNullOrWhiteSpace(rules)) continue;

@@ -275,7 +275,15 @@ internal static class AiCenterWorkspace
                 })));
         }
 
-        root.Children.Add(Card("Attività AI", Vertical(jobs, selectedJob)));
+        root.Children.Add(Card("Attività AI", Vertical(
+            jobs,
+            selectedJob,
+            ActionButton("Copia Prompt attività selezionata", () =>
+            {
+                if (!TrySelectedJob(jobs, jobModels, report, out var selected)) return;
+                CopyText(selected.Prompt ?? string.Empty);
+                report($"Prompt {selected.Code} copiato.");
+            }))));
 
         root.Children.Add(Card("Risposta e versioni", Vertical(
             new TextBlock

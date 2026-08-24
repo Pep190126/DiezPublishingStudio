@@ -8,7 +8,8 @@ namespace DiezPublishingStudio;
 public sealed record DiezVisualSubjectProposalItemDto(
     string DisplayName,
     string CanonicalConcept,
-    string Description);
+    string Description,
+    string CanonicalDescription);
 
 public sealed record DiezVisualSubjectPlannerStateDto(
     bool Required,
@@ -126,6 +127,7 @@ public static class DiezVisualSubjectPlannerFrontendBridge
                     Name = item.DisplayName,
                     CanonicalConcept = item.CanonicalConcept,
                     Description = item.Description,
+                    CanonicalDescription = item.CanonicalDescription,
                     Included = true,
                     Archived = false
                 };
@@ -222,7 +224,7 @@ public static class DiezVisualSubjectPlannerFrontendBridge
             var p = BookTypePromptProfileService.LoadColoring(project);
             return new DiezVisualBookSetupDto(bookType, plan.ImageCount, p.SubjectDescription, p.EnvironmentDescription,
                 plan.Consistent, ImageCollectionWorkspaceService.GetConsistencyRules(project),
-                new DiezColoringProfileDto(p.Style, p.BoldEasy, ColoringCozyPolicyStore.Load(project).Enabled,
+                new DiezColoringProfileDto(p.Style, p.BoldEasy, ColoringCozyPolicyStore.Resolve(project),
                     p.TargetAudience, p.Difficulty, p.LineWeight, p.Complexity, p.ElementDensity, p.Background,
                     p.WhiteSpace, p.ClosedAreas, p.AvoidTinyAreas, p.CleanContours, p.NoTextInsideImage,
                     p.SubjectClearlySeparated, p.CustomStyleNotes), null);
@@ -265,9 +267,10 @@ public static class DiezVisualSubjectPlannerFrontendBridge
         sb.AppendLine("- Preserve the meaning of publisher HARD requirements and exclusions; never weaken them.");
         sb.AppendLine("- `display_name_it` and `description_it` are Italian user-visible editorial labels.");
         sb.AppendLine("- `canonical_concept` is a concise technical-English semantic concept, not a finished image prompt.");
+        sb.AppendLine("- `canonical_description` is an optional technical-English semantic description used by the compiler; it must preserve the same facts as `description_it`.");
         sb.AppendLine();
         sb.AppendLine("Return JSON ONLY, with no Markdown fences and no commentary, using exactly this schema:");
-        sb.AppendLine("{\"subjects\":[{\"display_name_it\":\"...\",\"canonical_concept\":\"...\",\"description_it\":\"...\"}]}");
+        sb.AppendLine("{\"subjects\":[{\"display_name_it\":\"...\",\"canonical_concept\":\"...\",\"description_it\":\"...\",\"canonical_description\":\"...\"}]}");
         return sb.ToString().Trim();
     }
 
@@ -307,6 +310,7 @@ public static class DiezVisualSubjectPlannerFrontendBridge
                 var display = Read(item, "display_name_it");
                 var concept = Read(item, "canonical_concept");
                 var description = Read(item, "description_it");
+                var canonicalDescription = Read(item, "canonical_description");
                 if (display.Length == 0 || concept.Length == 0)
                 {
                     message = "Ogni soggetto deve contenere `display_name_it` e `canonical_concept`.";
@@ -317,7 +321,7 @@ public static class DiezVisualSubjectPlannerFrontendBridge
                     message = $"'{display}' non è un soggetto atomico valido.";
                     return false;
                 }
-                items.Add(new DiezVisualSubjectProposalItemDto(display, concept, description));
+                items.Add(new DiezVisualSubjectProposalItemDto(display, concept, description, canonicalDescription));
             }
 
             if (items.Count != expectedCount)

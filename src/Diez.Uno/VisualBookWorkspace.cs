@@ -57,7 +57,7 @@ internal static class VisualBookWorkspace
         switch (phase)
         {
             case 1:
-                BuildPhaseOne(root, document, type, save, report, refresh, GoToPhaseAsync);
+                BuildPhaseOne(root, document, type, save, report, refresh, showAiCenter, GoToPhaseAsync);
                 break;
             case 2:
                 BuildPhaseTwo(root, document, save, report, refresh, GoToPhaseAsync);
@@ -80,6 +80,7 @@ internal static class VisualBookWorkspace
         Func<Task> save,
         Action<string> report,
         Action refresh,
+        Action showAiCenter,
         Func<int, Task> goToPhase)
     {
         var setup = document.ReadVisualSetup();
@@ -174,7 +175,48 @@ internal static class VisualBookWorkspace
                 "Clean Line Art", false, false, "Bambini 6–9 anni", "Facile", "Spesso — Bold",
                 "Bassa", "Bassa", "Semplice / minimo", "Ampio", true, true, true, true, true, "");
 
-            var style = Combo(ColoringStyles, FirstNonBlank(document.GetUiString("Coloring.Style"), p.Style));
+            var customStyleState = document.ReadColoringCustomStyle();
+            var styleOptions = ColoringStyles.Concat(customStyleState.LibraryLabels).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+            var initialStyle = customStyleState.IsActive ? "Custom" : FirstNonBlank(document.GetUiString("Coloring.Style"), p.Style);
+            var style = Combo(styleOptions, initialStyle);
+            var customDefinition = Editor(customStyleState.Definition, "Descrivi lo stile visivo che vuoi ottenere", 100);
+            var customOnlyProject = new RadioButton
+            {
+                GroupName = "ColoringCustomStyleStorage",
+                Content = "Usa solo in questo progetto",
+                IsChecked = !customStyleState.ArchiveInLibrary
+            };
+            var customArchive = new RadioButton
+            {
+                GroupName = "ColoringCustomStyleStorage",
+                Content = "Salva anche nella libreria degli stili",
+                IsChecked = customStyleState.ArchiveInLibrary
+            };
+            var customStylePanel = Vertical(
+                Labeled("Definizione stile Custom", customDefinition),
+                new TextBlock { Text = "Decidi esplicitamente se questo stile resta solo nel progetto oppure diventa riutilizzabile anche negli altri progetti.", TextWrapping = TextWrapping.Wrap },
+                WrapRow(customOnlyProject, customArchive));
+
+            bool IsCustomStyleChoice()
+            {
+                var selected = Selected(style, "Clean Line Art");
+                return string.Equals(selected, "Custom", StringComparison.OrdinalIgnoreCase) ||
+                       selected.StartsWith("Custom —", StringComparison.OrdinalIgnoreCase);
+            }
+
+            void RefreshCustomStyle()
+            {
+                var selected = Selected(style, "Clean Line Art");
+                if (selected.StartsWith("Custom —", StringComparison.OrdinalIgnoreCase))
+                {
+                    var resolved = document.ResolveColoringCustomLibraryDefinition(selected);
+                    if (!string.IsNullOrWhiteSpace(resolved)) customDefinition.Text = resolved;
+                    customArchive.IsChecked = true;
+                }
+                customStylePanel.Visibility = IsCustomStyleChoice() ? Visibility.Visible : Visibility.Collapsed;
+            }
+            style.SelectionChanged += (_, _) => RefreshCustomStyle();
+            RefreshCustomStyle();
             var audience = Combo(["Prescolare 3–5 anni", "Bambini 6–9 anni", "Ragazzi 10–13 anni", "Adolescenti", "Adulti", "Tutte le età"], p.TargetAudience);
             var difficulty = Combo(["Molto facile", "Facile", "Media", "Impegnativa"], p.Difficulty);
             var lineWeight = Combo(["Molto spesso — Extra Bold", "Spesso — Bold", "Medio", "Sottile — Fine", "Molto sottile — Extra Fine", "Variabile"], p.LineWeight);
@@ -189,10 +231,10 @@ internal static class VisualBookWorkspace
             var contours = Check("Contorni puliti e continui", p.CleanContours);
             var noText = Check("Niente testo o numeri nell'immagine", p.NoTextInsideImage);
             var separated = Check("Soggetto ben separato dallo sfondo", p.SubjectClearlySeparated);
-            var notes = Editor(p.Notes, "Note stile / eccezioni", 80);
+            var notes = Editor(customStyleState.IsActive ? string.Empty : p.Notes, "Note stile / eccezioni", 80);
 
             coloringProfile = () => new DiezColoringProfileDto(
-                Selected(style, "Clean Line Art"),
+                IsCustomStyleChoice() ? "Custom" : Selected(style, "Clean Line Art"),
                 boldEasy.IsChecked == true,
                 cozy.IsChecked == true,
                 Selected(audience, "Bambini 6–9 anni"),
@@ -211,6 +253,7 @@ internal static class VisualBookWorkspace
 
             root.Children.Add(Card("Profilo Coloring", Vertical(
                 Labeled("Stile", style),
+                customStylePanel,
                 WrapRow(Labeled("Pubblico", audience), Labeled("Difficoltà", difficulty)),
                 Labeled("Spessore linee", lineWeight),
                 WrapRow(Labeled("Complessità", complexity), Labeled("Densità", density)),
@@ -299,6 +342,18 @@ internal static class VisualBookWorkspace
                     consistent.IsChecked == true,
                     consistent.IsChecked == true ? consistencyRules.Text : string.Empty,
                     coloringProfile());
+
+                var customChoice = IsCustomStyleChoice();
+                var customSaved = document.SaveColoringCustomStyle(
+                    customChoice,
+                    customChoice ? customDefinition.Text : string.Empty,
+                    customChoice && customArchive.IsChecked == true);
+                if (customSaved.Status == "INVALID")
+                {
+                    report(customSaved.Message);
+                    customDefinition.Focus(FocusState.Programmatic);
+                    return false;
+                }
             }
             else if (imageProfile is not null)
             {
@@ -319,6 +374,52 @@ internal static class VisualBookWorkspace
             await save();
             return true;
         }
+
+        var plannerState = document.ReadVisualSubjectPlanner();
+        var plannerSummary = new TextBlock
+        {
+            Text = plannerState.Required
+                ? plannerState.ProposalValid
+                    ? "Proposta valida ricevuta:\n" + string.Join("\n", plannerState.Proposal.Select((x, i) => $"{i + 1}. {x.DisplayName}"))
+                    : $"Tema di serie da risolvere: {plannerState.SeriesTheme}. {plannerState.ValidationMessage}"
+                : "Il soggetto corrente non richiede un piano AI: è già atomico oppure viene gestito da Soggetti/Scene strutturati.",
+            TextWrapping = TextWrapping.Wrap
+        };
+        var acceptProposal = AsyncButton("Accetta proposta e congela i soggetti", async () =>
+        {
+            var current = document.ReadVisualSubjectPlanner();
+            if (!current.ProposalValid || !current.ProposalVersionId.HasValue)
+            {
+                report("Non c'è ancora una proposta soggetti valida da accettare.");
+                return;
+            }
+            var applied = document.ApplyVisualSubjectPlannerProposal(current.ProposalVersionId.Value);
+            await save();
+            report(applied.Message);
+            if (applied.Status == "APPLIED") refresh();
+        });
+        acceptProposal.IsEnabled = plannerState.ProposalValid && plannerState.ProposalVersionId.HasValue;
+
+        root.Children.Add(Card("Piano soggetti Diez · prima del Prompt", Vertical(
+            new TextBlock
+            {
+                Text = "Se hai descritto una serie (per esempio “3 soggetti di Halloween”), il generatore immagini non deve scegliere i soggetti. Diez prepara prima una proposta strutturata con un'attività AI testuale, la valida e la applica allo stato canonico solo dopo la tua accettazione.",
+                TextWrapping = TextWrapping.Wrap
+            },
+            plannerSummary,
+            WrapRow(
+                AsyncButton("Prepara proposta soggetti con AI", async () =>
+                {
+                    if (!await SaveSetupAsync()) return;
+                    var prepared = document.PrepareVisualSubjectPlanner(
+                        document.GetUiString("Prompt.MustDo"),
+                        document.GetUiString("Prompt.MustNotDo"));
+                    await save();
+                    report(prepared.Message);
+                    if (prepared.Status == "PREPARED") showAiCenter();
+                }),
+                acceptProposal,
+                ActionButton("Apri Produzione con AI", showAiCenter)))));
 
         root.Children.Add(NavigationRow(
             null,

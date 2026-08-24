@@ -35,6 +35,36 @@ internal static class VisualBookDocumentAdapter
     public static DiezVisualSceneStateDto ReadVisualSceneState(this DiezProjectDocument document) =>
         DiezVisualSceneFrontendBridge.Read(document.ExportProjectJson());
 
+    public static DiezVisualSubjectPlannerStateDto ReadVisualSubjectPlanner(this DiezProjectDocument document) =>
+        DiezVisualSubjectPlannerFrontendBridge.Read(document.ExportProjectJson());
+
+    public static DiezVisualSubjectPlannerMutation PrepareVisualSubjectPlanner(this DiezProjectDocument document, string? mustDo, string? mustNotDo)
+    {
+        var result = DiezVisualSubjectPlannerFrontendBridge.Prepare(document.ExportProjectJson(), mustDo, mustNotDo);
+        if (result.Status == "PREPARED") ApplyCoreJson(document, result.ProjectJson);
+        return result;
+    }
+
+    public static DiezVisualSubjectPlannerMutation ApplyVisualSubjectPlannerProposal(this DiezProjectDocument document, Guid versionId)
+    {
+        var result = DiezVisualSubjectPlannerFrontendBridge.ApplyProposal(document.ExportProjectJson(), versionId);
+        if (result.Status == "APPLIED") ApplyCoreJson(document, result.ProjectJson);
+        return result;
+    }
+
+    public static DiezColoringCustomStyleStateDto ReadColoringCustomStyle(this DiezProjectDocument document) =>
+        DiezColoringCustomStyleFrontendBridge.Read(document.ExportProjectJson());
+
+    public static string ResolveColoringCustomLibraryDefinition(this DiezProjectDocument document, string? label) =>
+        DiezColoringCustomStyleFrontendBridge.ResolveLibraryDefinition(label);
+
+    public static DiezColoringCustomStyleMutation SaveColoringCustomStyle(this DiezProjectDocument document, bool active, string? definition, bool archiveInLibrary)
+    {
+        var result = DiezColoringCustomStyleFrontendBridge.Save(document.ExportProjectJson(), active, definition, archiveInLibrary);
+        if (result.Status == "SAVED") ApplyCoreJson(document, result.ProjectJson);
+        return result;
+    }
+
     public static DiezVisualSceneMutation ConfigureVisualSubjects(this DiezProjectDocument document, bool enabled, int requestedCount)
     {
         var result = DiezVisualSceneFrontendBridge.ConfigureSubjects(document.ExportProjectJson(), enabled, requestedCount);

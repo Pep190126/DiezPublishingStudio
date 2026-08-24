@@ -17,7 +17,9 @@ internal sealed class MultiSubjectDefinition
 {
     public string SubjectId { get; set; } = Guid.NewGuid().ToString("D");
     public string Name { get; set; } = string.Empty;
+    public string CanonicalConcept { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
+    public string CanonicalDescription { get; set; } = string.Empty;
     public bool Included { get; set; } = true;
     public bool Archived { get; set; }
     public Dictionary<string, SubjectConsistencyRule> Consistency { get; set; } = new(StringComparer.OrdinalIgnoreCase);
@@ -225,7 +227,9 @@ internal static class MultiSubjectProfileService
                 subject.SubjectId = Guid.NewGuid().ToString("D");
             ids.Add(subject.SubjectId);
             subject.Name = string.IsNullOrWhiteSpace(subject.Name) ? $"Soggetto {model.Subjects.IndexOf(subject) + 1}" : subject.Name.Trim();
+            subject.CanonicalConcept ??= string.Empty;
             subject.Description ??= string.Empty;
+            subject.CanonicalDescription ??= string.Empty;
             subject.Consistency ??= new Dictionary<string, SubjectConsistencyRule>(StringComparer.OrdinalIgnoreCase);
             EnsureConsistencyDefaults(subject);
         }

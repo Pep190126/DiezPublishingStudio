@@ -131,4 +131,56 @@ Require(packagePrompt.Contains("project_id", StringComparison.OrdinalIgnoreCase)
         packagePrompt.Contains("request_snapshot_id", StringComparison.OrdinalIgnoreCase),
     "Il contratto Response deve richiedere esplicitamente gli identificatori di trasporto.");
 
+
+// Round 5.4: aggregate subject planning is a TEXT AI Exchange step before image rendering.
+var plannerProject = Save(NewProject(), "3 soggetti di Halloween");
+var preparedPlanner = DiezVisualSubjectPlannerFrontendBridge.Prepare(plannerProject);
+Require(preparedPlanner.Status == "PREPARED", "Il planner deve creare un'attività AI testuale: " + preparedPlanner.Message);
+Require(preparedPlanner.State.PlannerWorkUnitId.HasValue, "Il planner deve avere una Work Unit AI Exchange.");
+Require(preparedPlanner.State.PlannerPrompt.Contains("DIEZ SEMANTIC SUBJECT PLANNER", StringComparison.Ordinal),
+    "Il prompt planner deve essere distinto dal prompt renderer immagini.");
+Require(preparedPlanner.State.PlannerPrompt.Contains("JSON ONLY", StringComparison.OrdinalIgnoreCase),
+    "Il planner deve chiedere un contratto strutturato, non prosa libera.");
+Require(!preparedPlanner.State.PlannerPrompt.Contains("generate images", StringComparison.OrdinalIgnoreCase) ||
+        preparedPlanner.State.PlannerPrompt.Contains("Do not generate images", StringComparison.OrdinalIgnoreCase),
+    "Il planner non deve trasformarsi in un renderer immagini.");
+
+var plannerJson = """
+{"subjects":[
+  {"display_name_it":"Zucca jack-o'-lantern simpatica","canonical_concept":"friendly jack-o'-lantern pumpkin","description_it":"Una grande zucca sorridente e riconoscibile.","canonical_description":"A large friendly smiling jack-o'-lantern pumpkin."},
+  {"display_name_it":"Fantasma amichevole","canonical_concept":"friendly smiling ghost","description_it":"Un singolo fantasma simpatico e ben leggibile.","canonical_description":"One friendly smiling ghost with a clear simple silhouette."},
+  {"display_name_it":"Gatto con cappello da strega","canonical_concept":"cute cat wearing a witch hat","description_it":"Un gatto simpatico con cappello da strega.","canonical_description":"A cute cat wearing a witch hat."}
+]}
+""";
+var plannerIngest = await DiezAiExchangeBridge.IngestTextResultAsync(
+    preparedPlanner.ProjectJson,
+    preparedPlanner.State.PlannerWorkUnitId!.Value,
+    plannerJson);
+Require(plannerIngest.Status is "IMPORTED" or "UPDATED", "La proposta planner deve entrare come Candidate testuale: " + plannerIngest.Message);
+Require(plannerIngest.Version is not null, "La proposta planner deve creare una versione candidata.");
+
+var plannerReady = DiezVisualSubjectPlannerFrontendBridge.Read(plannerIngest.ProjectJson);
+Require(plannerReady.ProposalValid && plannerReady.Proposal.Count == 3,
+    "Diez deve validare esattamente tre soggetti concreti prima dell'applicazione.");
+var appliedPlan = DiezVisualSubjectPlannerFrontendBridge.ApplyProposal(plannerIngest.ProjectJson, plannerIngest.Version!.VersionId);
+Require(appliedPlan.Status == "APPLIED", "L'accettazione utente deve congelare il piano soggetti: " + appliedPlan.Message);
+var canonicalScene = DiezVisualSceneFrontendBridge.Read(appliedPlan.ProjectJson);
+Require(canonicalScene.MultiSubjectEnabled && canonicalScene.Subjects.Count == 3,
+    "La proposta accettata deve diventare stato canonico Soggetti, non testo del prompt.");
+Require(canonicalScene.Subjects.Select(x => x.SubjectId).Distinct(StringComparer.OrdinalIgnoreCase).Count() == 3,
+    "Ogni soggetto risolto deve avere un SubjectId distinto.");
+
+var plannedPack = DiezVisualBookFrontendBridge.BuildPromptPack(appliedPlan.ProjectJson);
+Require(plannedPack.Items.Count == 3, "Il piano accettato deve sbloccare tre Work Unit immagine.");
+Require(plannedPack.Items[0].Prompt.Contains("friendly jack-o'-lantern pumpkin", StringComparison.OrdinalIgnoreCase),
+    "Il renderer deve ricevere il concetto canonico, non l'etichetta UI italiana.");
+Require(!plannedPack.Items[0].Prompt.Contains("Zucca jack-o'-lantern simpatica", StringComparison.OrdinalIgnoreCase),
+    "L'etichetta italiana visibile non deve essere la sorgente testuale del renderer.");
+Require(plannedPack.Items.All(x => !x.Prompt.Contains("3 soggetti di Halloween", StringComparison.OrdinalIgnoreCase)),
+    "Il tema aggregato non deve sopravvivere come soggetto nelle Work Unit immagine.");
+
+var malformedPlanner = """{"subjects":[{"display_name_it":"Fantasma","canonical_concept":"ghost","description_it":"","canonical_description":""}]}""";
+Require(!DiezVisualSubjectPlannerFrontendBridge.TryValidateProposal(malformedPlanner, 3, out _),
+    "Una proposta con numero errato di soggetti deve essere respinta.");
+
 Console.WriteLine("VISUAL_SEMANTIC_REGRESSION_OK");

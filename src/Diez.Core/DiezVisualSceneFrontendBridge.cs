@@ -95,6 +95,8 @@ public static class DiezVisualSceneFrontendBridge
             return Result(root, project, "INVALID", error);
 
         subject.Description = (description ?? string.Empty).Trim();
+        subject.CanonicalConcept = string.Empty;
+        subject.CanonicalDescription = string.Empty;
         model.ActiveSubjectId = subject.SubjectId;
         MultiSubjectProfileService.Save(project, model);
         return Result(root, project, "SAVED", $"Soggetto '{subject.Name}' salvato.");
