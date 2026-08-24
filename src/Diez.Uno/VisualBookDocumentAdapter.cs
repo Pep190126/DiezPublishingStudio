@@ -65,6 +65,63 @@ internal static class VisualBookDocumentAdapter
         return result;
     }
 
+    public static DiezVisualThemeStateDto ReadVisualTheme(this DiezProjectDocument document) =>
+        DiezVisualThemeFrontendBridge.Read(document.ExportProjectJson());
+
+    public static DiezVisualThemeMutation SelectVisualTheme(this DiezProjectDocument document, string? themeId, string? customThemeName, bool archiveCustomTheme)
+    {
+        var result = DiezVisualThemeFrontendBridge.SelectTheme(document.ExportProjectJson(), themeId, customThemeName, archiveCustomTheme);
+        if (result.Status == "SELECTED") ApplyCoreJson(document, result.ProjectJson);
+        return result;
+    }
+
+    public static DiezVisualThemeMutation ProposeVisualThemeSubjects(
+        this DiezProjectDocument document,
+        string? themeId,
+        string? customThemeName,
+        bool archiveCustomTheme,
+        bool regenerate,
+        string? mustDo,
+        string? mustNotDo)
+    {
+        var result = DiezVisualThemeFrontendBridge.Propose(
+            document.ExportProjectJson(), themeId, customThemeName, archiveCustomTheme, regenerate, mustDo, mustNotDo);
+        if (result.Status is "PROPOSED" or "POOL_TOO_SMALL") ApplyCoreJson(document, result.ProjectJson);
+        return result;
+    }
+
+    public static DiezVisualThemeMutation SaveVisualThemeProposalEdits(
+        this DiezProjectDocument document,
+        IEnumerable<DiezVisualThemeProposalEditDto> edits)
+    {
+        var result = DiezVisualThemeFrontendBridge.SaveProposalEdits(document.ExportProjectJson(), edits);
+        if (result.Status == "EDITED") ApplyCoreJson(document, result.ProjectJson);
+        return result;
+    }
+
+    public static DiezVisualThemeMutation AddVisualThemeCustomSubject(
+        this DiezProjectDocument document,
+        string? themeId,
+        string? customThemeName,
+        bool archiveCustomTheme,
+        string? displayName,
+        string? description,
+        bool archiveInThemeLibrary)
+    {
+        var result = DiezVisualThemeFrontendBridge.AddCustomSubject(
+            document.ExportProjectJson(), themeId, customThemeName, archiveCustomTheme,
+            displayName, description, archiveInThemeLibrary);
+        if (result.Status == "SUBJECT_ADDED") ApplyCoreJson(document, result.ProjectJson);
+        return result;
+    }
+
+    public static DiezVisualThemeMutation AcceptVisualThemeProposal(this DiezProjectDocument document)
+    {
+        var result = DiezVisualThemeFrontendBridge.AcceptProposal(document.ExportProjectJson());
+        if (result.Status == "ACCEPTED") ApplyCoreJson(document, result.ProjectJson);
+        return result;
+    }
+
     public static DiezColoringCustomStyleStateDto ReadColoringCustomStyle(this DiezProjectDocument document) =>
         DiezColoringCustomStyleFrontendBridge.Read(document.ExportProjectJson());
 

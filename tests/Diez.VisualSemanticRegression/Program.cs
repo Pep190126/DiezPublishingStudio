@@ -276,4 +276,58 @@ Require(reconciledPack.Items[0].Prompt.Contains("friendly witch wearing a pointe
 Require(!reconciledPack.Items[0].Prompt.Contains("friendly jack-o'-lantern pumpkin", StringComparison.OrdinalIgnoreCase),
     "La vecchia semantica AI non deve sopravvivere a una modifica utente del soggetto.");
 
+
+// Round 5.6: ordinary UX resolves themes locally. No planner prompt, JSON or AI Exchange job is required.
+var themeProject = Save(NewProject(), "3 soggetti di Halloween");
+var themeInitial = DiezVisualThemeFrontendBridge.Read(themeProject);
+Require(themeInitial.Themes.Any(x => x.ThemeId == "halloween") && themeInitial.Themes.Any(x => x.ThemeId == "jungle") && themeInitial.Themes.Any(x => x.ThemeId == "christmas"),
+    "La libreria temi deve esporre almeno Halloween, Animali della giungla e Natale/Christmas.");
+var jobsBeforeTheme = DiezAiExchangeBridge.ReadJobs(themeProject).Count;
+var localTheme = DiezVisualThemeFrontendBridge.Propose(themeProject, "halloween", null, false, regenerate: false);
+Require(localTheme.Status == "PROPOSED", "Halloween deve produrre una proposta locale senza AI: " + localTheme.Message);
+Require(localTheme.State.Proposal.Count == 3 && localTheme.State.Proposal.Select(x => x.DisplayName).Distinct(StringComparer.OrdinalIgnoreCase).Count() == 3,
+    "Diez deve proporre esattamente tre soggetti Halloween distinti.");
+Require(DiezAiExchangeBridge.ReadJobs(localTheme.ProjectJson).Count == jobsBeforeTheme,
+    "La proposta di un tema BUILTIN non deve creare Work Unit planner o altri job AI.");
+var stableTheme = DiezVisualThemeFrontendBridge.Propose(localTheme.ProjectJson, "halloween", null, false, regenerate: false);
+Require(string.Join("|", stableTheme.State.Proposal.Select(x => x.DisplayName)) == string.Join("|", localTheme.State.Proposal.Select(x => x.DisplayName)),
+    "Senza Rigenera, lo stesso stato semantico deve produrre una proposta stabile.");
+var regeneratedTheme = DiezVisualThemeFrontendBridge.Propose(stableTheme.ProjectJson, "halloween", null, false, regenerate: true);
+Require(string.Join("|", regeneratedTheme.State.Proposal.Select(x => x.DisplayName)) != string.Join("|", stableTheme.State.Proposal.Select(x => x.DisplayName)),
+    "Rigenera proposta deve poter scegliere una combinazione diversa dal pool, non una tripletta fissa hardcoded.");
+
+var customWord = "Zebra editoriale " + Guid.NewGuid().ToString("N")[..6];
+var addedThemeSubject = DiezVisualThemeFrontendBridge.AddCustomSubject(
+    regeneratedTheme.ProjectJson, "halloween", null, false, customWord, "Una zebra singola e riconoscibile.", archiveInThemeLibrary: false);
+Require(addedThemeSubject.Status == "SUBJECT_ADDED" && addedThemeSubject.State.Pool.Any(x => x.DisplayName == customWord),
+    "Ogni tema deve accettare un soggetto/parola Custom solo-progetto.");
+
+var acceptedTheme = DiezVisualThemeFrontendBridge.AcceptProposal(addedThemeSubject.ProjectJson);
+Require(acceptedTheme.Status == "ACCEPTED" && acceptedTheme.State.Resolved,
+    "L'accettazione della proposta locale deve congelare i soggetti canonici.");
+Require(!DiezVisualSubjectPlannerFrontendBridge.Read(acceptedTheme.ProjectJson).Required,
+    "Dopo il freeze locale il vecchio gate planner deve risultare risolto, senza copy/paste.");
+var themePack = DiezVisualBookFrontendBridge.BuildPromptPack(acceptedTheme.ProjectJson);
+Require(themePack.Items.Count == 3, "Il piano temi accettato deve sbloccare tre Work Unit immagini.");
+
+var customThemeProject = Save(NewProject(), "3 soggetti di Robot vintage");
+var emptyCustom = DiezVisualThemeFrontendBridge.Propose(customThemeProject, "custom", "Robot vintage", false, regenerate: false);
+Require(emptyCustom.Status == "POOL_TOO_SMALL",
+    "Un tema Custom senza pool non deve inventare soggetti né riproporre un planner copy/paste.");
+var customWorking = emptyCustom.ProjectJson;
+foreach (var name in new[] { "Robot latta", "Robot antenna", "Robot a ruote" })
+{
+    var added = DiezVisualThemeFrontendBridge.AddCustomSubject(
+        customWorking, "custom", "Robot vintage", false, name, name + " come singolo soggetto.", archiveInThemeLibrary: false);
+    Require(added.Status == "SUBJECT_ADDED", "Il tema Custom deve accettare soggetti manuali: " + added.Message);
+    customWorking = added.ProjectJson;
+}
+var customThemeProposal = DiezVisualThemeFrontendBridge.Propose(customWorking, "custom", "Robot vintage", false, regenerate: false);
+Require(customThemeProposal.Status == "PROPOSED" && customThemeProposal.State.Proposal.Count == 3,
+    "Il tema Custom alimentato manualmente deve funzionare senza API.");
+Require(!customThemeProposal.State.ApiExpansionAvailable,
+    "Finché il catalogo non dichiara una vera API text diretta, l'espansione AI Custom deve restare non operativa.");
+Require(DiezAiExchangeBridge.ReadJobs(customThemeProposal.ProjectJson).Count == 0,
+    "Tema Custom manuale non deve creare planner TEXT nascosti o copy/paste.");
+
 Console.WriteLine("VISUAL_SEMANTIC_REGRESSION_OK");

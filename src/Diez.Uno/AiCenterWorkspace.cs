@@ -31,7 +31,9 @@ internal static class AiCenterWorkspace
         var prompt = Editor(document.GetUiString("AI.HumanPrompt"), "Prompt modificabile per testo, immagini o dati.", 180);
         var outputType = Combo(["Image", "Text", "Data"], document.GetUiString("AI.OutputType", "Image"));
 
-        var jobModels = document.AiJobs().ToList();
+        var jobModels = document.AiJobs()
+            .Where(x => !string.Equals(x.Title, "Diez · Piano soggetti visuali", StringComparison.OrdinalIgnoreCase))
+            .ToList();
         var visualPlannerState = BookTypeCatalog.IsVisual(document.BookType)
             ? document.ReadVisualSubjectPlanner()
             : null;
@@ -76,18 +78,12 @@ internal static class AiCenterWorkspace
             }
 
             var job = jobModels[jobs.SelectedIndex];
-            var plannerJob = (visualPlannerState?.PlannerJobId.HasValue == true && visualPlannerState.PlannerJobId.Value == job.JobId) ||
-                             string.Equals(job.Title, "Diez · Piano soggetti visuali", StringComparison.OrdinalIgnoreCase);
-            selectedJob.Text = plannerJob
-                ? $"{job.Code} · {job.DisplayType} · {job.DisplayStatus}\n{job.Title}\nPasso corrente: esegui questo Prompt con l'AI, poi incolla qui sotto il JSON dei soggetti. Dopo l'import Diez ti riporta in Definizione per mostrarti la proposta prima dell'accettazione."
-                : $"{job.Code} · {job.DisplayType} · {job.DisplayStatus}\n{job.Title}";
+            selectedJob.Text = $"{job.Code} · {job.DisplayType} · {job.DisplayStatus}\n{job.Title}";
             var image = string.Equals(job.OutputType, "Image", StringComparison.OrdinalIgnoreCase);
             response.IsEnabled = !image;
             response.PlaceholderText = image
                 ? "Per le immagini importa il Response ZIP e usa Vision per l'approvazione HARD."
-                : plannerJob
-                    ? "Incolla qui SOLO il JSON restituito dal planner soggetti."
-                    : "Incolla qui la risposta ricevuta dall’AI.";
+                : "Incolla qui la risposta ricevuta dall’AI per questa attività editoriale.";
 
             versionModels = job.WorkUnitId.HasValue
                 ? document.AiVersions(job.WorkUnitId.Value).ToList()
@@ -99,10 +95,7 @@ internal static class AiCenterWorkspace
         }
 
         jobs.SelectionChanged += (_, _) => RefreshSelectedJob();
-        var preferredPlannerIndex = visualPlannerState?.Required == true && visualPlannerState.PlannerJobId.HasValue
-            ? jobModels.FindIndex(x => x.JobId == visualPlannerState.PlannerJobId.Value)
-            : -1;
-        jobs.SelectedIndex = preferredPlannerIndex >= 0 ? preferredPlannerIndex : jobModels.Count > 0 ? 0 : -1;
+        jobs.SelectedIndex = jobModels.Count > 0 ? 0 : -1;
         RefreshSelectedJob();
 
         root.Children.Add(Card("Impostazioni AI", Vertical(
@@ -117,9 +110,7 @@ internal static class AiCenterWorkspace
             var plannerGateInfo = new TextBlock
             {
                 Text = visualPlannerState?.Required == true
-                    ? visualPlannerState.ProposalValid
-                        ? "Prompt Pack immagini BLOCCATO: la proposta AI è arrivata ma deve ancora essere verificata e accettata in Definizione."
-                        : "Prompt Pack immagini BLOCCATO: completa prima il Piano soggetti Diez. Seleziona l'attività planner, copia il Prompt, eseguilo con l'AI, incolla il JSON qui sotto e scegli “Importa come candidato”."
+                    ? "Prompt Pack immagini BLOCCATO: torna in Definizione e completa Tema → Proponi soggetti → controlla/modifica → Accetta e congela i soggetti. Non serve copiare Prompt planner né incollare JSON."
                     : "Piano soggetti: risolto. Il Prompt Pack immagini può usare soggetti atomici congelati.",
                 TextWrapping = TextWrapping.Wrap
             };
