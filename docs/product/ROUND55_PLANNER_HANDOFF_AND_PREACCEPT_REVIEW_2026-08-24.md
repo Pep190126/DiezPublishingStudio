@@ -1,4 +1,4 @@
-# Round 5.5 — Planner handoff, review prima dell'accettazione e Prompt Pack gate
+# Round 5.5 — Planner handoff, review/edit prima dell'accettazione e Prompt Pack gate
 
 Status: **PHYSICAL FINDING + FIX REQUIRED / NON CONSOLIDATO**
 
@@ -19,7 +19,7 @@ Il prompt planner osservato contiene correttamente:
 - pubblico `Children ages 6–9`;
 - contratto JSON con `display_name_it`, `canonical_concept`, `description_it`, `canonical_description`.
 
-Sono però emersi tre difetti di prodotto.
+Sono però emersi difetti di prodotto nel passaggio planner → revisione utente → Prompt Pack.
 
 ## 1. Handoff poco chiaro tra planner e Prompt Pack
 
@@ -34,7 +34,7 @@ Finché il piano soggetti è irrisolto:
 - il Prompt Pack immagini è esplicitamente bloccato/disabilitato;
 - la UI spiega la prossima azione esatta;
 - se non esiste una risposta valida: `copia Prompt planner → esegui con AI → incolla JSON → Importa come candidato`;
-- se esiste una proposta valida ma non accettata: `torna in Definizione → verifica proposta → Accetta proposta e congela i soggetti`;
+- se esiste una proposta valida ma non accettata: `torna in Definizione → verifica/modifica proposta → Accetta proposta e congela i soggetti`;
 - solo dopo l'accettazione il Prompt Pack immagini diventa disponibile.
 
 ## 2. La proposta AI deve essere visibile prima dell'accettazione
@@ -56,7 +56,47 @@ La UI deve dichiarare esplicitamente che nessun soggetto viene applicato o conge
 
 L'accettazione non può essere implicita nell'import della risposta AI.
 
-## 3. Duplicazione del planner
+## 3. La proposta deve essere modificabile prima dell'accettazione
+
+Decisione utente esplicita del 2026-08-24:
+
+> Devo poter eventualmente modificare la proposta.
+
+La proposta AI è una **bozza editoriale**, non un risultato take-it-or-leave-it.
+
+Per ogni soggetto proposto Diez deve consentire di modificare almeno:
+
+- nome editoriale visibile in italiano;
+- descrizione editoriale visibile in italiano.
+
+Le modifiche non vengono mai perse se l'utente preme Accetta: quando esistono modifiche non salvate, **Accetta proposta e congela i soggetti** deve essere disabilitato.
+
+### 3.1 Modifica di sola formulazione editoriale
+
+L'utente può dichiarare che la modifica cambia solo la formulazione visibile, ma **non il soggetto né il suo significato**.
+
+In questo caso:
+
+- i nuovi testi italiani diventano autorevoli per la UI;
+- `canonical_concept` e `canonical_description` della proposta AI possono restare validi;
+- Diez crea una nuova versione Candidate della proposta, senza approvarla automaticamente;
+- la proposta modificata viene nuovamente mostrata prima dell'accettazione.
+
+### 3.2 Modifica che cambia soggetto/significato
+
+Se l'utente dichiara che la modifica cambia davvero il soggetto o il suo significato:
+
+- la vecchia semantica tecnica AI è considerata **stale**;
+- Diez non può mantenere silenziosamente il vecchio `canonical_concept`;
+- Diez prepara una nuova Work Unit TEXT di **riconciliazione semantica**;
+- i nomi/descrizioni italiani modificati dall'utente sono HARD LOCK: il planner non può sostituirli con soggetti diversi;
+- l'AI deve rigenerare solamente `canonical_concept` e `canonical_description` coerenti con le decisioni utente;
+- la nuova risposta viene importata come Candidate e mostrata di nuovo in Definizione;
+- solo dopo questa nuova verifica l'utente può accettare e congelare.
+
+Questa regola evita sia la traduzione meccanica sia il riuso di semantica obsoleta.
+
+## 4. Duplicazione del planner
 
 L'utente riferisce che Diez ha generato due prompt planner durante lo stesso tentativo. `Prepare` in Round 5.4 crea sempre una nuova attività.
 
@@ -66,9 +106,9 @@ Per lo stesso stato semantico del progetto, stesso tema, stessa cardinalità e s
 
 - una seconda pressione di `Prepara proposta soggetti con AI` non deve creare un duplicato;
 - Diez deve riusare l'attività planner già preparata;
-- se una proposta valida è già importata, deve portare l'utente alla verifica/accettazione anziché creare una nuova attività.
+- se una proposta valida è già importata, deve portare l'utente alla verifica/modifica/accettazione anziché creare una nuova attività.
 
-## 4. Contaminazione semantica nel prompt planner
+## 5. Contaminazione semantica nel prompt planner
 
 Nel prompt fisicamente osservato compare:
 
@@ -95,14 +135,14 @@ Vincoli su:
 
 non devono essere copiati nel planner soggetti. Restano responsabilità del compilatore delle Work Unit immagine e dei relativi HARD gate.
 
-## 5. Ritorno automatico alla proposta
+## 6. Ritorno automatico alla proposta
 
-Quando l'utente importa con successo la risposta JSON della Work Unit planner:
+Quando l'utente importa con successo la risposta JSON della Work Unit planner o di riconciliazione:
 
 - Diez salva la Candidate;
 - valida il contratto;
 - ritorna al workspace visuale/Definizione;
-- mostra immediatamente la proposta AI da verificare;
+- mostra immediatamente la proposta AI da verificare/modificare;
 - non approva e non applica automaticamente.
 
 ## Regression criteria
@@ -115,10 +155,13 @@ Round 5.5 deve fallire se:
 4. l'import della Candidate equivale automaticamente ad accettazione;
 5. il planner contiene il vincolo raw `un'unica image con 3 illustrazioni` o equivalenti di layout;
 6. dopo l'import planner l'utente non viene guidato alla verifica in Definizione;
-7. dopo l'accettazione il piano resta segnato come irrisolto.
+7. dopo l'accettazione il piano resta segnato come irrisolto;
+8. una modifica visibile non salvata può essere ignorata premendo Accetta;
+9. una modifica dichiarata semantica conserva il vecchio `canonical_concept` senza nuova riconciliazione;
+10. la riconciliazione semantica può cambiare i soggetti italiani che l'utente ha appena fissato.
 
 ## Consolidamento
 
 Round 5.5 resta **NON CONSOLIDATO** finché non è fisicamente verificato il percorso completo:
 
-`tema aggregato → planner unico → risposta JSON → proposta visibile → accettazione utente → Prompt immagini → Prompt Pack ZIP`.
+`tema aggregato → planner unico → risposta JSON → proposta visibile/modificabile → eventuale riconciliazione → accettazione utente → Prompt immagini → Prompt Pack ZIP`.
