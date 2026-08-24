@@ -1,0 +1,41 @@
+name: Apply Round 5.6 Theme Library UI
+
+on:
+  push:
+    branches:
+      - spike/uno-platform-ui
+    paths:
+      - 'src/Diez.Uno/Round56ThemeLibraryMarker.cs'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: spike/uno-platform-ui
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply Round 5.6 theme UI patch
+        run: python scripts/apply_round56_theme_ui.py
+      - name: Commit Round 5.6 source
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            src/Diez.Uno/VisualBookDocumentAdapter.cs \
+            src/Diez.Uno/VisualBookWorkspace.cs \
+            src/Diez.Uno/AiCenterWorkspace.cs \
+            tests/Diez.VisualSemanticRegression/Program.cs
+          if git diff --cached --quiet; then
+            echo 'No Round 5.6 source changes to commit.'
+          else
+            git commit -m 'Round 5.6: use local theme library in visual workflow'
+            git push origin HEAD:spike/uno-platform-ui
+          fi
