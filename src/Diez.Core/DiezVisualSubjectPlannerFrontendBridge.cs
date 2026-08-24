@@ -459,7 +459,7 @@ public static class DiezVisualSubjectPlannerFrontendBridge
         }
         sb.AppendLine();
         sb.AppendLine("Return JSON ONLY, with no Markdown fences and no commentary, using exactly this schema:");
-        sb.AppendLine("{"subjects":[{"display_name_it":"...","canonical_concept":"...","description_it":"...","canonical_description":"..."}]}");
+        sb.AppendLine("{\"subjects\":[{\"display_name_it\":\"...\",\"canonical_concept\":\"...\",\"description_it\":\"...\",\"canonical_description\":\"...\"}]}");
         return sb.ToString().Trim();
     }
 
