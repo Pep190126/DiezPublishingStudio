@@ -1,6 +1,6 @@
 # Round 5.4 — Planner semantico soggetti + stile Custom
 
-Status: **IMPLEMENTATO IN CANDIDATA / NON CONSOLIDATO**
+Status: **TECHNICALLY_VERIFIED / NON CONSOLIDATO**
 
 Data: 2026-08-24
 
@@ -56,7 +56,7 @@ Il flusso operativo Round 5.4 usa il trasporto già reale:
 1. in Definizione l'utente sceglie `Prepara proposta soggetti con AI`;
 2. Diez crea una attività AI testuale con il Prompt planner;
 3. si apre `Produzione con AI`;
-4. l'utente usa `Copia Prompt attività selezionata`;
+4. l'utente seleziona l'attività `Diez · Piano soggetti visuali` e usa `Copia Prompt attività selezionata`;
 5. esegue il Prompt con il provider scelto;
 6. incolla il JSON ricevuto e lo importa come Candidate testuale;
 7. torna in Definizione;
@@ -117,7 +117,7 @@ seguono lo stesso percorso semantico e possono essere risolti prima del Prompt P
 
 ## 8. Stile Custom
 
-Quando l'utente seleziona `Custom` nel profilo Coloring, la UI deve mostrare:
+Quando l'utente seleziona `Custom` nel profilo Coloring, la UI mostra:
 
 - campo `Definizione stile Custom`;
 - decisione `Usa solo in questo progetto`;
@@ -133,9 +133,11 @@ Regole:
 - selezionare uno stile archiviato recupera la sua definizione;
 - il Prompt Compiler usa la definizione canonica Custom, non la parola `Custom` come stile finale.
 
+Il regression gate dedicato verifica inoltre il caso `Usa solo in questo progetto`, la persistenza della definizione, l'assenza di archiviazione implicita, l'uso della definizione effettiva nel renderer e la disattivazione dell'autorità Custom quando si torna a uno stile non-Custom.
+
 ## 9. Regression gate Round 5.4
 
-`tests/Diez.VisualSemanticRegression` viene esteso per verificare:
+`tests/Diez.VisualSemanticRegression` verifica:
 
 1. Round 5.3 continua a bloccare il tema aggregato non risolto;
 2. il planner crea una Work Unit TEXT distinta dal renderer;
@@ -146,15 +148,43 @@ Regole:
 7. il Prompt Pack immagine viene successivamente sbloccato;
 8. il renderer riceve `canonical_concept`, non l'etichetta italiana;
 9. il tema aggregato non sopravvive come `PRIMARY SUBJECT`;
-10. una proposta con cardinalità errata viene rifiutata.
+10. una proposta con cardinalità errata viene rifiutata;
+11. lo stile Custom project-only resta nel progetto senza archivio implicito;
+12. il renderer riceve la definizione Custom effettiva e non `STYLE — HARD LOCK: Custom.`.
 
-## 10. Consolidamento
+## 10. Candidata Windows Round 5.4
+
+Candidata autorevole costruita esclusivamente da sorgente già committato, senza patch sorgente durante la CI:
+
+- Source SHA: `5ef64cde12eb1070cadc86de9f83852c33290cab`
+- Workflow: `Uno Windows Consolidation Candidate`
+- Run: `#39`
+- Run ID: `32709568400`
+- Status: `TECHNICALLY_VERIFIED`
+- Visual book gate: `success`
+- Semantic regression gate: `success`
+- Restore: `success`
+- Publish Uno Windows: `success`
+- Verify executable: `success`
+- Package: `success`
+- Smoke install/launch/uninstall: `success`
+- Artifact upload: `success`
+- Artifact ID: `9513664627`
+- Artifact: `DiezPublishingStudio-UnoPreview-Windows-x64`
+- Artifact bytes: `94444745`
+- Artifact SHA-256: `f2c83ed7a1b7e74fbf65eb7eb8c5791624d09f72ec7932f534dbe08b6997fac5`
+- Setup bytes: `94973689`
+- Setup SHA-256: `820ceaf695f066fe1e596ce278f3479f474fd701fd0d9812aea478a503d5a6e8`
+
+Il file artifact scaricato e il Setup estratto sono stati verificati localmente: dimensioni e SHA-256 coincidono esattamente con la CI.
+
+## 11. Consolidamento
 
 Round 5.4 resta **NON CONSOLIDATO** finché non sono completati:
 
-1. build Windows tecnicamente verificata da sorgente già committato, senza patch in CI;
-2. installazione fisica della candidata;
-3. test fisico del planner su progetto nuovo;
-4. test fisico del planner su progetto 10 legacy;
+1. installazione fisica della candidata;
+2. test fisico del planner su progetto nuovo;
+3. test fisico del planner su progetto 10 legacy;
+4. test fisico del campo/decisione stile Custom;
 5. ispezione di un Prompt Pack reale dopo l'accettazione dei soggetti;
 6. nuovo Response reale e verifica del percorso Coloring/immagini.
