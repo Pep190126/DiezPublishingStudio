@@ -1,0 +1,41 @@
+name: Apply Round 5.5 Planner Handoff
+
+on:
+  push:
+    branches:
+      - spike/uno-platform-ui
+    paths:
+      - 'src/Diez.Uno/Round55ApplyMarker.cs'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: spike/uno-platform-ui
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply Round 5.5 source patch
+        run: python scripts/apply_round55_planner_handoff_fix.py
+      - name: Commit Round 5.5 source
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            src/Diez.Core/DiezVisualSubjectPlannerFrontendBridge.cs \
+            src/Diez.Uno/VisualBookWorkspace.cs \
+            src/Diez.Uno/AiCenterWorkspace.cs \
+            tests/Diez.VisualSemanticRegression/Program.cs
+          if git diff --cached --quiet; then
+            echo 'No Round 5.5 source changes to commit.'
+          else
+            git commit -m 'Round 5.5: clarify planner handoff and pre-accept review'
+            git push origin HEAD:spike/uno-platform-ui
+          fi
