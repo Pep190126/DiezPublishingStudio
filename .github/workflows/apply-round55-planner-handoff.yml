@@ -22,20 +22,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Apply Round 5.5 editable proposal patch
-        run: python scripts/apply_round55_editable_proposal.py
-      - name: Commit Round 5.5 editable proposal source
+      - name: Fix Round 5.5 compile
+        run: python scripts/fix_round55_compile.py
+      - name: Commit Round 5.5 compile fix
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add \
-            src/Diez.Core/DiezVisualSubjectPlannerFrontendBridge.cs \
-            src/Diez.Uno/VisualBookDocumentAdapter.cs \
-            src/Diez.Uno/VisualBookWorkspace.cs \
-            tests/Diez.VisualSemanticRegression/Program.cs
+          git add src/Diez.Core/DiezVisualSubjectPlannerFrontendBridge.cs
           if git diff --cached --quiet; then
-            echo 'No Round 5.5 editable proposal changes to commit.'
+            echo 'No Round 5.5 compile changes to commit.'
           else
-            git commit -m 'Round 5.5: make AI subject proposal editable before acceptance'
+            git commit -m 'Round 5.5: fix reconciliation prompt schema literal'
             git push origin HEAD:spike/uno-platform-ui
           fi
