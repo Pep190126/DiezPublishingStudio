@@ -168,6 +168,9 @@ internal static class VisualBookWorkspace
 
         Func<DiezColoringProfileDto>? coloringProfile = null;
         Func<DiezImageProfileDto>? imageProfile = null;
+        Func<bool>? customStyleChoice = null;
+        TextBox? customDefinitionBox = null;
+        RadioButton? customArchiveChoice = null;
 
         if (string.Equals(type, BookTypeCatalog.ColoringBook, StringComparison.OrdinalIgnoreCase))
         {
@@ -217,6 +220,9 @@ internal static class VisualBookWorkspace
             }
             style.SelectionChanged += (_, _) => RefreshCustomStyle();
             RefreshCustomStyle();
+            customStyleChoice = IsCustomStyleChoice;
+            customDefinitionBox = customDefinition;
+            customArchiveChoice = customArchive;
             var audience = Combo(["Prescolare 3–5 anni", "Bambini 6–9 anni", "Ragazzi 10–13 anni", "Adolescenti", "Adulti", "Tutte le età"], p.TargetAudience);
             var difficulty = Combo(["Molto facile", "Facile", "Media", "Impegnativa"], p.Difficulty);
             var lineWeight = Combo(["Molto spesso — Extra Bold", "Spesso — Bold", "Medio", "Sottile — Fine", "Molto sottile — Extra Fine", "Variabile"], p.LineWeight);
@@ -234,7 +240,7 @@ internal static class VisualBookWorkspace
             var notes = Editor(customStyleState.IsActive ? string.Empty : p.Notes, "Note stile / eccezioni", 80);
 
             coloringProfile = () => new DiezColoringProfileDto(
-                IsCustomStyleChoice() ? "Custom" : Selected(style, "Clean Line Art"),
+                customStyleChoice?.Invoke() == true ? "Custom" : Selected(style, "Clean Line Art"),
                 boldEasy.IsChecked == true,
                 cozy.IsChecked == true,
                 Selected(audience, "Bambini 6–9 anni"),
@@ -343,15 +349,15 @@ internal static class VisualBookWorkspace
                     consistent.IsChecked == true ? consistencyRules.Text : string.Empty,
                     coloringProfile());
 
-                var customChoice = IsCustomStyleChoice();
+                var customChoice = customStyleChoice?.Invoke() == true;
                 var customSaved = document.SaveColoringCustomStyle(
                     customChoice,
-                    customChoice ? customDefinition.Text : string.Empty,
-                    customChoice && customArchive.IsChecked == true);
+                    customChoice ? customDefinitionBox?.Text : string.Empty,
+                    customChoice && customArchiveChoice?.IsChecked == true);
                 if (customSaved.Status == "INVALID")
                 {
                     report(customSaved.Message);
-                    customDefinition.Focus(FocusState.Programmatic);
+                    customDefinitionBox?.Focus(FocusState.Programmatic);
                     return false;
                 }
             }

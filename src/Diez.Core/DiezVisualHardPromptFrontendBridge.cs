@@ -381,7 +381,7 @@ internal static class VisualHardPromptContractCompiler
             if (!consistent) continue;
             var rules = MultiSubjectProfileService.BuildConsistencyRules(participant);
             if (string.IsNullOrWhiteSpace(rules)) continue;
-            sb.AppendLine($"PARTICIPANT CONSISTENT — AUTHORITATIVE [{participant.Name}]:");
+            sb.AppendLine($"PARTICIPANT CONSISTENT — AUTHORITATIVE [{ProviderSubject(participant)}]:");
             foreach (var line in Lines(rules)) sb.AppendLine("- " + line);
         }
     }

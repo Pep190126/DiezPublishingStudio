@@ -170,7 +170,8 @@ internal static class MultiSubjectProfileService
     {
         EnsureConsistencyDefaults(subject);
         var sb = new StringBuilder();
-        sb.AppendLine($"Subject identity [{subject.Name}] — LOCKED: preserve the same recognizable identity, core physical traits and silhouette across appearances.");
+        var semanticName = string.IsNullOrWhiteSpace(subject.CanonicalConcept) ? subject.Name : subject.CanonicalConcept;
+        sb.AppendLine($"Subject identity [{semanticName}] — LOCKED: preserve the same recognizable identity, core physical traits and silhouette across appearances.");
         Append(sb, "Physical appearance / distinguishing traits", subject.Consistency["identity"]);
         Append(sb, "Outfit / accessories", subject.Consistency["outfit"]);
         Append(sb, "Expression", subject.Consistency["expression"]);
