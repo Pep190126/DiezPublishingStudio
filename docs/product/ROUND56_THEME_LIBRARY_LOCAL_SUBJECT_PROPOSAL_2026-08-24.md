@@ -1,6 +1,6 @@
 # Round 5.6 — Libreria temi e proposta locale dei soggetti
 
-Status: **IMPLEMENTATO IN CANDIDATA / IN VERIFICA TECNICA / NON CONSOLIDATO**
+Status: **IMPLEMENTATO IN CANDIDATA / TECHNICALLY_VERIFIED / NON CONSOLIDATO**
 
 Data: 2026-08-24
 
@@ -47,9 +47,9 @@ Temi iniziali:
 - San Valentino;
 - Custom.
 
-Un tema non equivale a una lista fissa di N output. Ogni tema contiene un pool più ampio. Diez seleziona il numero richiesto di soggetti distinti tenendo conto almeno di tema, quantità, stile/pubblico disponibili, vincoli utente ed esplicita rigenerazione.
+Un tema non equivale a una lista fissa di N output. Ogni tema contiene un pool più ampio. Diez seleziona il numero richiesto di soggetti distinti considerando tema, quantità, stile/pubblico disponibili, vincoli utente ed esplicita rigenerazione.
 
-A stato semantico invariato la proposta deve essere stabile. **Rigenera proposta** cambia esplicitamente la selezione dal pool.
+A stato semantico invariato la proposta è stabile. **Rigenera proposta** cambia esplicitamente la selezione dal pool.
 
 ## Tema Custom
 
@@ -99,7 +99,7 @@ Se il piano soggetti è irrisolto, Produzione con AI rimanda semplicemente a:
 
 `Definizione → Tema → Proponi soggetti → controlla/modifica → Accetta e congela`.
 
-Non deve più suggerire di copiare Prompt planner o incollare JSON.
+Non suggerisce più di copiare Prompt planner o incollare JSON.
 
 ## API Custom
 
@@ -124,35 +124,58 @@ Il progetto conserva invece:
 - indice di rigenerazione;
 - stato di accettazione.
 
-## Regression criteria
+## Regression gate
 
-Round 5.6 deve fallire se:
+La regression Round 5.6 verifica tra l'altro che:
 
-1. una proposta BUILTIN crea un job AI/planner;
-2. l'utente deve vedere o incollare JSON nel percorso ordinario;
-3. Halloween/Christmas/Jungla sono triple fisse anziché pool;
-4. la proposta non ha la cardinalità richiesta;
-5. i soggetti proposti non sono distinti;
-6. lo stesso stato senza `Rigenera` cambia casualmente proposta;
-7. `Rigenera` non può cambiare combinazione;
-8. un inserimento Custom non può essere aggiunto a un tema BUILTIN;
-9. un inserimento Custom project-only viene salvato globalmente senza consenso;
-10. un tema Custom senza pool inventa contenuti o crea un planner copy/paste;
-11. un tema Custom con pool manuale sufficiente non può funzionare senza API;
-12. l'accettazione non crea normali `SubjectId` congelati;
-13. il Prompt Pack si sblocca prima dell'accettazione;
-14. la UI Produzione AI continua a mostrare il planner manuale come percorso normale.
+1. una proposta BUILTIN non crei job AI/planner;
+2. Halloween, Natale e Giungla siano presenti nella libreria;
+3. la cardinalità della proposta sia esatta e i soggetti distinti;
+4. la proposta sia stabile senza `Rigenera`;
+5. `Rigenera` possa cambiare combinazione dal pool;
+6. un soggetto/parola Custom possa essere aggiunto anche a un tema BUILTIN;
+7. un tema Custom senza pool non inventi soggetti e non generi planner copy/paste;
+8. un tema Custom alimentato manualmente funzioni senza API;
+9. l'accettazione congeli normali `SubjectId` e sblocchi le Work Unit immagini;
+10. l'espansione API resti non operativa finché il catalogo non dichiara una vera API text diretta.
 
-## Verifica tecnica
+## Candidata Windows finale Round 5.6
 
-Il primo source SHA applicato per Round 5.6 è `2658bd11c707b088b6b89ede47752bb7a97f9cf9`.
+Build pulita: nessuna workflow one-shot, nessun marker one-shot e nessuno script di applicazione Round 5.6 nel sorgente della candidata.
 
-Il primo run tecnico è `#45`, Run ID `32723087016`. Questo run non è la candidata fisica finale perché il branch contiene ancora la workflow/marker/script one-shot usati per applicare la patch.
+- Source SHA: `d76b8acb9634168a50dc4a9b895ec49d8a776014`
+- Workflow: `Uno Windows Consolidation Candidate`
+- Run: `#47`
+- Run ID: `32723591633`
+- stato: `TECHNICALLY_VERIFIED`
+- Visual book gate: `success`
+- Visual semantic regression: `success`
+- Restore Windows runtime: `success`
+- Publish Uno Windows x64: `success`
+- Verify executable: `success`
+- Build Setup EXE: `success`
+- Smoke install/launch/uninstall: `success`
+- Artifact upload: `success`
+- Artifact ID: `9518756228`
+- Artifact ZIP bytes: `94468442`
+- Artifact ZIP SHA-256: `e80e9bb0a86b891ca66eb784b8ddc7453745a044d87f4326737c43f706d88aad`
+- Setup bytes: `94997881`
+- Setup SHA-256: `408c591432abb69488bea17a69b66f26b73b9b177f8b038b6cbf1fda648a798d`
 
-La candidata finale deve essere ricostruita da sorgente pulito dopo la rimozione dell'infrastruttura one-shot.
+ZIP e Setup scaricati sono stati verificati localmente: dimensioni e SHA-256 coincidono con CI/artifact metadata.
 
 ## Consolidamento
 
 Round 5.6 resta **NON CONSOLIDATO** fino alla verifica fisica nell'app installata del percorso:
 
 `seleziona tema → aggiungi eventualmente soggetti Custom → proponi → modifica eventualmente → accetta → Prompt → Prompt Pack`.
+
+Test fisico prioritario:
+
+1. selezionare Halloween e chiedere 3 soggetti senza passare da Produzione AI;
+2. controllare la proposta e provarne la rigenerazione;
+3. aggiungere una parola/soggetto Custom solo-progetto a Halloween;
+4. aggiungere una seconda voce scegliendo `Salva nella libreria di questo tema` e verificarne la riusabilità in un progetto nuovo;
+5. creare un tema Custom project-only, alimentarlo manualmente e produrre una proposta;
+6. verificare che `Espandi tema con AI` resti chiaramente disabilitato/non simulato;
+7. accettare la proposta e verificare che Prompt e Prompt Pack si sblocchino senza JSON o planner manuale.
