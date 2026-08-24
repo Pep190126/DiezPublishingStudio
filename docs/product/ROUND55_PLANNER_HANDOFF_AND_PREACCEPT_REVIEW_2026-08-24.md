@@ -1,12 +1,12 @@
 # Round 5.5 — Planner handoff, review/edit prima dell'accettazione e Prompt Pack gate
 
-Status: **PHYSICAL FINDING + FIX REQUIRED / NON CONSOLIDATO**
+Status: **IMPLEMENTATO IN CANDIDATA / TECHNICALLY_VERIFIED / NON CONSOLIDATO**
 
 Data: 2026-08-24
 
 Branch: `spike/uno-platform-ui`
 
-## Evidenza fisica
+## Evidenza fisica di partenza
 
 In Round 5.4, con un progetto Coloring che richiede una serie aggregata di tre soggetti Halloween, Diez ha prodotto il prompt intermedio `# DIEZ SEMANTIC SUBJECT PLANNER`, ma l'utente ha osservato che la creazione del Prompt Pack immagini non parte.
 
@@ -21,42 +21,36 @@ Il prompt planner osservato contiene correttamente:
 
 Sono però emersi difetti di prodotto nel passaggio planner → revisione utente → Prompt Pack.
 
-## 1. Handoff poco chiaro tra planner e Prompt Pack
+## 1. Handoff planner / Prompt Pack
 
 Il prompt planner non è il Prompt Pack immagini. È una Work Unit TEXT intermedia che deve prima ricevere una risposta JSON, essere importata come Candidate, validata e accettata dall'utente.
 
-Round 5.4 lascia però visibile la creazione del Prompt Pack anche mentre il planner è irrisolto; il Core la blocca successivamente, facendo apparire il sistema come se il Prompt Pack non partisse.
+Round 5.5 rende questo stato esplicito:
 
-### Regola Round 5.5
+- finché il piano soggetti è irrisolto, il Prompt Pack immagini è disabilitato;
+- la UI indica la prossima azione esatta;
+- senza risposta valida: `copia Prompt planner → esegui con AI → incolla JSON → Importa come candidato`;
+- con proposta valida non ancora accettata: `Definizione → verifica/modifica proposta → Accetta proposta e congela i soggetti`;
+- solo dopo l'accettazione il Prompt Pack immagini diventa operativo.
 
-Finché il piano soggetti è irrisolto:
-
-- il Prompt Pack immagini è esplicitamente bloccato/disabilitato;
-- la UI spiega la prossima azione esatta;
-- se non esiste una risposta valida: `copia Prompt planner → esegui con AI → incolla JSON → Importa come candidato`;
-- se esiste una proposta valida ma non accettata: `torna in Definizione → verifica/modifica proposta → Accetta proposta e congela i soggetti`;
-- solo dopo l'accettazione il Prompt Pack immagini diventa disponibile.
-
-## 2. La proposta AI deve essere visibile prima dell'accettazione
+## 2. La proposta AI è visibile prima dell'accettazione
 
 Decisione utente esplicita del 2026-08-24:
 
 > Nel piano soggetti, quando li lascio preparare all'AI, devo vedere cosa ha trovato prima di accettare la proposta.
 
-Questa è una regola HARD di UX/editorial control.
+Regola HARD di UX/editorial control.
 
-Prima di abilitare l'accettazione, Diez deve mostrare in **Definizione** una sezione chiaramente identificabile come **Proposta AI da verificare**, contenente per ogni soggetto almeno:
+Diez mostra in **Definizione** una sezione **Proposta AI da verificare e modificare prima di accettare**, con per ogni soggetto:
 
 1. nome editoriale visibile in italiano (`display_name_it`);
-2. descrizione editoriale visibile in italiano (`description_it`), quando presente.
+2. descrizione editoriale visibile in italiano (`description_it`).
 
-I campi tecnici `canonical_concept` e `canonical_description` restano stato semantico/compilatore e non devono sostituire la presentazione italiana.
+`canonical_concept` e `canonical_description` restano dati semantici del compilatore e non sostituiscono la presentazione italiana.
 
-La UI deve dichiarare esplicitamente che nessun soggetto viene applicato o congelato finché l'utente non preme **Accetta proposta e congela i soggetti**.
+L'import della risposta AI non equivale ad accettazione e non congela automaticamente alcun soggetto.
 
-L'accettazione non può essere implicita nell'import della risposta AI.
-
-## 3. La proposta deve essere modificabile prima dell'accettazione
+## 3. La proposta è modificabile prima dell'accettazione
 
 Decisione utente esplicita del 2026-08-24:
 
@@ -64,76 +58,77 @@ Decisione utente esplicita del 2026-08-24:
 
 La proposta AI è una **bozza editoriale**, non un risultato take-it-or-leave-it.
 
-Per ogni soggetto proposto Diez deve consentire di modificare almeno:
+Per ogni soggetto sono modificabili:
 
 - nome editoriale visibile in italiano;
 - descrizione editoriale visibile in italiano.
 
-Le modifiche non vengono mai perse se l'utente preme Accetta: quando esistono modifiche non salvate, **Accetta proposta e congela i soggetti** deve essere disabilitato.
+Se un campo viene modificato, **Accetta proposta e congela i soggetti** viene disabilitato fino al salvataggio della revisione: Diez non può ignorare silenziosamente una modifica visibile dell'utente.
 
 ### 3.1 Modifica di sola formulazione editoriale
 
-L'utente può dichiarare che la modifica cambia solo la formulazione visibile, ma **non il soggetto né il suo significato**.
+Scelta UI:
+
+`Ho cambiato solo la formulazione · il soggetto/significato è lo stesso`
 
 In questo caso:
 
 - i nuovi testi italiani diventano autorevoli per la UI;
-- `canonical_concept` e `canonical_description` della proposta AI possono restare validi;
-- Diez crea una nuova versione Candidate della proposta, senza approvarla automaticamente;
-- la proposta modificata viene nuovamente mostrata prima dell'accettazione.
+- `canonical_concept` e `canonical_description` già validati vengono conservati;
+- Diez crea una nuova Candidate testuale;
+- nessuna approvazione è automatica;
+- la proposta modificata viene mostrata nuovamente prima dell'accettazione.
 
 ### 3.2 Modifica che cambia soggetto/significato
 
-Se l'utente dichiara che la modifica cambia davvero il soggetto o il suo significato:
+Scelta UI:
 
-- la vecchia semantica tecnica AI è considerata **stale**;
-- Diez non può mantenere silenziosamente il vecchio `canonical_concept`;
-- Diez prepara una nuova Work Unit TEXT di **riconciliazione semantica**;
-- i nomi/descrizioni italiani modificati dall'utente sono HARD LOCK: il planner non può sostituirli con soggetti diversi;
-- l'AI deve rigenerare solamente `canonical_concept` e `canonical_description` coerenti con le decisioni utente;
-- la nuova risposta viene importata come Candidate e mostrata di nuovo in Definizione;
-- solo dopo questa nuova verifica l'utente può accettare e congelare.
+`Ho cambiato il soggetto o il significato · Diez deve ricompilare la semantica`
 
-Questa regola evita sia la traduzione meccanica sia il riuso di semantica obsoleta.
+In questo caso:
+
+- la vecchia semantica tecnica AI viene marcata stale e non può essere riutilizzata;
+- Diez salva le modifiche utente come draft non semanticamente risolto;
+- crea una nuova Work Unit TEXT `# DIEZ SEMANTIC SUBJECT RECONCILIATION`;
+- `display_name_it` e `description_it` modificati dall'utente diventano HARD LOCK;
+- il planner non può sostituire, fondere o reinterpretare i soggetti;
+- l'AI deve rigenerare solamente `canonical_concept` e `canonical_description` coerenti;
+- la nuova risposta torna Candidate e viene mostrata di nuovo prima dell'accettazione;
+- il Prompt Pack immagini resta bloccato fino alla riconciliazione e successiva accettazione.
+
+Questa separazione evita sia traduzione meccanica sia riuso di semantica obsoleta.
 
 ## 4. Duplicazione del planner
 
-L'utente riferisce che Diez ha generato due prompt planner durante lo stesso tentativo. `Prepare` in Round 5.4 crea sempre una nuova attività.
+Per lo stesso stato semantico del progetto, stesso tema, cardinalità e prompt planner:
 
-### Regola Round 5.5
+- una seconda pressione di `Prepara proposta soggetti con AI` non crea un duplicato;
+- Diez riusa l'attività planner già preparata;
+- una proposta già valida rimanda a verifica/modifica/accettazione;
+- una riconciliazione semantica già pendente non genera un altro planner.
 
-Per lo stesso stato semantico del progetto, stesso tema, stessa cardinalità e stesso prompt planner:
+## 5. Contaminazione semantica nel planner
 
-- una seconda pressione di `Prepara proposta soggetti con AI` non deve creare un duplicato;
-- Diez deve riusare l'attività planner già preparata;
-- se una proposta valida è già importata, deve portare l'utente alla verifica/modifica/accettazione anziché creare una nuova attività.
-
-## 5. Contaminazione semantica nel prompt planner
-
-Nel prompt fisicamente osservato compare:
+Nel prompt fisicamente osservato in Round 5.4 compariva:
 
 `Publisher HARD exclusions relevant to subject selection: un'unica image con 3 illustrazioni`
 
-Questo vincolo è di layout/atomicità della produzione immagini, non di selezione dei soggetti. Inoltre contiene testo utente quasi letterale e misto italiano/inglese.
+È un vincolo di layout/atomicità, non di selezione dei soggetti.
 
-Viola il confine già definito:
-
-**UI italiana / testo utente → significato canonico → Prompt Compiler → prompt engineering provider-facing.**
-
-### Regola Round 5.5
-
-Il planner soggetti riceve solo vincoli semanticamente rilevanti per **quali soggetti scegliere**.
-
-Vincoli su:
+Round 5.5 filtra dal planner soggetti i vincoli relativi a:
 
 - una sola immagine/canvas;
 - più illustrazioni nello stesso canvas;
 - collage;
 - griglia;
 - triptych;
-- pannelli/layout;
+- pannelli/layout.
 
-non devono essere copiati nel planner soggetti. Restano responsabilità del compilatore delle Work Unit immagine e dei relativi HARD gate.
+Questi restano responsabilità del Prompt Compiler delle Work Unit immagine e dei relativi HARD gate.
+
+Resta valido il confine:
+
+**UI italiana / testo utente → significato canonico → Prompt Compiler → prompt engineering provider-facing.**
 
 ## 6. Ritorno automatico alla proposta
 
@@ -142,26 +137,62 @@ Quando l'utente importa con successo la risposta JSON della Work Unit planner o 
 - Diez salva la Candidate;
 - valida il contratto;
 - ritorna al workspace visuale/Definizione;
-- mostra immediatamente la proposta AI da verificare/modificare;
+- mostra immediatamente la proposta da verificare/modificare;
 - non approva e non applica automaticamente.
 
-## Regression criteria
+## 7. Regression gate
 
-Round 5.5 deve fallire se:
+Round 5.5 verifica automaticamente che:
 
-1. una seconda preparazione identica crea un secondo planner;
-2. il Prompt Pack immagini appare operativo mentre `planner.Required == true`;
-3. una proposta valida può essere accettata senza che i nomi/descrizioni siano prima mostrati in UI;
-4. l'import della Candidate equivale automaticamente ad accettazione;
-5. il planner contiene il vincolo raw `un'unica image con 3 illustrazioni` o equivalenti di layout;
-6. dopo l'import planner l'utente non viene guidato alla verifica in Definizione;
-7. dopo l'accettazione il piano resta segnato come irrisolto;
-8. una modifica visibile non salvata può essere ignorata premendo Accetta;
-9. una modifica dichiarata semantica conserva il vecchio `canonical_concept` senza nuova riconciliazione;
-10. la riconciliazione semantica può cambiare i soggetti italiani che l'utente ha appena fissato.
+1. una seconda preparazione identica non crei un secondo planner;
+2. il Prompt Pack resti bloccato mentre il piano è irrisolto;
+3. la proposta AI sia disponibile come stato prima dell'accettazione;
+4. l'import Candidate non equivalga ad accettazione;
+5. i vincoli raw di layout non contaminino il planner;
+6. dopo l'accettazione il piano non resti irrisolto;
+7. una modifica solo editoriale conservi il `canonical_concept` esistente;
+8. una modifica semantica prepari una riconciliazione distinta;
+9. durante la riconciliazione le modifiche italiane dell'utente restino visibili e non risultino già accettabili;
+10. una riconciliazione duplicata venga bloccata;
+11. la risposta riconciliata debba preservare esattamente i soggetti user-locked;
+12. il renderer finale riceva la nuova semantica canonica e non quella stale precedente.
 
-## Consolidamento
+## 8. Candidata Windows Round 5.5
 
-Round 5.5 resta **NON CONSOLIDATO** finché non è fisicamente verificato il percorso completo:
+Build finale pulita, senza workflow/marker one-shot e senza patch applicate durante la CI:
+
+- Source SHA: `bc069089eaa05d3235d6e4ced623184682c1cd85`
+- Workflow: `Uno Windows Consolidation Candidate`
+- Run: `#44`
+- Run ID: `32713476241`
+- stato: `TECHNICALLY_VERIFIED`
+- Visual book gate: `success`
+- Visual semantic regression: `success`
+- Restore Windows runtime: `success`
+- Publish Uno Windows x64: `success`
+- Verify executable: `success`
+- Build Setup EXE: `success`
+- Smoke install/launch/uninstall: `success`
+- Artifact upload: `success`
+- Artifact ID: `9515092034`
+- Artifact ZIP bytes: `94446663`
+- Artifact ZIP SHA-256: `f68f6d239f1aed5c7944f3572e74adcaae207209e1a68213d7f9bcb25e9f24d3`
+- Setup bytes: `94975594`
+- Setup SHA-256: `e3a7a5f03e3289e5dcab16dd56841e11960823c2523256500d2ad29c4d84fe64`
+
+Gli hash del ZIP scaricato e del Setup estratto sono stati verificati localmente e coincidono con CI/artifact metadata.
+
+## 9. Consolidamento
+
+Round 5.5 resta **NON CONSOLIDATO** finché non è fisicamente verificato il percorso completo nell'app installata:
 
 `tema aggregato → planner unico → risposta JSON → proposta visibile/modificabile → eventuale riconciliazione → accettazione utente → Prompt immagini → Prompt Pack ZIP`.
+
+Test fisico prioritario:
+
+1. progetto nuovo;
+2. progetto 10 legacy riaperto;
+3. prova accettazione senza modifiche;
+4. prova modifica solo editoriale;
+5. prova modifica che cambia davvero un soggetto;
+6. ispezione del Prompt Pack reale dopo il freeze canonico.
