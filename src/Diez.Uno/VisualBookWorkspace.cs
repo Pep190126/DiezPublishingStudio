@@ -387,19 +387,11 @@ internal static class VisualBookWorkspace
         {
             if (!plannerState.Required)
                 return "Piano soggetti risolto in Diez. I soggetti canonici sono già disponibili per la compilazione del Prompt immagini.";
-            if (!plannerState.ProposalValid)
+            if (plannerState.Proposal.Count == 0)
                 return $"Tema di serie da risolvere: {plannerState.SeriesTheme}. {plannerState.ValidationMessage}";
-
-            var lines = new List<string> { "Proposta AI da verificare prima di accettare:" };
-            foreach (var item in plannerState.Proposal.Select((value, index) => (value, index)))
-            {
-                lines.Add($"{item.index + 1}. {item.value.DisplayName}");
-                if (!string.IsNullOrWhiteSpace(item.value.Description))
-                    lines.Add("   " + item.value.Description.Trim());
-            }
-            lines.Add(string.Empty);
-            lines.Add("Nessun soggetto viene applicato o congelato finché non premi “Accetta proposta e congela i soggetti”.");
-            return string.Join(Environment.NewLine, lines);
+            if (!plannerState.ProposalValid)
+                return plannerState.ValidationMessage;
+            return "Proposta AI valida. Controlla e, se vuoi, modifica nomi e descrizioni prima di accettarla.";
         }
 
         var plannerSummary = new TextBlock
@@ -407,6 +399,52 @@ internal static class VisualBookWorkspace
             Text = PlannerSummaryText(),
             TextWrapping = TextWrapping.Wrap
         };
+
+        var proposalEditors = new List<(TextBox Name, TextBox Description)>();
+        var proposalEditorPanel = new StackPanel { Spacing = 10, HorizontalAlignment = HorizontalAlignment.Stretch };
+        if (plannerState.Proposal.Count > 0)
+        {
+            proposalEditorPanel.Children.Add(new TextBlock
+            {
+                Text = plannerState.ProposalValid
+                    ? "Proposta AI da verificare e modificare prima di accettare"
+                    : "Modifiche utente salvate · in attesa di riconciliazione semantica",
+                FontSize = 17,
+                TextWrapping = TextWrapping.Wrap
+            });
+            foreach (var item in plannerState.Proposal.Select((value, index) => (value, index)))
+            {
+                var nameBox = Editor(item.value.DisplayName, $"Nome soggetto {item.index + 1}", 54);
+                var descriptionBox = Editor(item.value.Description, $"Descrizione soggetto {item.index + 1}", 72);
+                nameBox.IsReadOnly = !plannerState.ProposalValid;
+                descriptionBox.IsReadOnly = !plannerState.ProposalValid;
+                proposalEditors.Add((nameBox, descriptionBox));
+                proposalEditorPanel.Children.Add(Card($"Soggetto {item.index + 1}", Vertical(
+                    Labeled("Nome", nameBox),
+                    Labeled("Descrizione", descriptionBox))));
+            }
+        }
+
+        var editorialOnly = new RadioButton
+        {
+            GroupName = "PlannerProposalEditMeaning",
+            Content = "Ho cambiato solo la formulazione · il soggetto/significato è lo stesso",
+            IsChecked = true
+        };
+        var semanticChange = new RadioButton
+        {
+            GroupName = "PlannerProposalEditMeaning",
+            Content = "Ho cambiato il soggetto o il significato · Diez deve ricompilare la semantica",
+            IsChecked = false
+        };
+        var editStatus = new TextBlock
+        {
+            Text = plannerState.ProposalValid
+                ? "Puoi accettare la proposta così com'è oppure modificarla. Se modifichi un campo, salva la revisione prima di accettare."
+                : plannerState.ValidationMessage,
+            TextWrapping = TextWrapping.Wrap
+        };
+
         var acceptProposal = AsyncButton("Accetta proposta e congela i soggetti", async () =>
         {
             var current = document.ReadVisualSubjectPlanner();
@@ -427,26 +465,87 @@ internal static class VisualBookWorkspace
         });
         acceptProposal.IsEnabled = plannerState.Required && plannerState.ProposalValid && plannerState.ProposalVersionId.HasValue;
 
-        root.Children.Add(Card("Piano soggetti Diez · prima del Prompt", Vertical(
+        var saveProposalEdits = AsyncButton("Salva modifiche alla proposta", async () =>
+        {
+            var current = document.ReadVisualSubjectPlanner();
+            if (!current.ProposalValid || !current.ProposalVersionId.HasValue)
+            {
+                report("La proposta non è ancora in uno stato modificabile: completa prima la risposta/ricalcolo semantico in corso.");
+                return;
+            }
+            if (proposalEditors.Count != current.Proposal.Count)
+            {
+                report("La proposta a video non corrisponde più allo stato del progetto. Riapri la Definizione prima di modificarla.");
+                return;
+            }
+            var edits = proposalEditors
+                .Select(x => new DiezVisualSubjectProposalUserEditDto(x.Name.Text ?? string.Empty, x.Description.Text ?? string.Empty))
+                .ToList();
+            var result = await document.SaveVisualSubjectPlannerRevisionAsync(
+                current.ProposalVersionId.Value,
+                edits,
+                semanticChange.IsChecked == true);
+            await save();
+            report(result.Message);
+            if (result.Status is "REVISION_PREPARED" or "REVISION_PENDING")
+            {
+                showAiCenter();
+                return;
+            }
+            if (result.Status == "EDITORIAL_REVISED") refresh();
+        });
+        saveProposalEdits.IsEnabled = plannerState.ProposalValid && proposalEditors.Count > 0;
+
+        foreach (var editor in proposalEditors.SelectMany(x => new[] { x.Name, x.Description }))
+        {
+            editor.TextChanged += (_, _) =>
+            {
+                acceptProposal.IsEnabled = false;
+                editStatus.Text = "Hai modifiche non salvate. Salva la revisione prima di accettare, così Diez non ignora nessuna tua scelta.";
+            };
+        }
+
+        var prepareProposal = AsyncButton("Prepara proposta soggetti con AI", async () =>
+        {
+            if (!await SaveSetupAsync()) return;
+            var prepared = document.PrepareVisualSubjectPlanner(
+                document.GetUiString("Prompt.MustDo"),
+                document.GetUiString("Prompt.MustNotDo"));
+            await save();
+            report(prepared.Message);
+            if (prepared.Status is "PREPARED" or "ALREADY_PREPARED" or "REVISION_PENDING") showAiCenter();
+            else if (prepared.Status == "PROPOSAL_READY") refresh();
+        });
+        prepareProposal.IsEnabled = plannerState.Required &&
+            !plannerState.ProposalValid &&
+            !string.Equals(plannerState.ProposalStatus, "SEMANTIC_RECONCILIATION_PENDING", StringComparison.OrdinalIgnoreCase);
+
+        var proposalControls = new List<UIElement>
+        {
             new TextBlock
             {
-                Text = "Se hai descritto una serie (per esempio “3 soggetti di Halloween”), il generatore immagini non deve scegliere i soggetti. Diez prepara una proposta strutturata con un'attività AI testuale. Dopo l'import della risposta, qui vedi nomi e descrizioni trovati dall'AI prima di decidere se accettarli.",
+                Text = "Se hai descritto una serie (per esempio “3 soggetti di Halloween”), il generatore immagini non deve scegliere i soggetti. Dopo l'import della risposta planner, Diez mostra qui ciò che l'AI ha trovato. Puoi accettarlo, correggerne la formulazione o cambiare davvero uno o più soggetti prima del freeze canonico.",
                 TextWrapping = TextWrapping.Wrap
             },
-            plannerSummary,
-            WrapRow(
-                AsyncButton("Prepara proposta soggetti con AI", async () =>
+            plannerSummary
+        };
+        if (plannerState.Proposal.Count > 0)
+        {
+            proposalControls.Add(proposalEditorPanel);
+            proposalControls.Add(editStatus);
+            if (plannerState.ProposalValid)
+            {
+                proposalControls.Add(new TextBlock
                 {
-                    if (!await SaveSetupAsync()) return;
-                    var prepared = document.PrepareVisualSubjectPlanner(
-                        document.GetUiString("Prompt.MustDo"),
-                        document.GetUiString("Prompt.MustNotDo"));
-                    await save();
-                    report(prepared.Message);
-                    if (prepared.Status == "PREPARED") showAiCenter();
-                }),
-                acceptProposal,
-                ActionButton("Apri Produzione con AI", showAiCenter)))));
+                    Text = "Se una modifica cambia solo il testo visibile, Diez conserva la semantica tecnica già validata. Se cambia il soggetto/significato, la vecchia semantica viene invalidata e serve una nuova riconciliazione AI prima dell'accettazione.",
+                    TextWrapping = TextWrapping.Wrap
+                });
+                proposalControls.Add(WrapRow(editorialOnly, semanticChange));
+                proposalControls.Add(WrapRow(saveProposalEdits, acceptProposal));
+            }
+        }
+        proposalControls.Add(WrapRow(prepareProposal, ActionButton("Apri Produzione con AI", showAiCenter)));
+        root.Children.Add(Card("Piano soggetti Diez · prima del Prompt", Vertical(proposalControls.ToArray())));
 
         root.Children.Add(NavigationRow(
             null,

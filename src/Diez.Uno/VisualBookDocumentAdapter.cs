@@ -52,6 +52,19 @@ internal static class VisualBookDocumentAdapter
         return result;
     }
 
+    public static async Task<DiezVisualSubjectPlannerMutation> SaveVisualSubjectPlannerRevisionAsync(
+        this DiezProjectDocument document,
+        Guid versionId,
+        IEnumerable<DiezVisualSubjectProposalUserEditDto> edits,
+        bool semanticChange)
+    {
+        var result = await DiezVisualSubjectPlannerFrontendBridge.SaveUserRevisionAsync(
+            document.ExportProjectJson(), versionId, edits, semanticChange);
+        if (result.Status is "EDITORIAL_REVISED" or "REVISION_PREPARED" or "REVISION_PENDING")
+            ApplyCoreJson(document, result.ProjectJson);
+        return result;
+    }
+
     public static DiezColoringCustomStyleStateDto ReadColoringCustomStyle(this DiezProjectDocument document) =>
         DiezColoringCustomStyleFrontendBridge.Read(document.ExportProjectJson());
 

@@ -204,4 +204,76 @@ var malformedPlanner = """{"subjects":[{"display_name_it":"Fantasma","canonical_
 Require(!DiezVisualSubjectPlannerFrontendBridge.TryValidateProposal(malformedPlanner, 3, out _),
     "Una proposta con numero errato di soggetti deve essere respinta.");
 
+// Round 5.5: the visible AI proposal is editable before acceptance.
+var editableProject = Save(NewProject(), "3 soggetti di Halloween");
+var editablePrepared = DiezVisualSubjectPlannerFrontendBridge.Prepare(editableProject);
+var editableIngest = await DiezAiExchangeBridge.IngestTextResultAsync(
+    editablePrepared.ProjectJson,
+    editablePrepared.State.PlannerWorkUnitId!.Value,
+    plannerJson);
+var editableState = DiezVisualSubjectPlannerFrontendBridge.Read(editableIngest.ProjectJson);
+Require(editableState.ProposalValid && editableState.ProposalVersionId.HasValue,
+    "La proposta da modificare deve essere visibile e valida prima dell'accettazione.");
+
+var editorialEdits = editableState.Proposal
+    .Select((x, i) => new DiezVisualSubjectProposalUserEditDto(
+        i == 0 ? "Zucca jack-o'-lantern allegra" : x.DisplayName,
+        i == 0 ? "Una grande zucca allegra e immediatamente riconoscibile." : x.Description))
+    .ToList();
+var editorialRevision = await DiezVisualSubjectPlannerFrontendBridge.SaveUserRevisionAsync(
+    editableIngest.ProjectJson,
+    editableState.ProposalVersionId!.Value,
+    editorialEdits,
+    semanticChange: false);
+Require(editorialRevision.Status == "EDITORIAL_REVISED", "La revisione solo editoriale deve restare una Candidate: " + editorialRevision.Message);
+Require(editorialRevision.State.ProposalValid && editorialRevision.State.Proposal[0].DisplayName == "Zucca jack-o'-lantern allegra",
+    "La nuova formulazione italiana deve essere visibile prima dell'accettazione.");
+Require(editorialRevision.State.Proposal[0].CanonicalConcept == editableState.Proposal[0].CanonicalConcept,
+    "Una modifica dichiarata solo editoriale deve preservare il canonical_concept validato.");
+
+var semanticEdits = editorialRevision.State.Proposal
+    .Select((x, i) => new DiezVisualSubjectProposalUserEditDto(
+        i == 0 ? "Strega simpatica con cappello a punta" : x.DisplayName,
+        i == 0 ? "Una singola strega simpatica e riconoscibile con cappello a punta." : x.Description))
+    .ToList();
+var semanticRevision = await DiezVisualSubjectPlannerFrontendBridge.SaveUserRevisionAsync(
+    editorialRevision.ProjectJson,
+    editorialRevision.State.ProposalVersionId!.Value,
+    semanticEdits,
+    semanticChange: true);
+Require(semanticRevision.Status == "REVISION_PREPARED", "Una modifica semantica deve preparare una nuova riconciliazione: " + semanticRevision.Message);
+Require(!semanticRevision.State.ProposalValid && semanticRevision.State.Proposal[0].DisplayName.Contains("Strega", StringComparison.OrdinalIgnoreCase),
+    "Durante la riconciliazione Diez deve conservare e mostrare la modifica utente, senza fingere che sia già semanticamente valida.");
+Require(semanticRevision.State.PlannerPrompt.Contains("DIEZ SEMANTIC SUBJECT RECONCILIATION", StringComparison.Ordinal),
+    "La modifica semantica deve usare una Work Unit di riconciliazione distinta dalla scelta iniziale dei soggetti.");
+Require(semanticRevision.State.PlannerPrompt.Contains("Strega simpatica con cappello a punta", StringComparison.Ordinal),
+    "La riconciliazione deve trattare il soggetto modificato dall'utente come HARD LOCK.");
+var duplicateSemanticRevision = DiezVisualSubjectPlannerFrontendBridge.Prepare(semanticRevision.ProjectJson);
+Require(duplicateSemanticRevision.Status == "REVISION_PENDING",
+    "Con una riconciliazione già pronta Diez non deve creare un altro planner.");
+
+var reconciledJson = """
+{"subjects":[
+  {"display_name_it":"Strega simpatica con cappello a punta","canonical_concept":"friendly witch wearing a pointed hat","description_it":"Una singola strega simpatica e riconoscibile con cappello a punta.","canonical_description":"One friendly recognizable witch wearing a pointed hat."},
+  {"display_name_it":"Fantasma amichevole","canonical_concept":"friendly smiling ghost","description_it":"Un singolo fantasma simpatico e ben leggibile.","canonical_description":"One friendly smiling ghost with a clear simple silhouette."},
+  {"display_name_it":"Gatto con cappello da strega","canonical_concept":"cute cat wearing a witch hat","description_it":"Un gatto simpatico con cappello da strega.","canonical_description":"A cute cat wearing a witch hat."}
+]}
+""";
+var reconciledIngest = await DiezAiExchangeBridge.IngestTextResultAsync(
+    semanticRevision.ProjectJson,
+    semanticRevision.State.PlannerWorkUnitId!.Value,
+    reconciledJson);
+var reconciledState = DiezVisualSubjectPlannerFrontendBridge.Read(reconciledIngest.ProjectJson);
+Require(reconciledState.ProposalValid && reconciledState.Proposal[0].CanonicalConcept.Contains("friendly witch", StringComparison.OrdinalIgnoreCase),
+    "Solo dopo la riconciliazione la proposta modificata deve tornare accettabile.");
+var reconciledApplied = DiezVisualSubjectPlannerFrontendBridge.ApplyProposal(
+    reconciledIngest.ProjectJson,
+    reconciledState.ProposalVersionId!.Value);
+Require(reconciledApplied.Status == "APPLIED", "La proposta modificata e riconciliata deve poter essere congelata.");
+var reconciledPack = DiezVisualBookFrontendBridge.BuildPromptPack(reconciledApplied.ProjectJson);
+Require(reconciledPack.Items[0].Prompt.Contains("friendly witch wearing a pointed hat", StringComparison.OrdinalIgnoreCase),
+    "Il renderer deve ricevere la nuova semantica canonica, non quella stale della zucca.");
+Require(!reconciledPack.Items[0].Prompt.Contains("friendly jack-o'-lantern pumpkin", StringComparison.OrdinalIgnoreCase),
+    "La vecchia semantica AI non deve sopravvivere a una modifica utente del soggetto.");
+
 Console.WriteLine("VISUAL_SEMANTIC_REGRESSION_OK");

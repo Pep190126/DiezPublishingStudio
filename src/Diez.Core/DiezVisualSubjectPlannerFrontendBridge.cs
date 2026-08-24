@@ -11,6 +11,10 @@ public sealed record DiezVisualSubjectProposalItemDto(
     string Description,
     string CanonicalDescription);
 
+public sealed record DiezVisualSubjectProposalUserEditDto(
+    string DisplayName,
+    string Description);
+
 public sealed record DiezVisualSubjectPlannerStateDto(
     bool Required,
     int RequestedCount,
@@ -74,6 +78,8 @@ public static class DiezVisualSubjectPlannerFrontendBridge
         var currentState = State(currentProject);
         if (!currentState.Required)
             return Mutation(projectJson, "NOT_REQUIRED", "Il piano soggetti è già risolto in Diez: non serve una nuova proposta AI.");
+        if (string.Equals(currentState.ProposalStatus, "SEMANTIC_RECONCILIATION_PENDING", StringComparison.OrdinalIgnoreCase))
+            return Mutation(projectJson, "REVISION_PENDING", "Le modifiche utente che cambiano il significato sono già in attesa di riconciliazione semantica. Completa l'attività planner esistente; Diez non crea duplicati.");
         if (currentState.ProposalValid)
             return Mutation(projectJson, "PROPOSAL_READY", "Una proposta AI valida è già disponibile. Torna in Definizione, controlla i soggetti trovati e scegli se accettarla; non creo un secondo planner.");
 
@@ -104,6 +110,92 @@ public static class DiezVisualSubjectPlannerFrontendBridge
         return Mutation(prepared.ProjectJson, "PREPARED", message);
     }
 
+    public static async Task<DiezVisualSubjectPlannerMutation> SaveUserRevisionAsync(
+        string projectJson,
+        Guid versionId,
+        IEnumerable<DiezVisualSubjectProposalUserEditDto>? edits,
+        bool semanticChange)
+    {
+        var (_, project) = Parse(projectJson);
+        var exchange = AiExchangeStateStore.Load(project);
+        var version = exchange.Versions.FirstOrDefault(x => x.VersionId == versionId);
+        var unit = version is null ? null : exchange.WorkUnits.FirstOrDefault(x => x.WorkUnitId == version.WorkUnitId);
+        var legacyJob = unit?.LegacyAiJobId is Guid legacyId
+            ? project.AiProductionJobs.FirstOrDefault(x => x.JobId == legacyId)
+            : null;
+        if (version is null || unit is null || legacyJob is null || !IsPlannerJob(legacyJob))
+            return Mutation(projectJson, "NOT_FOUND", "La proposta da modificare non appartiene al planner soggetti Diez.");
+
+        var setup = ProjectSetup(project);
+        if (!TryParseProposal(version.TextContent, setup.ImageCount, out var original, out var validation))
+            return Mutation(projectJson, "INVALID_PROPOSAL", validation);
+
+        var userEdits = (edits ?? []).ToList();
+        if (userEdits.Count != original.Count)
+            return Mutation(projectJson, "INVALID_EDIT", $"La revisione contiene {userEdits.Count} soggetti, ma la proposta ne contiene {original.Count}.");
+
+        for (var i = 0; i < userEdits.Count; i++)
+        {
+            userEdits[i] = new DiezVisualSubjectProposalUserEditDto(
+                (userEdits[i].DisplayName ?? string.Empty).Trim(),
+                (userEdits[i].Description ?? string.Empty).Trim());
+            if (!VisualSemanticResolutionGuard.IsConcrete(userEdits[i].DisplayName))
+                return Mutation(projectJson, "INVALID_EDIT", $"Il soggetto {i + 1} deve avere un nome concreto e riconoscibile.");
+        }
+        if (userEdits.Select(x => x.DisplayName).Distinct(StringComparer.OrdinalIgnoreCase).Count() != userEdits.Count)
+            return Mutation(projectJson, "INVALID_EDIT", "I soggetti modificati devono restare distinti.");
+
+        if (!semanticChange)
+        {
+            var revised = original.Select((item, index) => new DiezVisualSubjectProposalItemDto(
+                userEdits[index].DisplayName,
+                item.CanonicalConcept,
+                userEdits[index].Description,
+                item.CanonicalDescription)).ToList();
+            var ingest = await DiezAiExchangeBridge.IngestTextResultAsync(
+                projectJson,
+                unit.WorkUnitId,
+                ProposalJson(revised),
+                resultStatus: "COMPLETE");
+            if (ingest.Status is not ("IMPORTED" or "UPDATED" or "DUPLICATE"))
+                return Mutation(projectJson, "BLOCKED", ingest.Message);
+            return Mutation(
+                ingest.ProjectJson,
+                "EDITORIAL_REVISED",
+                "Modifiche editoriali salvate come nuova Candidate. Il soggetto/significato è dichiarato invariato, quindi la semantica tecnica resta quella già validata. Controlla di nuovo la proposta prima di accettarla.");
+        }
+
+        var draft = UserRevisionDraftJson(userEdits);
+        var savedDraft = await DiezAiExchangeBridge.IngestTextResultAsync(
+            projectJson,
+            unit.WorkUnitId,
+            draft,
+            resultStatus: "INCOMPLETE");
+        if (savedDraft.Status is "INVALID" or "CONFLICT")
+            return Mutation(projectJson, "BLOCKED", savedDraft.Message);
+
+        var (_, revisedProject) = Parse(savedDraft.ProjectJson);
+        var revisedSetup = ProjectSetup(revisedProject);
+        var prompt = BuildReconciliationPrompt(revisedSetup, ExtractTheme(revisedSetup.Subject), userEdits);
+        var existing = revisedProject.AiProductionJobs
+            .Where(IsPlannerJob)
+            .OrderByDescending(x => x.CreatedAtLocal, StringComparer.Ordinal)
+            .ThenByDescending(x => x.Code, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault(x => string.Equals((x.Prompt ?? string.Empty).Trim(), prompt, StringComparison.Ordinal));
+        if (existing is not null)
+            return Mutation(savedDraft.ProjectJson, "REVISION_PENDING", $"La riconciliazione semantica {existing.Code} è già pronta. Completa quella attività; Diez non crea duplicati.");
+
+        var prepared = DiezAiExchangeBridge.CreateReadyJob(
+            savedDraft.ProjectJson,
+            PlannerTitle,
+            AiProductionService.TypeText,
+            prompt);
+        return Mutation(
+            prepared.ProjectJson,
+            "REVISION_PREPARED",
+            "Le tue modifiche cambiano il soggetto/significato: la vecchia semantica AI è stata invalidata. Diez ha preparato una riconciliazione TEXT che deve preservare esattamente i soggetti italiani modificati e rigenerare solo i campi canonici tecnici. Importa la risposta e poi ricontrolla la proposta prima di accettarla.");
+    }
+
     public static DiezVisualSubjectPlannerMutation ApplyProposal(string projectJson, Guid versionId)
     {
         var (_, originalProject) = Parse(projectJson);
@@ -122,6 +214,10 @@ public static class DiezVisualSubjectPlannerFrontendBridge
 
         if (!TryParseProposal(version.TextContent, setup.ImageCount, out var proposal, out var validation))
             return Mutation(projectJson, "INVALID_PROPOSAL", validation);
+
+        var pendingDraft = LatestUserRevisionDraft(originalProject, originalState, setup.ImageCount);
+        if (pendingDraft.Count > 0 && !ReconciliationSatisfied(originalProject, originalState, unit, pendingDraft))
+            return Mutation(projectJson, "STALE_SEMANTICS", "Le modifiche utente cambiano ancora il significato e non sono state riconciliate semanticamente. Completa il planner di revisione prima di accettare.");
 
         // Explicit user acceptance also approves this non-image planning candidate in AI Exchange.
         var approved = DiezAiExchangeBridge.ApproveVersion(projectJson, versionId);
@@ -188,11 +284,12 @@ public static class DiezVisualSubjectPlannerFrontendBridge
                                     VisualSemanticResolutionGuard.IsConcrete(x.Name));
         var required = aggregate && !resolvedStructured;
         var theme = aggregate ? ExtractTheme(setup.Subject) : string.Empty;
-        var plannerJob = project.AiProductionJobs
+        var plannerJobs = project.AiProductionJobs
             .Where(IsPlannerJob)
             .OrderBy(x => x.CreatedAtLocal, StringComparer.Ordinal)
             .ThenBy(x => x.Code, StringComparer.OrdinalIgnoreCase)
-            .LastOrDefault();
+            .ToList();
+        var plannerJob = plannerJobs.LastOrDefault();
 
         Guid? workUnitId = null;
         Guid? versionId = null;
@@ -204,6 +301,7 @@ public static class DiezVisualSubjectPlannerFrontendBridge
             : "Il piano soggetti non richiede risoluzione AI.";
 
         var exchange = AiExchangeStateStore.Load(project);
+        var draft = required ? LatestUserRevisionDraft(project, exchange, setup.ImageCount) : [];
         if (plannerJob is not null)
         {
             var unit = exchange.WorkUnits.FirstOrDefault(x => x.LegacyAiJobId == plannerJob.JobId);
@@ -219,9 +317,34 @@ public static class DiezVisualSubjectPlannerFrontendBridge
                     versionId = version.VersionId;
                     proposalStatus = version.Status ?? string.Empty;
                     valid = TryParseProposal(version.TextContent, setup.ImageCount, out var parsed, out validation);
-                    if (valid) proposal = parsed;
+                    if (valid)
+                    {
+                        var reconciliation = IsReconciliationPrompt(plannerJob.Prompt);
+                        if (draft.Count > 0 && reconciliation && !ReconciliationSatisfied(project, exchange, unit, draft))
+                        {
+                            valid = false;
+                            validation = "La risposta di riconciliazione non preserva esattamente i soggetti modificati dall'utente.";
+                        }
+                        else
+                        {
+                            proposal = parsed;
+                            if (draft.Count > 0 && reconciliation)
+                                validation = $"Proposta riconciliata: {parsed.Count} soggetti preservano le modifiche utente e hanno nuova semantica tecnica.";
+                        }
+                    }
                 }
             }
+        }
+
+        if (required && !valid && draft.Count > 0)
+        {
+            proposal = draft.Select(x => new DiezVisualSubjectProposalItemDto(x.DisplayName, string.Empty, x.Description, string.Empty)).ToList();
+            proposalStatus = plannerJob is not null && IsReconciliationPrompt(plannerJob.Prompt)
+                ? "SEMANTIC_RECONCILIATION_PENDING"
+                : "USER_REVISION_PENDING";
+            validation = proposalStatus == "SEMANTIC_RECONCILIATION_PENDING"
+                ? "Le modifiche utente sono salvate. Completa la riconciliazione semantica TEXT; il Prompt Pack immagini resta bloccato."
+                : "Le modifiche utente cambiano il significato e richiedono una nuova riconciliazione semantica prima dell'accettazione.";
         }
 
         return new DiezVisualSubjectPlannerStateDto(
@@ -312,6 +435,153 @@ public static class DiezVisualSubjectPlannerFrontendBridge
         }
         return string.Join("; ", kept.Distinct(StringComparer.OrdinalIgnoreCase));
     }
+
+    private static string BuildReconciliationPrompt(
+        DiezVisualBookSetupDto setup,
+        string theme,
+        IReadOnlyList<DiezVisualSubjectProposalUserEditDto> edits)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("# DIEZ SEMANTIC SUBJECT RECONCILIATION");
+        sb.AppendLine();
+        sb.AppendLine("The publisher has edited and LOCKED the user-visible subjects. You are NOT selecting subjects.");
+        sb.AppendLine("Preserve every `display_name_it` and `description_it` exactly as supplied below. Do not replace, merge, broaden or reinterpret the subjects.");
+        sb.AppendLine("Generate only the matching technical-English `canonical_concept` and `canonical_description` values needed by the downstream compiler.");
+        sb.AppendLine($"Book family: {BookTypeEnglish(setup.BookType)}.");
+        if (!string.IsNullOrWhiteSpace(theme)) sb.AppendLine($"Series theme context: {theme}.");
+        sb.AppendLine($"Required subject count: EXACTLY {edits.Count}.");
+        sb.AppendLine();
+        sb.AppendLine("USER-LOCKED SUBJECTS — HARD:");
+        for (var i = 0; i < edits.Count; i++)
+        {
+            sb.AppendLine($"{i + 1}. display_name_it: {edits[i].DisplayName}");
+            sb.AppendLine($"   description_it: {edits[i].Description}");
+        }
+        sb.AppendLine();
+        sb.AppendLine("Return JSON ONLY, with no Markdown fences and no commentary, using exactly this schema:");
+        sb.AppendLine("{"subjects":[{"display_name_it":"...","canonical_concept":"...","description_it":"...","canonical_description":"..."}]}");
+        return sb.ToString().Trim();
+    }
+
+    private static string UserRevisionDraftJson(IReadOnlyList<DiezVisualSubjectProposalUserEditDto> edits)
+    {
+        var subjects = new JsonArray();
+        foreach (var edit in edits)
+        {
+            subjects.Add(new JsonObject
+            {
+                ["display_name_it"] = edit.DisplayName,
+                ["description_it"] = edit.Description
+            });
+        }
+        return new JsonObject
+        {
+            ["diez_user_revision"] = "SEMANTIC_REBUILD_REQUIRED",
+            ["subjects"] = subjects
+        }.ToJsonString(JsonOptions);
+    }
+
+    private static string ProposalJson(IReadOnlyList<DiezVisualSubjectProposalItemDto> proposal)
+    {
+        var subjects = new JsonArray();
+        foreach (var item in proposal)
+        {
+            subjects.Add(new JsonObject
+            {
+                ["display_name_it"] = item.DisplayName,
+                ["canonical_concept"] = item.CanonicalConcept,
+                ["description_it"] = item.Description,
+                ["canonical_description"] = item.CanonicalDescription
+            });
+        }
+        return new JsonObject { ["subjects"] = subjects }.ToJsonString(JsonOptions);
+    }
+
+    private static IReadOnlyList<DiezVisualSubjectProposalUserEditDto> LatestUserRevisionDraft(
+        PreviewProject project,
+        AiExchangeState exchange,
+        int expectedCount)
+    {
+        var plannerJobs = project.AiProductionJobs
+            .Where(IsPlannerJob)
+            .OrderBy(x => x.CreatedAtLocal, StringComparer.Ordinal)
+            .ThenBy(x => x.Code, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        for (var jobIndex = plannerJobs.Count - 1; jobIndex >= 0; jobIndex--)
+        {
+            var unit = exchange.WorkUnits.FirstOrDefault(x => x.LegacyAiJobId == plannerJobs[jobIndex].JobId);
+            if (unit is null) continue;
+            foreach (var version in exchange.Versions.Where(x => x.WorkUnitId == unit.WorkUnitId).OrderByDescending(x => x.VersionNumber))
+            {
+                if (TryParseUserRevisionDraft(version.TextContent, expectedCount, out var draft)) return draft;
+            }
+        }
+        return [];
+    }
+
+    private static bool TryParseUserRevisionDraft(
+        string? text,
+        int expectedCount,
+        out IReadOnlyList<DiezVisualSubjectProposalUserEditDto> edits)
+    {
+        edits = [];
+        try
+        {
+            using var doc = JsonDocument.Parse(StripFence(text));
+            if (!doc.RootElement.TryGetProperty("diez_user_revision", out var marker) ||
+                !string.Equals(marker.GetString(), "SEMANTIC_REBUILD_REQUIRED", StringComparison.Ordinal)) return false;
+            if (!doc.RootElement.TryGetProperty("subjects", out var subjects) || subjects.ValueKind != JsonValueKind.Array) return false;
+            var list = new List<DiezVisualSubjectProposalUserEditDto>();
+            foreach (var item in subjects.EnumerateArray())
+            {
+                list.Add(new DiezVisualSubjectProposalUserEditDto(Read(item, "display_name_it"), Read(item, "description_it")));
+            }
+            if (list.Count != expectedCount || list.Any(x => !VisualSemanticResolutionGuard.IsConcrete(x.DisplayName))) return false;
+            edits = list;
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static bool ReconciliationSatisfied(
+        PreviewProject project,
+        AiExchangeState exchange,
+        AiExchangeWorkUnit currentUnit,
+        IReadOnlyList<DiezVisualSubjectProposalUserEditDto> draft)
+    {
+        var currentJob = currentUnit.LegacyAiJobId is Guid legacyId
+            ? project.AiProductionJobs.FirstOrDefault(x => x.JobId == legacyId)
+            : null;
+        if (currentJob is null || !IsReconciliationPrompt(currentJob.Prompt)) return false;
+        foreach (var version in exchange.Versions
+                     .Where(x => x.WorkUnitId == currentUnit.WorkUnitId && x.Status != AiExchangeVersionStatuses.Incomplete)
+                     .OrderBy(x => x.VersionNumber))
+        {
+            if (!TryParseProposal(version.TextContent, draft.Count, out var proposal, out _)) continue;
+            if (MatchesDraft(proposal, draft)) return true;
+        }
+        return false;
+    }
+
+    private static bool MatchesDraft(
+        IReadOnlyList<DiezVisualSubjectProposalItemDto> proposal,
+        IReadOnlyList<DiezVisualSubjectProposalUserEditDto> draft)
+    {
+        if (proposal.Count != draft.Count) return false;
+        for (var i = 0; i < proposal.Count; i++)
+        {
+            if (!string.Equals(proposal[i].DisplayName.Trim(), draft[i].DisplayName.Trim(), StringComparison.Ordinal) ||
+                !string.Equals(proposal[i].Description.Trim(), draft[i].Description.Trim(), StringComparison.Ordinal))
+                return false;
+        }
+        return true;
+    }
+
+    private static bool IsReconciliationPrompt(string? prompt) =>
+        (prompt ?? string.Empty).Contains("# DIEZ SEMANTIC SUBJECT RECONCILIATION", StringComparison.Ordinal);
 
     private static bool TryParseProposal(
         string? text,
