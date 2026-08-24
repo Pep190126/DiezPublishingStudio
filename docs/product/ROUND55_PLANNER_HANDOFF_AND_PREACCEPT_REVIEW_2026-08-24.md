@@ -196,3 +196,34 @@ Test fisico prioritario:
 4. prova modifica solo editoriale;
 5. prova modifica che cambia davvero un soggetto;
 6. ispezione del Prompt Pack reale dopo il freeze canonico.
+
+## 10. Round 5.5.2 — il JSON del planner è interno a Diez
+
+Decisione utente esplicita del 2026-08-24:
+
+> Il flusso è troppo elaborato e complicato. Diez, in base al framework, deve generare il JSON internamente.
+
+Regola di prodotto:
+
+**il JSON è un contratto interno di Diez, non un formato che l'utente deve conoscere, copiare, modificare o validare manualmente.**
+
+Il flusso UX deve diventare:
+
+`Prepara proposta soggetti → esegui richiesta AI → incolla la risposta AI → Diez estrae/normalizza → mostra le card soggetto → utente modifica/accetta → Diez genera e persiste lo stato canonico interno → Prompt Compiler`.
+
+Conseguenze:
+
+- il box utente non deve essere presentato come “incolla JSON”; deve essere semplicemente “Risposta AI”;
+- l'utente può incollare una risposta leggibile/strutturata dell'AI senza preoccuparsi dello schema tecnico;
+- Diez possiede schema, cardinalità, ID, stato Candidate e serializzazione JSON;
+- Diez genera internamente `display_name_it`, `canonical_concept`, `description_it`, `canonical_description` nel proprio modello canonico;
+- se la risposta AI non è interpretabile in modo univoco, Diez blocca e spiega cosa manca; non chiede all'utente di correggere sintassi JSON;
+- il framework/provider può continuare a usare structured output/schema quando disponibile, ma questa complessità resta sotto coperta;
+- con trasporto manuale, l'unica azione tecnica dell'utente resta copia della richiesta verso l'AI e incolla della risposta ricevuta;
+- con futura API diretta, anche questo passaggio manuale scompare senza cambiare il modello canonico.
+
+Nuovo principio UX:
+
+**L'utente decide i contenuti; Diez decide il formato tecnico.**
+
+La candidata Round 5.5 esistente non soddisfa ancora pienamente questa semplificazione; serve una successiva correzione UI/Core prima del consolidamento.
