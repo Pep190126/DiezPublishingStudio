@@ -1,6 +1,6 @@
 # Round 5.6.1 — Prompt gate fisico dopo Libreria Temi
 
-Status: **RISCONTRO FISICO / FIX DA IMPLEMENTARE / NON CONSOLIDATO**
+Status: **TECHNICALLY_VERIFIED / DA VERIFICARE FISICAMENTE / NON CONSOLIDATO**
 
 Data: 2026-08-25
 
@@ -16,21 +16,23 @@ Il problema è emerso durante la prova reale della nuova Libreria Temi.
 
 La Round 5.6 resta quindi **NON CONSOLIDATA**.
 
-## Difetto di UX / gate
+## Diagnosi
 
-La UI consente di usare `Salva e continua → Prompt` anche quando la risoluzione concreta dei soggetti non è ancora completa. La fase Prompt prova poi a compilare e trasforma l'eccezione semantica in un generico `Prompt non disponibile`.
+Il Core Round 5.6 sapeva compilare correttamente una proposta Tema già accettata, ma la Uno non aveva un gate esplicito fra Definizione e Prompt.
 
-Questo è un handoff sbagliato fra Definizione e Prompt: una decisione mancante deve essere spiegata e risolta in Definizione, non scoperta soltanto dal renderer/compiler nella fase successiva.
+`Salva e continua → Prompt` poteva quindi portare l'utente nella fase successiva anche con piano soggetti ancora irrisolto. La fase Prompt provava poi a compilare e trasformava l'eccezione semantica nel generico `Prompt non disponibile`.
 
-## Requisito Round 5.6.1
+Il regression precedente verificava `AcceptProposal → BuildPromptPack`, ma non riproduceva il round-trip reale della UI dopo refresh e nuovo salvataggio della Definizione.
 
-Prima di entrare in Prompt, Diez deve determinare se il piano soggetti è realmente risolto.
+## Fix implementato
 
-Sono considerati risolti almeno questi casi compatibili:
+Round 5.6.1 introduce una readiness semantica esplicita.
+
+Sono considerati risolti:
 
 1. proposta Tema accettata e congelata in un `MultiSubjectProfile` completo;
 2. Scene/Soggetti strutturati completi e concreti;
-3. percorso legacy/generico con soggetto singolo realmente concreto, per non rompere i progetti precedenti.
+3. percorso legacy/generico con soggetto realmente concreto, per non rompere i progetti precedenti.
 
 Non sono risolti:
 
@@ -38,29 +40,80 @@ Non sono risolti:
 - tema aggregato senza soggetti atomici congelati;
 - placeholder o piano incompleto.
 
-Se non risolto, `Salva e continua → Prompt` deve restare nella Definizione e mostrare una prossima azione precisa, per esempio:
+`Salva e continua → Prompt` ora resta nella Definizione se il piano non è risolto e indica la prossima azione. Se esiste una proposta pronta, il messaggio chiede esplicitamente di controllarla e premere `Accetta e congela i soggetti`.
 
-`Controlla la proposta e premi Accetta e congela i soggetti prima di creare il Prompt.`
+La fase Prompt contiene inoltre un secondo gate difensivo: se viene raggiunta da cronologia/navigazione con stato irrisolto, non tenta il renderer e mostra in italiano cosa manca.
 
-La fase Prompt deve inoltre avere una seconda protezione: se viene raggiunta con stato irrisolto, deve mostrare il gate editoriale in italiano invece di tentare la compilazione e mostrare soltanto l'eccezione tecnica.
+## Regression aggiunta
 
-## Regression obbligatoria
+`tests/Diez.VisualSemanticRegression/Round561PromptGateRegression.cs`
 
-Il test deve riprodurre il round-trip reale della Uno:
+Il test riproduce:
 
 `Save setup → Proponi Tema → Accetta → rileggi setup dopo refresh → salva di nuovo la Definizione → BuildPromptPack`.
 
-Il test deve verificare che:
+Verifica che:
 
 - prima dell'accettazione il piano non risulti risolto;
 - dopo l'accettazione risulti risolto;
 - un successivo salvataggio della Definizione non perda il `MultiSubjectProfile` congelato;
 - `BuildPromptPack` produca esattamente il numero richiesto di prompt atomici;
-- il percorso legacy con soggetto concreto non venga erroneamente bloccato dal nuovo gate;
-- un aggregato non accettato continui invece a essere bloccato.
+- l'aggregato `3 soggetti di Halloween` non diventi il PRIMARY SUBJECT del renderer dopo il freeze;
+- il percorso legacy con soggetto concreto resti compatibile.
+
+Il regression è passato sia nel run tecnico #48 sia nella candidata pulita #49.
+
+## Candidata Windows finale
+
+Source SHA: `26a3d172c16eee6c2e548cfb58730c208cb91a56`
+
+Workflow: `Uno Windows Consolidation Candidate`
+
+Run: **#49**
+
+Run ID: `32831362004`
+
+Candidate status: **TECHNICALLY_VERIFIED**
+
+Esiti:
+
+- Visual book gate: `success`;
+- semantic regression, incluso Round 5.6.1: `success`;
+- restore: `success`;
+- publish: `success`;
+- verify executable: `success`;
+- package: `success`;
+- smoke install/launch/uninstall: `success`;
+- artifact upload: `success`.
+
+Artifact ID: `9556971449`
+
+Artifact: `DiezPublishingStudio-UnoPreview-Windows-x64`
+
+Artifact ZIP bytes: `94472174`
+
+Artifact ZIP SHA-256: `5f1b029c2bbce82a9629a78f13b6b2b6596313b0c9ec7441a1a9acc32e79fc8c`
+
+Setup bytes: `95001181`
+
+Setup SHA-256: `51bd7eb179931aff8e6f2d6e159cbbc3f91e8573efaa12cb2bc9bc8f0aaa14ef`
+
+Gli hash sono stati verificati anche sul download locale dell'artifact.
 
 ## Scope
 
-Questo fix è **Round 5.6.1** e non implementa ancora la nuova disposizione UI Round 5.7. La Round 5.7 resta una decisione/spec separata.
+Questo fix è **Round 5.6.1** e non implementa la nuova disposizione UI Round 5.7. La Round 5.7 resta una decisione/spec separata.
 
-La correzione 5.6.1 deve essere verificata con nuova candidata Windows e prova fisica prima di consolidare.
+## Verifica fisica richiesta
+
+Ripetere nell'app installata:
+
+`Numero immagini → Tema → Proponi soggetti → controlla/modifica → Accetta e congela → Salva e continua → Prompt`.
+
+Atteso:
+
+- se manca l'accettazione, Diez resta in Definizione con un messaggio esplicito;
+- dopo l'accettazione, il Prompt viene compilato;
+- il Prompt Pack resta disponibile con una Work Unit atomica per soggetto congelato.
+
+Round 5.6.1 resta **NON CONSOLIDATO** fino a questa verifica fisica.
