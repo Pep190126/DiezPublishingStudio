@@ -97,6 +97,34 @@ Diventano un livello opzionale di controllo avanzato, utile quando l'utente vuol
 
 Il percorso base non deve richiederli.
 
+### HARD LOCK quando definiti dall'utente
+
+La loro opzionalità riguarda soltanto **se l'utente decide di usarli oppure no**.
+
+Quando l'utente definisce esplicitamente un Soggetto strutturato o una Scena strutturata, quella decisione diventa **HARD canonica**.
+
+Regole obbligatorie:
+
+- un Soggetto definito dall'utente non può essere sostituito da una proposta del Tema;
+- una Scena definita dall'utente non può essere reinterpretata come semplice preferenza;
+- partecipanti, identità, relazioni e assegnazioni esplicitamente definite dall'utente sono HARD;
+- il Tema resta contesto creativo generale soltanto per ciò che l'utente non ha già deciso;
+- lo Stile controlla la resa ma non può cambiare identità, soggetto o fatti di scena definiti dall'utente;
+- `DEVE FARE` e `NON DEVE FARE` restano HARD e devono essere conciliati con Scene/Soggetti strutturati;
+- se due HARD utente entrano in conflitto, Diez deve mostrare il conflitto e bloccare la compilazione invece di risolverlo silenziosamente;
+- il Prompt Compiler deve congelare nelle Work Unit i concreti `SubjectId` / `SceneId` e i relativi fatti canonici, non una descrizione aggregata o una scelta delegata al renderer.
+
+Precedenza editoriale per il percorso visuale:
+
+1. vincoli di sicurezza/piattaforma/tipo libro HARD;
+2. `NON DEVE FARE` / `DEVE FARE` utente HARD;
+3. Scene e Soggetti strutturati definiti dall'utente HARD, inclusi identity lock e partecipazioni;
+4. lock `Consistent` esplicitamente scelti;
+5. Tema, proposta locale e profilo creativo per tutto ciò che resta non deciso;
+6. preferenze e libertà creativa.
+
+Il Tema può quindi **completare** una definizione strutturata, ma non può **sovrascriverla**.
+
 ## Compatibilità progetti esistenti
 
 La rimozione dei campi visibili non deve perdere decisioni già salvate.
@@ -130,7 +158,9 @@ Con il nuovo flusso:
 - proposta accettata → Prompt Pack sbloccabile;
 - `DEVE FARE` vuoto → non blocca;
 - `NON DEVE FARE` vuoto → non blocca;
-- nessun vecchio campo soggetti/ambientazione deve essere richiesto per sbloccare il flusso.
+- nessun vecchio campo soggetti/ambientazione deve essere richiesto per sbloccare il flusso;
+- se Scene/Soggetti strutturati sono attivi, devono essere completi e semanticamente coerenti prima del Prompt Pack;
+- un conflitto tra HARD utente blocca il Prompt Pack con errore esplicito.
 
 ## Regression criteria
 
@@ -143,9 +173,14 @@ Round 5.7 deve fallire se:
 5. un `NON DEVE FARE` vuoto genera comunque un'esclusione;
 6. un campo valorizzato viene degradato da HARD a preferenza;
 7. Scene/Soggetti strutturati vengono eliminati invece di restare opzionali;
-8. progetti legacy perdono soggetto/ambientazione già decisi;
-9. una stringa legacy/UI arriva letteralmente al renderer come fonte autoritativa;
-10. il Prompt Pack resta bloccato dopo l'accettazione della proposta solo perché i vecchi campi sono vuoti.
+8. un Soggetto strutturato definito dall'utente viene sostituito da un soggetto del Tema;
+9. una Scena strutturata definita dall'utente viene trattata come preferenza o modificata dal Tema;
+10. un identity lock o una partecipazione esplicita viene ignorata dal compiler;
+11. due HARD utente in conflitto vengono risolti silenziosamente;
+12. una Work Unit delega al renderer la scelta del soggetto/scena quando esistono `SubjectId` / `SceneId` concreti;
+13. progetti legacy perdono soggetto/ambientazione già decisi;
+14. una stringa legacy/UI arriva letteralmente al renderer come fonte autoritativa;
+15. il Prompt Pack resta bloccato dopo l'accettazione della proposta solo perché i vecchi campi sono vuoti.
 
 ## Stato
 
