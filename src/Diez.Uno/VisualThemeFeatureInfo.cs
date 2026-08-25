@@ -6,10 +6,12 @@ namespace DiezPublishingStudio.UnoSpike;
 /// </summary>
 internal static class VisualThemeFeatureInfo
 {
-    public const string ContractVersion = "5.6.1";
+    public const string ContractVersion = "5.6.2";
     public const string SubjectProposalMode = "LOCAL_THEME_LIBRARY";
     public const string PromptGateRegression = "ACCEPT_REFRESH_SAVESETUP_PROMPT";
+    public const string AcceptanceStateRegression = "PERSISTED_PROPOSAL_PLUS_REAL_DIRTY_DIFF";
     public const bool ManualPlannerVisible = false;
     public const bool PromptReadinessGateImplemented = true;
+    public const bool AcceptanceButtonSemanticEnableImplemented = true;
     public const bool CustomThemeApiExpansionImplemented = false;
 }
