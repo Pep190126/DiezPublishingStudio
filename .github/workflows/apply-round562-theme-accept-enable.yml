@@ -1,0 +1,29 @@
+name: Apply Round 5.6.2 Theme Accept Enable
+
+on:
+  push:
+    branches:
+      - spike/uno-platform-ui
+    paths:
+      - docs/builds/ROUND562_APPLY_TRIGGER.md
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: spike/uno-platform-ui
+          fetch-depth: 0
+      - name: Apply Round 5.6.2 source patch
+        run: python scripts/apply_round562_theme_accept_enable_fix.py
+      - name: Commit source fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/Diez.Core/DiezVisualThemeFrontendBridge.cs src/Diez.Uno/VisualThemeWorkspace.cs tests/Diez.VisualSemanticRegression/Program.cs
+          git commit -m "Round 5.6.2: fix disabled theme acceptance" || exit 0
+          git push origin HEAD:spike/uno-platform-ui
