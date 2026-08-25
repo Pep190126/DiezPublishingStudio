@@ -477,10 +477,15 @@ public static class DiezVisualThemeFrontendBridge
         var selected = ResolveDefinition(state.SelectedThemeId, state.SelectedThemeName, state.ThemeOrigin, state.CustomThemeName);
         var pool = selected is null ? [] : Pool(project, state, selected);
         var count = Math.Clamp(VisualBookPlanService.Load(project).ImageCount, 1, MultiSubjectProfileService.MaxSubjects);
-        var active = MultiSubjectProfileService.ActiveSubjects(MultiSubjectProfileService.Load(project));
-        var resolved = MultiSubjectProfileService.Load(project).Enabled &&
-                       active.Count == count &&
-                       active.All(x => VisualSemanticResolutionGuard.IsConcrete(x.CanonicalConcept) || VisualSemanticResolutionGuard.IsConcrete(x.Name));
+        var multi = MultiSubjectProfileService.Load(project);
+        var active = MultiSubjectProfileService.ActiveSubjects(multi);
+        var legacySubject = SubjectDescription(project);
+        var legacyConcrete = VisualSemanticResolutionGuard.IsConcrete(legacySubject) &&
+                             !VisualSemanticResolutionGuard.LooksAggregateSubject(legacySubject);
+        var resolved = (multi.Enabled &&
+                        active.Count == count &&
+                        active.All(x => VisualSemanticResolutionGuard.IsConcrete(x.CanonicalConcept) || VisualSemanticResolutionGuard.IsConcrete(x.Name))) ||
+                       legacyConcrete;
         var proposalReady = state.Proposal.Count == count &&
                             state.Proposal.Select(x => x.DisplayName).Distinct(StringComparer.OrdinalIgnoreCase).Count() == count;
         var isCustom = state.SelectedThemeId == CustomSentinelId ||

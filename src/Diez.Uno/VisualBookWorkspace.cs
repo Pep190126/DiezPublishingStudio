@@ -393,7 +393,15 @@ internal static class VisualBookWorkspace
             AsyncButton("Salva e continua → Prompt", async () =>
             {
                 if (!await SaveSetupAsync()) return;
-                report("Fase 1 salvata nel Core.");
+                var readiness = document.ReadVisualTheme();
+                if (!readiness.Resolved)
+                {
+                    report(readiness.ProposalReady
+                        ? "Prompt non ancora disponibile: controlla la proposta e premi ‘Accetta e congela i soggetti’ prima di continuare."
+                        : "Prompt non ancora disponibile: scegli/prepara i soggetti nella Definizione e congelali prima di continuare.");
+                    return;
+                }
+                report("Fase 1 salvata nel Core. Piano soggetti risolto: apertura Prompt.");
                 await goToPhase(2);
             })));
     }
@@ -410,6 +418,21 @@ internal static class VisualBookWorkspace
         var advanced = Check("Usa il modello immagini più avanzato disponibile", document.GetUiBool("AI.PreferAdvanced", true));
         var promptPreview = Editor(string.Empty, "Prompt compilato", 420);
         promptPreview.IsReadOnly = true;
+
+        var readiness = document.ReadVisualTheme();
+        if (!readiness.Resolved)
+        {
+            var message = readiness.ProposalReady
+                ? "La proposta soggetti esiste ma non è ancora stata accettata. Torna in Definizione, controllala e premi ‘Accetta e congela i soggetti’."
+                : "Il piano soggetti non è ancora risolto. Torna in Definizione e completa Tema/Soggetti prima di creare il Prompt.";
+            root.Children.Add(Card("2/4 · Prompt · BLOCCATO", new TextBlock
+            {
+                Text = message,
+                TextWrapping = TextWrapping.Wrap
+            }));
+            root.Children.Add(NavigationRow(AsyncButton("← Torna a Definizione", async () => await goToPhase(1)), null));
+            return;
+        }
 
         void CompilePreview()
         {
