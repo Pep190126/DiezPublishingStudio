@@ -214,15 +214,38 @@ internal static class VisualThemeWorkspace
                 report(result.Message);
                 if (result.Status == "ACCEPTED") refresh();
             });
-            accept.IsEnabled = state.ProposalReady;
-            foreach (var editor in proposalEditors.SelectMany(x => new[] { x.Name, x.Description }))
+            bool HasActualUnsavedProposalEdits()
             {
-                editor.TextChanged += (_, _) =>
+                if (proposalEditors.Count != state.Proposal.Count) return true;
+                for (var i = 0; i < proposalEditors.Count; i++)
                 {
-                    if (accept is not null) accept.IsEnabled = false;
-                    editInfo.Text = "Hai modifiche non salvate. Salva la proposta prima di accettarla.";
-                };
+                    var currentName = (proposalEditors[i].Name.Text ?? string.Empty).Trim();
+                    var currentDescription = (proposalEditors[i].Description.Text ?? string.Empty).Trim();
+                    var savedName = (state.Proposal[i].DisplayName ?? string.Empty).Trim();
+                    var savedDescription = (state.Proposal[i].Description ?? string.Empty).Trim();
+                    if (!string.Equals(currentName, savedName, StringComparison.Ordinal) ||
+                        !string.Equals(currentDescription, savedDescription, StringComparison.Ordinal))
+                        return true;
+                }
+                return false;
             }
+
+            void RefreshAcceptState()
+            {
+                var persistedReady = DiezVisualThemeAcceptancePolicy.IsAcceptableProposal(
+                    state.RequestedCount, state.Proposal);
+                var dirty = HasActualUnsavedProposalEdits();
+                if (accept is not null) accept.IsEnabled = persistedReady && !dirty;
+                editInfo.Text = dirty
+                    ? "Hai modifiche non salvate. Salva la proposta prima di accettarla."
+                    : persistedReady
+                        ? "Proposta completa e salvata: puoi accettare e congelare i soggetti."
+                        : "La proposta non è ancora completa o semanticamente accettabile.";
+            }
+
+            foreach (var editor in proposalEditors.SelectMany(x => new[] { x.Name, x.Description }))
+                editor.TextChanged += (_, _) => RefreshAcceptState();
+            RefreshAcceptState();
             panel.Children.Add(Wrap(saveEdits, accept));
         }
 

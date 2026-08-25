@@ -287,6 +287,10 @@ var localTheme = DiezVisualThemeFrontendBridge.Propose(themeProject, "halloween"
 Require(localTheme.Status == "PROPOSED", "Halloween deve produrre una proposta locale senza AI: " + localTheme.Message);
 Require(localTheme.State.Proposal.Count == 3 && localTheme.State.Proposal.Select(x => x.DisplayName).Distinct(StringComparer.OrdinalIgnoreCase).Count() == 3,
     "Diez deve proporre esattamente tre soggetti Halloween distinti.");
+Require(localTheme.State.ProposalReady,
+    "Round 5.6.2: una proposta BUILTIN completa deve risultare pronta per l'accettazione nella state DTO.");
+Require(DiezVisualThemeAcceptancePolicy.IsAcceptableProposal(localTheme.State.RequestedCount, localTheme.State.Proposal),
+    "Round 5.6.2: la policy condivisa deve abilitare l'accettazione della proposta Halloween persistita.");
 Require(DiezAiExchangeBridge.ReadJobs(localTheme.ProjectJson).Count == jobsBeforeTheme,
     "La proposta di un tema BUILTIN non deve creare Work Unit planner o altri job AI.");
 var stableTheme = DiezVisualThemeFrontendBridge.Propose(localTheme.ProjectJson, "halloween", null, false, regenerate: false);

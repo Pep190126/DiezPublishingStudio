@@ -47,6 +47,27 @@ public sealed record DiezVisualThemeMutation(
     DiezVisualThemeStateDto State);
 
 /// <summary>
+/// Shared semantic policy for whether a persisted theme proposal is ready for explicit user acceptance.
+/// The Uno UI must derive button state from this policy plus actual unsaved editor differences, never from
+/// TextChanged events alone.
+/// </summary>
+public static class DiezVisualThemeAcceptancePolicy
+{
+    public static bool IsAcceptableProposal(
+        int requestedCount,
+        IReadOnlyList<DiezVisualThemeSubjectDto>? proposal)
+    {
+        var count = Math.Clamp(requestedCount, 1, MultiSubjectProfileService.MaxSubjects);
+        if (proposal is null || proposal.Count != count) return false;
+        if (proposal.Any(x => string.IsNullOrWhiteSpace(x.DisplayName))) return false;
+        if (proposal.Select(x => x.DisplayName.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).Count() != count) return false;
+        return proposal.All(x =>
+            VisualSemanticResolutionGuard.IsConcrete(x.DisplayName) ||
+            VisualSemanticResolutionGuard.IsConcrete(x.CanonicalConcept));
+    }
+}
+
+/// <summary>
 /// User-facing visual theme library. Built-in themes and their subject pools are resolved locally,
 /// before any image prompt is compiled. JSON, planner prompts and transport details stay internal.
 /// Custom-theme AI expansion is intentionally only a capability hook until a real direct API executor exists.
@@ -486,8 +507,8 @@ public static class DiezVisualThemeFrontendBridge
                         active.Count == count &&
                         active.All(x => VisualSemanticResolutionGuard.IsConcrete(x.CanonicalConcept) || VisualSemanticResolutionGuard.IsConcrete(x.Name))) ||
                        legacyConcrete;
-        var proposalReady = state.Proposal.Count == count &&
-                            state.Proposal.Select(x => x.DisplayName).Distinct(StringComparer.OrdinalIgnoreCase).Count() == count;
+        var proposalDto = state.Proposal.Select(ToDto).ToList();
+        var proposalReady = DiezVisualThemeAcceptancePolicy.IsAcceptableProposal(count, proposalDto);
         var isCustom = state.SelectedThemeId == CustomSentinelId ||
                        state.SelectedThemeId.StartsWith("project:", StringComparison.OrdinalIgnoreCase) ||
                        state.SelectedThemeId.StartsWith("user:", StringComparison.OrdinalIgnoreCase);
@@ -503,7 +524,7 @@ public static class DiezVisualThemeFrontendBridge
             state.RegenerationIndex,
             options,
             pool.Select(ToDto).ToList(),
-            state.Proposal.Select(ToDto).ToList(),
+            proposalDto,
             proposalReady,
             resolved,
             api,
